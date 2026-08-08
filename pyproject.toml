@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fxcss"
+version = "0.1.0"
+description = "Live-reload, inspect and screenshot-test Firefox userChrome.css themes"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "AdamXweb" }]
+keywords = ["firefox", "userchrome", "css", "theme", "firefoxcss", "testing"]
+classifiers = [
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development :: Testing",
+]
+
+# The core (watch, pick, inspect, doctor, shot) is standard library only.
+# Pillow is needed for image work: catalogue and compare.
+dependencies = []
+
+[project.optional-dependencies]
+images = ["pillow>=10.1"]
+
+[project.scripts]
+fxcss = "fxcss.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/adamXbot/fxcss"
+Issues = "https://github.com/adamXbot/fxcss/issues"
+
+[tool.setuptools]
+packages = ["fxcss"]

@@ -1,0 +1,30 @@
+/* A minimal userChrome.css, used by this repo's CI smoke test and as a
+ * starting point if you are new to Firefox theming.
+ *
+ * Firefox only reads this file when
+ * toolkit.legacyUserProfileCustomizations.stylesheets is true. fxcss sets that
+ * for you in its throwaway profile.
+ */
+
+@namespace xul url("http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul");
+
+/* Round the address bar and give it a visible edge. */
+#urlbar {
+  border-radius: 10px !important;
+}
+
+/* Tint the toolbar so it is obvious the sheet loaded at all. */
+#nav-bar {
+  background-color: #eef1f8 !important;
+}
+
+@media (prefers-color-scheme: dark) {
+  #nav-bar {
+    background-color: #23262e !important;
+  }
+}
+
+/* Square off the selected tab. */
+.tabbrowser-tab[selected] .tab-content {
+  border-radius: 4px !important;
+}

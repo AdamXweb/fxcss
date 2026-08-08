@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# fxcss output
+fxcss-catalogue/
+shots/
+*.png
+!examples/**/*.png

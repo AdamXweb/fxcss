@@ -1,0 +1,42 @@
+---
+name: Bug report 🐛
+description: Something in fxcss isn't working
+title: "[BUG] <title>"
+labels: bug
+assignees:
+ - adamxweb
+
+body:
+ - type: textarea
+   id: repro
+   attributes:
+      label: Describe the problem
+      description: What did you run, what happened, and what did you expect instead?
+      placeholder: |
+        Command: fxcss watch --dark
+        Expected: ...
+        Actual: ...
+   validations:
+      required: true
+ - type: textarea
+   id: doctor
+   attributes:
+      label: Output of `fxcss doctor`
+      description: This reports your Firefox version, platform and theme state. Paste it here.
+      render: shell
+   validations:
+      required: true
+ - type: input
+   id: os
+   attributes:
+      label: Operating system
+      placeholder: macOS 15.5 / Windows 11 / Ubuntu 24.04
+   validations:
+      required: true
+ - type: input
+   id: python
+   attributes:
+      label: Python version
+      placeholder: 3.12.4 ← output of `python3 --version`
+   validations:
+      required: false

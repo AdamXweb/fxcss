@@ -1,0 +1,275 @@
+## fxcss
+
+<p align="center">
+A testing toolkit for <code>userChrome.css</code> Firefox themes.<br>
+Edit your CSS and see it live, click any part of the UI to get its selector,
+and screenshot-test changes in CI.
+</p>
+
+## Description
+
+Working on a Firefox theme normally means: edit CSS, restart Firefox, squint,
+repeat — and guessing at element names, because the browser's own UI isn't in
+any page inspector you're used to.
+
+fxcss removes both problems. It installs your theme into a throwaway profile,
+drives Firefox over **Marionette** (Firefox's built-in automation protocol), and
+gives you a live-reload loop, an element picker, and a screenshot differ.
+
+Your real Firefox profile is never touched.
+
+## Requirements
+
+- Python 3.9+
+- Firefox (any recent release; the toolkit finds it automatically on macOS,
+  Windows and Linux, or set `FIREFOX_BIN`)
+- `pillow`, only for `catalogue` and `compare`
+
+## Installation
+
+```bash
+git clone https://github.com/adamXbot/fxcss.git
+cd fxcss
+python3 -m pip install -e ".[images]"
+```
+
+That gives you an `fxcss` command. If you'd rather not install anything, run it
+from the repo instead — it works the same way:
+
+```bash
+python3 -m fxcss <command>
+```
+
+Run commands from your theme's root (the folder containing `chrome/`), or point
+at it with `--theme /path/to/theme`.
+
+## Commands
+
+| Command | What it's for |
+| --- | --- |
+| [`watch`](#fxcss-watch) | Edit CSS and see it live, no restart |
+| [`pick`](#fxcss-pick) | Click any part of the UI to get its CSS selector |
+| [`inspect`](#fxcss-inspect) | Look up a selector you already have |
+| [`catalogue`](#fxcss-catalogue) | Build a directory of themeable UI parts |
+| [`shot`](#fxcss-shot) / [`compare`](#fxcss-compare) | Screenshot and diff two versions |
+| [`doctor`](#fxcss-doctor) | Report what your Firefox supports |
+
+### fxcss watch
+
+```bash
+fxcss watch
+```
+
+Opens Firefox with your theme applied and watches `chrome/` and `custom/`. Save
+a file in your editor and the running window updates in about 50ms.
+
+The window is yours to drive — open menus, resize it, type in the address bar,
+right-click things. Nothing is scripted.
+
+| flag | effect |
+| --- | --- |
+| `--dark` | start in dark mode, for testing `prefers-color-scheme` rules |
+| `--native-menus=false` | make right-click menus themeable (see [Context menus](#context-menus-are-native-on-macos)) |
+| `--shot out.png` | write a screenshot after every reload |
+| `--no-devtools` | don't enable the Browser Toolbox |
+
+### fxcss pick
+
+```bash
+fxcss pick
+```
+
+**The answer to "what is this thing called?"** Move the mouse over the browser
+window and the element under the cursor is outlined, with its selector shown in
+a label. Click it and your terminal prints everything you need:
+
+```
+  toolbarbutton  →  #back-button
+  classes   toolbarbutton-1 chromeclass-toolbar-additional
+  box       32×36 at (88, 8)
+  styles
+    color: rgba(46, 52, 54, 0.35)
+    border-radius: 8px
+    list-style-image: url("chrome://browser/skin/back.svg")
+  styled by 11 rules in this theme
+    chrome/parts/buttons-fixes.css:5    :root:not([uidensity=compact]) #back-button {
+    chrome/parts/custom-icons.css:6     #nav-bar #back-button .toolbarbutton-icon {
+    chrome/parts/headerbar.css:76       #nav-bar #back-button:not(#hack) {
+```
+
+That last section is the useful part: not just what the element is, but which of
+your files already style it, with line numbers. Keep clicking to pick more; Esc
+in the browser or Ctrl-C in the terminal stops.
+
+### fxcss inspect
+
+```bash
+fxcss inspect '#urlbar'
+fxcss inspect '.tab-close-button' --dark
+```
+
+The same report, for a selector you already have. Useful for checking whether a
+selector still matches anything after a Firefox update — a common cause of
+themes quietly breaking.
+
+If it matches nothing, it says so. That alone catches a whole class of bug: a
+rule that looks fine but targets an element Firefox renamed or removed.
+
+### fxcss catalogue
+
+```bash
+fxcss catalogue --open
+```
+
+Builds an HTML directory of the UI parts a theme can target. For each one: a
+cropped screenshot of the real element in light and dark, its selector, the
+styles in effect, and every rule in your theme that targets it. Plus an
+annotated overview screenshot with each part numbered.
+
+Everything is measured from a running browser rather than hardcoded, so it stays
+honest as Firefox changes — an element that no longer exists is reported as
+missing rather than quietly documented.
+
+Add `--self-contained` to also get a single `catalogue.html` with the images
+inlined, for attaching to an issue.
+
+### fxcss shot
+
+```bash
+fxcss shot --out shots/before
+```
+
+Captures a set of views — browser window, focused address bar, find bar, each in
+light and dark — as PNGs.
+
+### fxcss compare
+
+```bash
+fxcss compare --base shots/before --head shots/after --out diff/
+```
+
+Diffs two sets and writes one stacked **before / after / changed-pixels** image
+per view that differs. Views that render identically are reported rather than
+pictured, so you only look at what actually changed.
+
+This is what makes it useful in CI: render your theme at the base commit and at
+a pull request, and the diff shows a reviewer exactly what the change does. See
+[Using it in CI](#using-it-in-ci).
+
+### fxcss doctor
+
+```bash
+fxcss doctor
+```
+
+Reports your Firefox version, whether `userChrome.css` is enabled, whether
+context menus are themeable on your platform, and how many stylesheets your
+theme has. Start here if something isn't behaving.
+
+## Inspecting the UI with devtools
+
+Firefox's normal inspector only sees page content. The **Browser Toolbox** is
+the version that can inspect the browser's own UI, and it's off by default
+behind four prefs. fxcss turns them on in its throwaway profile, so in `watch`
+and `pick` you can just press:
+
+- **macOS** — `Cmd+Opt+Shift+I`
+- **Windows / Linux** — `Ctrl+Alt+Shift+I`
+
+You get a full inspector over the browser chrome: hover to highlight, read
+computed styles, and live-edit rules to try things before committing them to
+your CSS. `fxcss pick` is the fast path for "what is this called"; the Browser
+Toolbox is the thorough one for "why is this rule not winning".
+
+## Using it in CI
+
+`shot` and `compare` are designed to run on a hosted runner. The shape is:
+check out the base revision and the pull request revision, render both, compare,
+and publish the result.
+
+```yaml
+- run: pip install "fxcss[images] @ git+https://github.com/adamXbot/fxcss"
+- run: fxcss shot --theme base --out shots/base
+- run: fxcss shot --theme head --out shots/head
+- run: fxcss compare --base shots/base --head shots/head --out out/ --platform ${{ runner.os }}
+```
+
+Two things to know before wiring this up:
+
+- **Don't use headless mode.** Firefox headless renders no browser chrome at
+  all, so a headless screenshot is an empty window. Runners need a real display;
+  macOS and Windows runners have one, Linux needs `xvfb-run`.
+- **Pull requests from forks get a read-only token.** If you want the result
+  posted as a comment, build the images in the `pull_request` job (no write
+  permissions, no secrets) and publish from a separate `workflow_run` job.
+
+`.github/workflows/ci.yml` in this repo runs the whole thing against
+`examples/minimal-theme` on macOS and Windows, and is a working reference.
+
+## Things worth knowing
+
+### Context menus are native on macOS
+
+Firefox sets `widget.macos.native-context-menus` to `true` by default, which
+means **macOS draws right-click menus itself and CSS cannot style them at all**.
+`menupopup` and `menuitem` rules have no effect there. They do apply on Windows
+and Linux.
+
+`fxcss doctor` reports the setting for your platform, and
+`fxcss watch --native-menus=false` switches Firefox to XUL menus so you can work
+on that styling from a Mac.
+
+### Popups can't be screenshotted
+
+Menus and the app menu are separate OS-level windows, so they appear in neither
+a Marionette chrome screenshot nor a `drawWindow` rasterisation of the browser
+window. Capturing the whole screen instead is worse: it depends on window
+stacking and picks up whatever else is on your desktop. Every view `shot`
+captures is therefore an in-document surface.
+
+You can still *look* at popups in `watch`, and inspect them with the Browser
+Toolbox. They just can't be captured.
+
+### Why not Selenium?
+
+Marionette is plain TCP with length-prefixed JSON, so the client here is about a
+hundred lines of standard library. No geckodriver to keep in step with your
+Firefox version — a common source of CI breakage — and no dependency to install
+for the core commands.
+
+More importantly, screenshots are taken in Marionette's **chrome context**,
+which captures the browser window's own document. An ordinary WebDriver
+screenshot only captures page content, so toolbars and tabs would never appear
+at all.
+
+### Reproducibility
+
+Screenshot comparison only works if an unchanged theme renders identically
+twice. The throwaway profile pins what would otherwise drift: first-run tours,
+telemetry prompts, update checks and animations are off; pages are local files
+rather than live sites; and Nimbus/Normandy are disabled so Mozilla can't switch
+a toolbar feature on remotely between two runs.
+
+Two CSS rules hide artifacts of the harness itself — the robot icon Firefox
+shows in automated sessions, and the rollout-gated IP Protection button. Neither
+is part of your theme.
+
+Each session also picks its own Marionette port. Firefox's fixed default of 2828
+means a browser leaked by an earlier run would silently accept the next
+session's connection, which shows up as your theme mysteriously not applying.
+
+## Contributing
+
+Issues and pull requests welcome — particularly landmark definitions for UI
+parts the catalogue doesn't cover yet, and reports of selectors that changed in
+a new Firefox release.
+
+## Credits
+
+Built while adding visual PR previews to
+[WhiteSurFirefoxThemeMacOS](https://github.com/AdamXweb/WhiteSurFirefoxThemeMacOS),
+and generalised so it works for any userChrome theme.
+
+## License
+
+[MIT](LICENSE)

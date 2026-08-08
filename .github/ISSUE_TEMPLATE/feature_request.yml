@@ -1,0 +1,23 @@
+---
+name: Feature request ✨
+description: Suggest an addition to fxcss
+title: "[FEATURE] <title>"
+labels: enhancement
+assignees:
+ - adamxweb
+
+body:
+ - type: textarea
+   id: problem
+   attributes:
+      label: What are you trying to do?
+      description: Describe the theming task that is awkward today, not just the feature.
+   validations:
+      required: true
+ - type: textarea
+   id: idea
+   attributes:
+      label: What would help?
+      description: A command, a flag, a new landmark in the catalogue — whatever you have in mind.
+   validations:
+      required: false

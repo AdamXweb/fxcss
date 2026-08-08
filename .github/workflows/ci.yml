@@ -1,0 +1,117 @@
+name: CI
+
+# Smoke-tests the toolkit against examples/minimal-theme on the two platforms
+# most themes target. The determinism check is the important one: rendering the
+# same unchanged theme twice must produce identical screenshots, or `compare`
+# would report noise as a change on every pull request.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            label: macOS
+          - os: windows-latest
+            label: Windows
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install fxcss
+        run: python -m pip install --disable-pip-version-check ".[images]"
+
+      - name: Install Firefox (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          curl -sSL -o firefox.dmg \
+            "https://download.mozilla.org/?product=firefox-latest-ssl&os=osx&lang=en-US"
+          hdiutil attach -nobrowse -quiet -mountpoint /Volumes/ffci firefox.dmg
+          cp -R /Volumes/ffci/Firefox.app "$RUNNER_TEMP/Firefox.app"
+          hdiutil detach /Volumes/ffci -quiet
+          echo "FIREFOX_BIN=$RUNNER_TEMP/Firefox.app/Contents/MacOS/firefox" >> "$GITHUB_ENV"
+
+      - name: Install Firefox (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $env:RUNNER_TEMP 'firefox-setup.exe'
+          Invoke-WebRequest -Uri 'https://download.mozilla.org/?product=firefox-latest-ssl&os=win64&lang=en-US' -OutFile $installer
+          Start-Process -FilePath $installer -ArgumentList '/S' -Wait
+          $bin = 'C:\Program Files\Mozilla Firefox\firefox.exe'
+          if (-not (Test-Path $bin)) { throw "Firefox not found at $bin" }
+          "FIREFOX_BIN=$bin" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: doctor
+        run: fxcss doctor --theme examples/minimal-theme
+
+      - name: Capture twice
+        shell: bash
+        run: |
+          fxcss shot --theme examples/minimal-theme --out shots/a
+          fxcss shot --theme examples/minimal-theme --out shots/b
+
+      - name: Determinism — the same theme must render identically
+        shell: bash
+        run: |
+          fxcss compare --base shots/a --head shots/b --out out/determinism \
+            --platform ${{ matrix.label }}
+          python - <<'PY'
+          import json, sys, pathlib
+          s = json.loads(pathlib.Path("out/determinism/summary.json").read_text())
+          changed = s["changed_views"]
+          if changed:
+              print("Unchanged theme rendered differently across two runs:")
+              for v in changed:
+                  print(f"  {v['view']}: {v['percent']}% of pixels")
+              sys.exit(1)
+          print(f"{len(s['views'])} views identical across two runs")
+          PY
+
+      - name: Detects a real change
+        shell: bash
+        run: |
+          cp -r examples/minimal-theme "$RUNNER_TEMP/changed-theme"
+          printf '\n#nav-bar { background-color: #ff2d55 !important; }\n' \
+            >> "$RUNNER_TEMP/changed-theme/chrome/userChrome.css"
+          fxcss shot --theme "$RUNNER_TEMP/changed-theme" --out shots/changed
+          fxcss compare --base shots/a --head shots/changed --out out/changed \
+            --platform ${{ matrix.label }}
+          python - <<'PY'
+          import json, sys, pathlib
+          s = json.loads(pathlib.Path("out/changed/summary.json").read_text())
+          if not s["any_change"]:
+              print("An obvious CSS change produced no pixel difference — "
+                    "the comparison is not sensitive.")
+              sys.exit(1)
+          print(f"{len(s['changed_views'])} of {len(s['views'])} views changed, as expected")
+          PY
+
+      - name: catalogue
+        run: fxcss catalogue --theme examples/minimal-theme --out out/catalogue --self-contained
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fxcss-${{ matrix.label }}
+          path: out/
+          retention-days: 7
