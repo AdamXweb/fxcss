@@ -180,7 +180,7 @@ def build(session, repo: Path, outdir: Path, self_contained=False):
     # opened. Open it before measuring or it would be reported as missing.
     session.m.script(core.OPEN_FINDBAR)
     time.sleep(1.2)
-    session.m.script(core.FILL_FINDBAR, ["find bar"])
+    session.m.script(core.RESET_FINDBAR)
     time.sleep(0.6)
 
     info = session.info()

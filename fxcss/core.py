@@ -526,22 +526,26 @@ win.document.getElementById("cmd_find").doCommand();
 return true;
 """
 
-FILL_FINDBAR = """
+# The find bar is captured with an empty field on purpose.
+#
+# Firefox recolours the input to reflect the result of a search, and that state
+# is set asynchronously and persists across close/reopen. With a term in the
+# field, two runs of an unchanged theme could settle on different colours --
+# reliably so in dark mode, which reuses the bar after the light pass. Both runs
+# were internally stable, so waiting longer never converged them.
+#
+# An empty bar still shows everything a theme styles here: the field, the
+# previous/next buttons, the checkboxes and the bar's own background. Trading a
+# little realism for a view that always matches itself is the right way round
+# for a tool whose whole job is comparing renders.
+RESET_FINDBAR = """
 const win = Services.wm.getMostRecentWindow("navigator:browser");
 const bar = win.gFindBar || win.gBrowser.getFindBar();
 if (bar && bar._findField) {
-  bar._findField.value = arguments[0];
-  // Collapse the selection: opening the find bar focuses the field and selects
-  // its contents, so one run could screenshot selected text and the next not.
-  try {
-    bar._findField.setSelectionRange(arguments[0].length, arguments[0].length);
-  } catch (e) {}
-  // Assigning .value fires no input event, so whether a search actually runs --
-  // and therefore whether the field gets its "not found" colouring -- varied
-  // between runs. Dispatch the event so the search always runs and both runs
-  // settle in the same state. The term is present in the sample page, so that
-  // state is the ordinary one rather than an error colour.
+  bar._findField.value = "";
   bar._findField.dispatchEvent(new win.Event("input", {bubbles: true}));
+  bar._findField.removeAttribute("status");
+  if (bar.removeAttribute) { bar.removeAttribute("status"); }
 }
 return !!bar;
 """
@@ -603,7 +607,7 @@ def capture_views(session: Session, outdir: Path, modes=("light", "dark")):
 
         m.script(OPEN_FINDBAR)
         time.sleep(1.2)
-        m.script(FILL_FINDBAR, ["Documentation"])
+        m.script(RESET_FINDBAR)
         time.sleep(0.8)
         _shot(m, outdir, f"{mode}-03-findbar")
         m.script(CLOSE_FINDBAR)
