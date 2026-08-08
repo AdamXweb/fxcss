@@ -538,6 +538,14 @@ return true;
 # previous/next buttons, the checkboxes and the bar's own background. Trading a
 # little realism for a view that always matches itself is the right way round
 # for a tool whose whole job is comparing renders.
+SELECT_TAB = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+const gb = win.gBrowser;
+const i = Math.min(arguments[0], gb.tabs.length - 1);
+gb.selectedTab = gb.tabs[i];
+return i;
+"""
+
 RESET_FINDBAR = """
 const win = Services.wm.getMostRecentWindow("navigator:browser");
 const bar = win.gFindBar || win.gBrowser.getFindBar();
@@ -608,6 +616,11 @@ def capture_views(session: Session, outdir: Path, modes=("light", "dark")):
         m.script(BLUR_URLBAR)
         time.sleep(0.8)
 
+        # Find bars belong to a tab, and one that has already been used keeps
+        # state from that use. Light mode ran on the previous tab, so give dark
+        # its own never-opened find bar rather than reusing a dirty one.
+        m.script(SELECT_TAB, [1 if mode == "light" else 2])
+        time.sleep(1.0)
         m.script(OPEN_FINDBAR)
         time.sleep(1.2)
         m.script(RESET_FINDBAR)
