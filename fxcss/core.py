@@ -543,9 +543,12 @@ const win = Services.wm.getMostRecentWindow("navigator:browser");
 const bar = win.gFindBar || win.gBrowser.getFindBar();
 if (bar && bar._findField) {
   bar._findField.value = "";
-  bar._findField.dispatchEvent(new win.Event("input", {bubbles: true}));
+  // Deliberately no input event: dispatching one runs a search, and a search
+  // is the only thing that sets the status attribute below.
   bar._findField.removeAttribute("status");
   if (bar.removeAttribute) { bar.removeAttribute("status"); }
+  const box = bar.querySelector(".findbar-textbox, .findbar-container");
+  if (box) { box.removeAttribute("status"); }
 }
 return !!bar;
 """
@@ -609,7 +612,7 @@ def capture_views(session: Session, outdir: Path, modes=("light", "dark")):
         time.sleep(1.2)
         m.script(RESET_FINDBAR)
         time.sleep(0.8)
-        _shot(m, outdir, f"{mode}-03-findbar")
+        _shot(m, outdir, f"{mode}-03-findbar", before=RESET_FINDBAR)
         m.script(CLOSE_FINDBAR)
         time.sleep(0.6)
 
@@ -617,7 +620,7 @@ def capture_views(session: Session, outdir: Path, modes=("light", "dark")):
     return info
 
 
-def _shot(m, outdir: Path, name: str, tries=8, delay=0.5):
+def _shot(m, outdir: Path, name: str, tries=8, delay=0.5, before=None):
     """Capture once the window has stopped changing.
 
     Some UI state arrives asynchronously -- the find bar recolours its field
@@ -627,11 +630,20 @@ def _shot(m, outdir: Path, name: str, tries=8, delay=0.5):
     having to know which widget is late.
 
     Compares encoded PNG bytes rather than pixels so this stays dependency-free.
+
+    `before` is a chrome script re-run ahead of every capture attempt, for state
+    a widget may set again asynchronously after being cleared once. Two
+    consecutive identical captures then mean it stayed cleared, rather than
+    merely having been cleared at some earlier point.
     """
+    if before:
+        m.script(before)
     previous = m.screenshot()
     png = previous
     for attempt in range(tries):
         time.sleep(delay)
+        if before:
+            m.script(before)
         png = m.screenshot()
         if png == previous:
             break
