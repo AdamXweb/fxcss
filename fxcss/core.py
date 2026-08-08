@@ -201,6 +201,9 @@ user_pref("browser.discovery.enabled", false);
 // Determinism.
 user_pref("toolkit.cosmeticAnimations.enabled", false);
 user_pref("ui.prefersReducedMotion", 1);
+// A blinking caret in a focused text field lands in a different phase on every
+// run, so a screenshot of the find bar would never match itself.
+user_pref("ui.caretBlinkTime", 0);
 user_pref("browser.search.region", "US");
 user_pref("signon.rememberSignons", false);
 user_pref("browser.toolbars.bookmarks.visibility", "always");
@@ -526,7 +529,16 @@ return true;
 FILL_FINDBAR = """
 const win = Services.wm.getMostRecentWindow("navigator:browser");
 const bar = win.gFindBar || win.gBrowser.getFindBar();
-if (bar && bar._findField) { bar._findField.value = arguments[0]; }
+if (bar && bar._findField) {
+  bar._findField.value = arguments[0];
+  // Opening the find bar focuses the field and selects whatever is in it.
+  // Left alone, one run can screenshot selected text and the next unselected,
+  // which is a large pixel difference across the whole field. Collapse the
+  // selection to the end so both runs look the same.
+  try {
+    bar._findField.setSelectionRange(arguments[0].length, arguments[0].length);
+  } catch (e) {}
+}
 return !!bar;
 """
 
