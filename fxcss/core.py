@@ -531,13 +531,17 @@ const win = Services.wm.getMostRecentWindow("navigator:browser");
 const bar = win.gFindBar || win.gBrowser.getFindBar();
 if (bar && bar._findField) {
   bar._findField.value = arguments[0];
-  // Opening the find bar focuses the field and selects whatever is in it.
-  // Left alone, one run can screenshot selected text and the next unselected,
-  // which is a large pixel difference across the whole field. Collapse the
-  // selection to the end so both runs look the same.
+  // Collapse the selection: opening the find bar focuses the field and selects
+  // its contents, so one run could screenshot selected text and the next not.
   try {
     bar._findField.setSelectionRange(arguments[0].length, arguments[0].length);
   } catch (e) {}
+  // Assigning .value fires no input event, so whether a search actually runs --
+  // and therefore whether the field gets its "not found" colouring -- varied
+  // between runs. Dispatch the event so the search always runs and both runs
+  // settle in the same state. The term is present in the sample page, so that
+  // state is the ordinary one rather than an error colour.
+  bar._findField.dispatchEvent(new win.Event("input", {bubbles: true}));
 }
 return !!bar;
 """
@@ -599,7 +603,7 @@ def capture_views(session: Session, outdir: Path, modes=("light", "dark")):
 
         m.script(OPEN_FINDBAR)
         time.sleep(1.2)
-        m.script(FILL_FINDBAR, ["find bar"])
+        m.script(FILL_FINDBAR, ["Documentation"])
         time.sleep(0.8)
         _shot(m, outdir, f"{mode}-03-findbar")
         m.script(CLOSE_FINDBAR)
@@ -609,8 +613,29 @@ def capture_views(session: Session, outdir: Path, modes=("light", "dark")):
     return info
 
 
-def _shot(m, outdir: Path, name: str):
-    png = m.screenshot()
+def _shot(m, outdir: Path, name: str, tries=8, delay=0.5):
+    """Capture once the window has stopped changing.
+
+    Some UI state arrives asynchronously -- the find bar recolours its field
+    once a search reports back, for instance -- so a fixed sleep races it and
+    the same theme can render two different screenshots. Waiting for two
+    consecutive identical captures removes that whole class of flake without
+    having to know which widget is late.
+
+    Compares encoded PNG bytes rather than pixels so this stays dependency-free.
+    """
+    previous = m.screenshot()
+    png = previous
+    for attempt in range(tries):
+        time.sleep(delay)
+        png = m.screenshot()
+        if png == previous:
+            break
+        previous = png
+    else:
+        print(f"  warning: {name} never settled after {tries} attempts; "
+              f"this view may compare as changed when nothing did", flush=True)
+
     if len(png) < 2000:
         raise RuntimeError(f"screenshot {name} is implausibly small ({len(png)} bytes)")
     (outdir / f"{name}.png").write_bytes(png)
