@@ -28,7 +28,7 @@ permissions:
   issues: write
 
 env:
-  FXCSS_VERSION: v0.4.0
+  FXCSS_VERSION: v0.4.1
 
 jobs:
   check:

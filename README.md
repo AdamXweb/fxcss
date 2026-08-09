@@ -1,6 +1,8 @@
 ## fxcss
 
 <p align="center">
+<img width="120" src="docs/icon.png" alt="fxcss">
+<br>
 A testing toolkit for <code>userChrome.css</code> Firefox themes.<br>
 Edit your CSS and see it live, click any part of the UI to get its selector,
 and screenshot-test changes in CI.
@@ -36,14 +38,14 @@ The tidiest way, which keeps fxcss and its one dependency out of your other
 Python environments:
 
 ```bash
-pipx install "fxcss[images] @ git+https://github.com/adamXbot/fxcss@v0.4.0"
+pipx install "fxcss[images] @ git+https://github.com/adamXbot/fxcss@v0.4.1"
 ```
 
 Or with pip, pinned to a release so a change here cannot alter your setup
 unannounced:
 
 ```bash
-python3 -m pip install "fxcss[images] @ git+https://github.com/adamXbot/fxcss@v0.4.0"
+python3 -m pip install "fxcss[images] @ git+https://github.com/adamXbot/fxcss@v0.4.1"
 ```
 
 Either gives you an `fxcss` command. To hack on it, clone and install editable:

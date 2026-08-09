@@ -204,6 +204,11 @@ user_pref("ui.prefersReducedMotion", 1);
 // A blinking caret in a focused text field lands in a different phase on every
 // run, so a screenshot of the find bar would never match itself.
 user_pref("ui.caretBlinkTime", 0);
+// Firefox flashes the find bar yellow for a moment when it opens, to draw the
+// eye. It is transient, so a screenshot lands on it or misses it depending on
+// timing -- which made the find bar view differ between two runs of an
+// unchanged theme. 0 disables the flash.
+user_pref("accessibility.typeaheadfind.flashBar", 0);
 // Stops the find bar being pre-filled from a page selection, which would make
 // its contents depend on what happened to be selected.
 user_pref("accessibility.typeaheadfind.prefillwithselection", false);
