@@ -861,7 +861,12 @@ def capture_views(session: Session, outdir: Path, modes=("light", "dark")):
         # without them and would show the automation icons.
         session.apply_harness_css()
         mode = m.script(PRIVATE_READY, [WINDOW_WIDTH, WINDOW_HEIGHT])
-        time.sleep(2.0)
+        # Load a known local page rather than leaving about:privatebrowsing up.
+        # That page is tall enough to need a scrollbar in some runs and not
+        # others, and a 2px scrollbar appearing is a real pixel difference. The
+        # private chrome is what this view is for; the content is incidental.
+        m.script(NAVIGATE, [session.urls["start.html"]])
+        time.sleep(3.0)
         if mode:
             _shot(m, outdir, "extra-08-private")
         else:
