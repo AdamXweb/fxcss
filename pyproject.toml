@@ -30,8 +30,8 @@ images = ["pillow>=10.1"]
 fxcss = "fxcss.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/adamXbot/fxcss"
-Issues = "https://github.com/adamXbot/fxcss/issues"
+Homepage = "https://github.com/AdamXweb/fxcss"
+Issues = "https://github.com/AdamXweb/fxcss/issues"
 
 [tool.setuptools]
 packages = ["fxcss"]

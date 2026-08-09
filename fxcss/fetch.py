@@ -30,7 +30,7 @@ import urllib.request
 from pathlib import Path
 
 API = "https://api.github.com"
-USER_AGENT = "fxcss (+https://github.com/adamXbot/fxcss)"
+USER_AGENT = "fxcss (+https://github.com/AdamXweb/fxcss)"
 
 # A theme is small. Anything wildly bigger than this is not one, and unpacking it
 # blindly would be careless.

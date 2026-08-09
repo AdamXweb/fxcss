@@ -38,20 +38,20 @@ The tidiest way, which keeps fxcss and its one dependency out of your other
 Python environments:
 
 ```bash
-pipx install "fxcss[images] @ git+https://github.com/adamXbot/fxcss@v0.6.0"
+pipx install "fxcss[images] @ git+https://github.com/AdamXweb/fxcss@v0.6.1"
 ```
 
 Or with pip, pinned to a release so a change here cannot alter your setup
 unannounced:
 
 ```bash
-python3 -m pip install "fxcss[images] @ git+https://github.com/adamXbot/fxcss@v0.6.0"
+python3 -m pip install "fxcss[images] @ git+https://github.com/AdamXweb/fxcss@v0.6.1"
 ```
 
 Either gives you an `fxcss` command. To hack on it, clone and install editable:
 
 ```bash
-git clone https://github.com/adamXbot/fxcss.git
+git clone https://github.com/AdamXweb/fxcss.git
 cd fxcss && python3 -m pip install -e ".[images]"
 ```
 
@@ -433,7 +433,7 @@ check out the base revision and the pull request revision, render both, compare,
 and publish the result.
 
 ```yaml
-- run: pip install "fxcss[images] @ git+https://github.com/adamXbot/fxcss"
+- run: pip install "fxcss[images] @ git+https://github.com/AdamXweb/fxcss"
 - run: fxcss shot --theme base --out shots/base
 - run: fxcss shot --theme head --out shots/head
 - run: fxcss compare --base shots/base --head shots/head --out out/ --platform ${{ runner.os }}

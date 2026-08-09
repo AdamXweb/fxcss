@@ -9,7 +9,7 @@ name: Publish
 #
 # It uses PyPI Trusted Publishing, so there is no API token to store. Configure
 # the publisher once at https://pypi.org/manage/account/publishing/ with:
-#   owner adamXbot · repo fxcss · workflow publish.yml · environment pypi
+#   owner AdamXweb · repo fxcss · workflow publish.yml · environment pypi
 
 on:
   push:
