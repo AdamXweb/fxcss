@@ -38,14 +38,14 @@ The tidiest way, which keeps fxcss and its one dependency out of your other
 Python environments:
 
 ```bash
-pipx install "fxcss[images] @ git+https://github.com/adamXbot/fxcss@v0.4.1"
+pipx install "fxcss[images] @ git+https://github.com/adamXbot/fxcss@v0.6.0"
 ```
 
 Or with pip, pinned to a release so a change here cannot alter your setup
 unannounced:
 
 ```bash
-python3 -m pip install "fxcss[images] @ git+https://github.com/adamXbot/fxcss@v0.4.1"
+python3 -m pip install "fxcss[images] @ git+https://github.com/adamXbot/fxcss@v0.6.0"
 ```
 
 Either gives you an `fxcss` command. To hack on it, clone and install editable:
@@ -362,6 +362,25 @@ fxcss shot --out shots/before
 
 Captures a set of views — browser window, focused address bar, find bar, each in
 light and dark — as PNGs.
+
+#### Against real websites
+
+```bash
+fxcss shot --out shots --url https://github.com/AdamXweb/WhiteSurFirefoxThemeMacOS
+fxcss shot --out shots --only-live --url https://example.com --url https://news.ycombinator.com
+```
+
+Captures the theme against live sites, light and dark, for showing it off —
+README screenshots, release notes, an issue thread.
+
+These land in `<out>/live/` and are **never part of a comparison**. That is the
+whole point of keeping them separate: someone else's page can change its
+content, title or favicon between two runs, and a theme pull request should not
+be blamed for it. `compare` only looks at PNGs at the top level, so they are
+excluded by construction rather than by a rule someone has to remember.
+
+`examples/showcase.yml` automates it — regenerate on every release, publish to a
+`showcase` branch, and link stable raw URLs from your README.
 
 ### fxcss compare
 

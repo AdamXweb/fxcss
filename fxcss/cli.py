@@ -351,8 +351,13 @@ def cmd_shot(args):
         print(f"error: no chrome/userChrome.css under {theme}", file=sys.stderr)
         return 2
     firefox = core.find_firefox(args.firefox)
+    urls = getattr(args, "url", [])
     with core.Session(theme, firefox) as session:
-        core.capture_views(session, args.out.resolve())
+        if not getattr(args, "only_live", False):
+            core.capture_views(session, args.out.resolve())
+        if urls:
+            print("\n  live sites (captured, never compared):", flush=True)
+            core.capture_live(session, args.out.resolve(), urls)
     print(f"\nwrote screenshots to {args.out}")
     return 0
 
@@ -507,6 +512,12 @@ def main(argv=None):
     s = sub.add_parser("shot", help="capture the standard screenshot set")
     _common(s)
     s.add_argument("--out", type=Path, required=True)
+    s.add_argument("--url", action="append", default=[], metavar="URL",
+                   help="also capture the theme against a live site, light and "
+                        "dark; repeatable. Written to <out>/live/ and never "
+                        "included in a comparison")
+    s.add_argument("--only-live", action="store_true",
+                   help="capture just the --url views, skipping the standard set")
     s.set_defaults(func=cmd_shot)
 
     c = sub.add_parser("compare", help="diff two screenshot sets")

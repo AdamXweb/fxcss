@@ -734,6 +734,20 @@ win.close();
 return true;
 """
 
+NAVIGATE = """
+const [url] = arguments;
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+const sp = Services.scriptSecurityManager.getSystemPrincipal();
+win.gBrowser.selectedBrowser.loadURI(Services.io.newURI(url), {triggeringPrincipal: sp});
+return true;
+"""
+
+PAGE_TITLE = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+return {title: win.gBrowser.selectedTab.label,
+        busy: win.gBrowser.selectedTab.hasAttribute("busy")};
+"""
+
 BROWSER_INFO = """
 const win = Services.wm.getMostRecentWindow("navigator:browser");
 const pref = (n) => { try { return Services.prefs.getBoolPref(n); } catch (e) { return null; } };
@@ -929,3 +943,52 @@ def find_firefox(explicit=None):
         return found
     raise SystemExit(
         "Could not find Firefox. Pass --firefox /path/to/firefox or set FIREFOX_BIN.")
+
+
+def slugify_url(url):
+    """A short, filesystem-safe name for a URL."""
+    trimmed = re.sub(r"^https?://(www\.)?", "", url)
+    trimmed = re.sub(r"[?#].*$", "", trimmed).strip("/")
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", trimmed).strip("-").lower()
+    return (slug or "page")[:48]
+
+
+def capture_live(session, outdir: Path, urls, modes=("light", "dark"), settle=6.0):
+    """Screenshot the theme against real websites.
+
+    Written into a `live/` subdirectory, which is deliberate: `compare` only
+    looks at PNGs at the top level, so these never take part in the pass/fail
+    comparison. They cannot -- someone else's page can change its content, its
+    title or its favicon between two runs, and a theme pull request would get
+    blamed for it. These are for looking at, not for diffing.
+    """
+    live_dir = Path(outdir) / "live"
+    live_dir.mkdir(parents=True, exist_ok=True)
+    m = session.m
+    session.setup_window()
+
+    captured = []
+    for url in urls:
+        slug = slugify_url(url)
+        m.script(NAVIGATE, [url])
+
+        # Wait for the tab to stop reporting itself busy, then let the page
+        # settle. _shot additionally waits for two identical frames, which
+        # covers late-loading images without needing to understand the page.
+        deadline = time.time() + 45
+        while time.time() < deadline:
+            time.sleep(1.0)
+            if not m.script(PAGE_TITLE).get("busy"):
+                break
+        time.sleep(settle)
+
+        info = m.script(PAGE_TITLE)
+        print(f"  {url}\n    loaded: {info['title'][:64]!r}", flush=True)
+        for mode in modes:
+            session.set_dark(mode == "dark")
+            time.sleep(2.0)
+            _shot(m, live_dir, f"{slug}-{mode}")
+            captured.append(live_dir / f"{slug}-{mode}.png")
+        session.set_dark(False)
+        time.sleep(1.0)
+    return captured
