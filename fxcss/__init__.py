@@ -1,3 +1,3 @@
 """fxcss — a testing toolkit for Firefox userChrome.css themes."""
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"

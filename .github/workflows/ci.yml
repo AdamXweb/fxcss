@@ -64,27 +64,37 @@ jobs:
       - name: doctor
         run: fxcss doctor --theme examples/minimal-theme
 
-      - name: Capture twice
+      # Three, not two. The flakes this has caught were intermittent, so a
+      # single pair passed often enough to be misleading.
+      - name: Capture three times
         shell: bash
         run: |
           fxcss shot --theme examples/minimal-theme --out shots/a
           fxcss shot --theme examples/minimal-theme --out shots/b
+          fxcss shot --theme examples/minimal-theme --out shots/c
 
       - name: Determinism — the same theme must render identically
         shell: bash
         run: |
-          fxcss compare --base shots/a --head shots/b --out out/determinism \
-            --platform ${{ matrix.label }}
+          set -e
+          for pair in b c; do
+            fxcss compare --base shots/a --head "shots/$pair" \
+              --out "out/determinism-$pair" --platform ${{ matrix.label }}
+          done
           python - <<'PY'
-          import json, sys, pathlib
-          s = json.loads(pathlib.Path("out/determinism/summary.json").read_text())
-          changed = s["changed_views"]
-          if changed:
-              print("Unchanged theme rendered differently across two runs:")
-              for v in changed:
-                  print(f"  {v['view']}: {v['percent']}% of pixels")
-              sys.exit(1)
-          print(f"{len(s['views'])} views identical across two runs")
+          import json, pathlib, sys
+          failed = False
+          for pair in ("b", "c"):
+              s = json.loads(pathlib.Path(f"out/determinism-{pair}/summary.json").read_text())
+              changed = s["changed_views"]
+              if changed:
+                  failed = True
+                  print(f"run a vs run {pair}: rendered differently")
+                  for v in changed:
+                      print(f"    {v['view']}: {v['percent']}% of pixels")
+              else:
+                  print(f"run a vs run {pair}: all {len(s['views'])} views identical")
+          sys.exit(1 if failed else 0)
           PY
 
       - name: Detects a real change

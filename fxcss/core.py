@@ -204,6 +204,10 @@ user_pref("ui.prefersReducedMotion", 1);
 // A blinking caret in a focused text field lands in a different phase on every
 // run, so a screenshot of the find bar would never match itself.
 user_pref("ui.caretBlinkTime", 0);
+// Stops the find bar being pre-filled from a page selection, which would make
+// its contents depend on what happened to be selected.
+user_pref("accessibility.typeaheadfind.prefillwithselection", false);
+user_pref("browser.findbar.prefillWithSelection", false);
 user_pref("browser.search.region", "US");
 user_pref("signon.rememberSignons", false);
 user_pref("browser.toolbars.bookmarks.visibility", "always");
