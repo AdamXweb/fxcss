@@ -21,7 +21,9 @@ permissions:
 
 jobs:
   build:
-    if: vars.PUBLISH_TO_PYPI == 'true'
+    # Guards forks rather than gating opt-in: a fork pushing a tag should not
+    # try to publish to the upstream project's name.
+    if: github.repository == 'AdamXweb/fxcss'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
