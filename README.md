@@ -509,6 +509,34 @@ Issues and pull requests welcome — particularly landmark definitions for UI
 parts the catalogue doesn't cover yet, and reports of selectors that changed in
 a new Firefox release.
 
+## How this was built
+
+fxcss was written with the assistance of **Claude** (Anthropic's Claude Opus 5),
+working alongside [@AdamXweb](https://github.com/AdamXweb). Every change was
+reviewed by a human before it landed.
+
+Which commits are which is recorded in the history rather than asserted here:
+
+| Author | |
+| --- | --- |
+| **`adamXbot`** | AI-assisted. Every one carries a `Co-Authored-By: Claude` trailer. |
+| **`AdamXweb`** | Adam. |
+
+Both halves of that are checkable:
+
+```bash
+git log --format='%an'                        # who authored each commit
+git log --format='%b' | grep Co-Authored-By   # which were AI-assisted
+```
+
+Behaviour is not taken on trust either. CI runs on macOS and Windows on every
+push and asserts the comparison in **both** directions: an unchanged theme must
+render identically across runs, and an obvious CSS change must be detected.
+That check found most of the real bugs in this tool — a random temp path leaking
+into the address bar, Firefox flashing the find bar yellow as it opens, a
+scrollbar appearing in one private-window capture and not the next — none of
+which review had caught.
+
 ## Credits
 
 Built while adding visual PR previews to
