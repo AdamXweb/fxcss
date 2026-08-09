@@ -269,10 +269,31 @@ XULSTORE = {
     }
 }
 
+def _sine_wav_data_uri(seconds=6, hz=440, rate=8000):
+    """A short sine tone as a data: URI.
+
+    Generated rather than shipped as a binary, and inlined rather than fetched,
+    so the tab-playing-audio state stays local and identical on every run.
+    """
+    import base64
+    import math
+    import struct
+    frames = b"".join(
+        struct.pack("<h", int(9000 * math.sin(2 * math.pi * hz * i / rate)))
+        for i in range(rate * seconds))
+    header = (b"RIFF" + struct.pack("<I", 36 + len(frames)) + b"WAVEfmt "
+              + struct.pack("<IHHIIHH", 16, 1, 1, rate, rate * 2, 2, 16)
+              + b"data" + struct.pack("<I", len(frames)))
+    return "data:audio/wav;base64," + base64.b64encode(header + frames).decode("ascii")
+
+
 SAMPLE_PAGES = {
     "start.html": ("Start", "<h1>Theme preview</h1><p>First tab.</p>"),
     "docs.html": ("Documentation", "<h1>Documentation</h1><p>Second tab.</p>"),
     "issues.html": ("Issue tracker", "<h1>Issues</h1><p>Third tab.</p>"),
+    "audio.html": ("Now playing", "<h1>Audio</h1><p>Plays a tone so the tab shows "
+                   "its sound indicator.</p>"
+                   "<audio src=\"__AUDIO__\" loop autoplay></audio>"),
 }
 
 
@@ -293,7 +314,11 @@ def build_pages(dest=None):
         dest = Path(tempfile.gettempdir()) / f"fxcss-pages-{digest}"
     dest.mkdir(parents=True, exist_ok=True)
     urls = {}
+    tone = None
     for name, (title, body) in SAMPLE_PAGES.items():
+        if "__AUDIO__" in body:
+            tone = tone or _sine_wav_data_uri()
+            body = body.replace("__AUDIO__", tone)
         path = dest / name
         _write_atomic(
             path,
@@ -638,6 +663,77 @@ if (win.gFindBar) { win.gFindBar.close(); }
 return true;
 """
 
+OPEN_AUDIO_TAB = """
+const [url] = arguments;
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+const sp = Services.scriptSecurityManager.getSystemPrincipal();
+// 0 = allow autoplay. Without this the tab never starts playing and the sound
+// indicator never appears.
+Services.prefs.setIntPref("media.autoplay.default", 0);
+Services.prefs.setIntPref("media.autoplay.blocking_policy", 0);
+const tab = win.gBrowser.addTab(url, {triggeringPrincipal: sp});
+win.gBrowser.selectedTab = tab;
+return true;
+"""
+
+AUDIO_STATE = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+const tab = win.gBrowser.selectedTab;
+return {playing: tab.hasAttribute("soundplaying"), muted: tab.hasAttribute("muted")};
+"""
+
+MUTE_TAB = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+win.gBrowser.selectedTab.toggleMuteAudio();
+return win.gBrowser.selectedTab.hasAttribute("muted");
+"""
+
+MANY_TABS = """
+const [url, count] = arguments;
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+const sp = Services.scriptSecurityManager.getSystemPrincipal();
+for (let i = 0; i < count; i++) {
+  win.gBrowser.addTab(url, {triggeringPrincipal: sp});
+}
+return win.gBrowser.tabs.length;
+"""
+
+CONTAINER_TABS = """
+const [url] = arguments;
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+const sp = Services.scriptSecurityManager.getSystemPrincipal();
+Services.prefs.setBoolPref("privacy.userContext.enabled", true);
+const {ContextualIdentityService} = ChromeUtils.importESModule(
+  "resource://gre/modules/ContextualIdentityService.sys.mjs");
+const ids = ContextualIdentityService.getPublicIdentities().slice(0, 3);
+for (const identity of ids) {
+  win.gBrowser.addTab(url, {triggeringPrincipal: sp, userContextId: identity.userContextId});
+}
+if (ids.length) {
+  win.gBrowser.selectedTab = win.gBrowser.tabs[win.gBrowser.tabs.length - 1];
+}
+return ids.map(i => i.userContextId);
+"""
+
+OPEN_PRIVATE = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+win.OpenBrowserWindow({private: true});
+return true;
+"""
+
+PRIVATE_READY = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+win.moveTo(0, 0);
+win.resizeTo(arguments[0], arguments[1]);
+return win.document.documentElement.getAttribute("privatebrowsingmode");
+"""
+
+CLOSE_WINDOW = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+win.close();
+return true;
+"""
+
 BROWSER_INFO = """
 const win = Services.wm.getMostRecentWindow("navigator:browser");
 const pref = (n) => { try { return Services.prefs.getBoolPref(n); } catch (e) { return null; } };
@@ -699,6 +795,70 @@ def capture_views(session: Session, outdir: Path, modes=("light", "dark")):
         _shot(m, outdir, f"{mode}-03-findbar", before=RESET_FINDBAR)
         m.script(CLOSE_FINDBAR)
         time.sleep(0.6)
+
+    # Extra chrome states, captured once rather than per colour scheme: each is
+    # about a distinct piece of UI appearing, not about light versus dark.
+    session.set_dark(False)
+    time.sleep(1.5)
+
+    # A tab playing audio, then the same tab muted -- the speaker and mute
+    # indicators are separate pieces of tab styling and themes get them wrong
+    # independently.
+    m.script(OPEN_AUDIO_TAB, [session.urls["audio.html"]])
+    time.sleep(4.0)
+    state = m.script(AUDIO_STATE)
+    if not state.get("playing"):
+        print("  note: audio tab is not reporting sound; capturing anyway", flush=True)
+    _shot(m, outdir, "extra-04-audio")
+    m.script(MUTE_TAB)
+    time.sleep(1.2)
+    _shot(m, outdir, "extra-05-muted")
+
+    # Container tabs: each carries an identity colour along the tab and an
+    # identity label in the address bar, both of which themes style and neither
+    # of which appears in an ordinary window.
+    containers = m.script(CONTAINER_TABS, [session.urls["docs.html"]])
+    time.sleep(3.0)
+    if containers:
+        _shot(m, outdir, "extra-06-containers")
+    else:
+        print("  note: no container identities available; skipping that view", flush=True)
+
+    # Enough tabs to overflow the strip, which brings out the scroll controls
+    # and the shrunken tab layout.
+    m.script(MANY_TABS, [session.urls["docs.html"], 18])
+    time.sleep(3.0)
+    _shot(m, outdir, "extra-07-many-tabs")
+
+    # A private window is a separate window with its own styling; plenty of
+    # themes style it and never look at it again.
+    #
+    # Marionette screenshots the window it is *switched to*, not the most
+    # recently opened one, so opening a window is not enough -- without the
+    # switch this captured the original window again and looked like the view
+    # was simply duplicated.
+    before = set(m.command("WebDriver:GetWindowHandles"))
+    m.script(OPEN_PRIVATE)
+    time.sleep(3.5)
+    opened = [h for h in m.command("WebDriver:GetWindowHandles") if h not in before]
+    if opened:
+        m.command("WebDriver:SwitchToWindow", {"handle": opened[0]})
+        # Harness sheets are loaded per window, so a newly opened one starts
+        # without them and would show the automation icons.
+        session.apply_harness_css()
+        mode = m.script(PRIVATE_READY, [WINDOW_WIDTH, WINDOW_HEIGHT])
+        time.sleep(2.0)
+        if mode:
+            _shot(m, outdir, "extra-08-private")
+        else:
+            print("  note: new window is not private; skipping that view", flush=True)
+        m.script(CLOSE_WINDOW)
+        time.sleep(1.5)
+        remaining = m.command("WebDriver:GetWindowHandles")
+        if remaining:
+            m.command("WebDriver:SwitchToWindow", {"handle": remaining[0]})
+    else:
+        print("  note: private window did not open; skipping that view", flush=True)
 
     (outdir / "render-info.json").write_text(json.dumps(info, indent=2), encoding="utf-8")
     return info
