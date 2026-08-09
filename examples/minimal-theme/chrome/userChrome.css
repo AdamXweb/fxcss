@@ -36,6 +36,7 @@
 #PersonalToolbar {
   background: var(--demo-toolbar) !important;
   border-bottom: 1px solid var(--demo-edge) !important;
+  color: var(--demo-text) !important;
 }
 
 /* Address bar ------------------------------------------------------------- */

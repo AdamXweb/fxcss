@@ -7,6 +7,7 @@
     fxcss inspect      look up a selector you already have
     fxcss audit        find selectors that no longer match, and suggest fixes
     fxcss changelog    diff two Firefox builds to see what chrome changed
+    fxcss snapshot     record this Firefox's chrome names, to diff against later
     fxcss catalogue    build a directory of themeable UI parts
     fxcss shot         capture a set of screenshots
     fxcss compare      diff two sets into before/after/diff images
@@ -236,9 +237,29 @@ def cmd_audit(args):
     theme = args.theme.resolve()
     firefox = core.find_firefox(args.firefox)
     print(f"fxcss audit\n  theme:   {theme}\n  firefox: {firefox}\n")
+    static = None if args.no_unused else audit.collect_unused(theme)
     with core.Session(theme, firefox) as session:
         result = audit.audit(session, theme)
+
+    unused = None
+    if static:
+        # Ask an *unthemed* Firefox which custom properties it knows about.
+        # Against the themed browser every name resolves, because the theme
+        # itself set them, and nothing could be told apart.
+        candidates = (set(static["used"]) - set(static["defined"])) | (
+            set(static["defined"]) - set(static["used"]))
+        known = set()
+        if candidates:
+            with core.Session(theme, firefox, empty_user_chrome=True) as vanilla:
+                # Sweep the same states first: panel-scoped properties like
+                # --arrowpanel-background do not exist until the panel has been
+                # built, and would otherwise look like names Firefox never had.
+                audit.collect_dom(vanilla, verbose=False)
+                known = audit.probe_properties(vanilla, candidates)
+        unused = audit.classify_unused(static, known)
     audit.report(result, show_all=args.all, colour=not args.no_colour)
+    if unused:
+        audit.report_unused(unused, colour=not args.no_colour, show_all=args.all)
     if args.patch:
         files = audit.write_patch(result, theme, args.patch.resolve())
         if files:
@@ -253,20 +274,49 @@ def cmd_audit(args):
     return 0
 
 
+def cmd_snapshot(args):
+    import json
+    from . import audit
+    theme = args.theme.resolve()
+    firefox = core.find_firefox(args.firefox)
+    with core.Session(theme, firefox) as session:
+        snap = audit.make_snapshot(session, verbose=True)
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(json.dumps(snap, indent=1) + "\n", encoding="utf-8")
+    print(f"\n  Firefox {snap['version']}: {len(snap['ids'])} ids, "
+          f"{len(snap['classes'])} classes")
+    print(f"  wrote {args.out}")
+    return 0
+
+
 def cmd_changelog(args):
     from . import audit
     theme = args.theme.resolve()
-    before_bin = core.find_firefox(args.firefox)
-    after_bin = core.find_firefox(args.against)
-    print(f"fxcss changelog\n  before: {before_bin}\n  after:  {after_bin}\n")
+    if not args.baseline and not args.against:
+        print("error: pass --against <firefox> or --baseline <snapshot.json>",
+              file=sys.stderr)
+        return 2
+    after_bin = core.find_firefox(args.firefox)
 
     snapshots = {}
-    for label, binary in (("before", before_bin), ("after", after_bin)):
-        with core.Session(theme, binary) as session:
-            version = session.info()["version"]
-            print(f"  {label} — Firefox {version}")
-            snapshots[label] = audit.collect_dom(session)
-            snapshots[label + "_version"] = version
+    if args.baseline:
+        data, dom = audit.load_snapshot(args.baseline)
+        snapshots["before"], snapshots["before_version"] = dom, data["version"]
+        print(f"fxcss changelog\n  before: {args.baseline} (Firefox {data['version']})")
+        print(f"  after:  {after_bin}\n")
+        with core.Session(theme, after_bin) as session:
+            snapshots["after_version"] = session.info()["version"]
+            print(f"  after — Firefox {snapshots['after_version']}")
+            snapshots["after"] = audit.collect_dom(session)
+    else:
+        before_bin = core.find_firefox(args.against)
+        print(f"fxcss changelog\n  before: {before_bin}\n  after:  {after_bin}\n")
+        for label, binary in (("before", before_bin), ("after", after_bin)):
+            with core.Session(theme, binary) as session:
+                version = session.info()["version"]
+                print(f"  {label} — Firefox {version}")
+                snapshots[label] = audit.collect_dom(session)
+                snapshots[label + "_version"] = version
 
     tokens = audit.extract_tokens(theme)
     delta = audit.changelog(snapshots["before"], snapshots["after"], tokens)
@@ -439,13 +489,17 @@ def main(argv=None):
     a.add_argument("--no-colour", action="store_true", help="plain output")
     a.add_argument("--strict", action="store_true",
                    help="exit non-zero if any selector needs attention (for CI)")
+    a.add_argument("--no-unused", action="store_true",
+                   help="skip the unused/unreachable section")
     a.set_defaults(func=cmd_audit)
 
     cl = sub.add_parser("changelog",
                         help="diff two Firefox builds to see what chrome changed")
     _common(cl)
-    cl.add_argument("--against", required=True,
+    cl.add_argument("--against", default=None,
                     help="path to the other firefox binary to compare with")
+    cl.add_argument("--baseline", type=Path, default=None,
+                    help="compare against a saved snapshot instead of a second browser")
     cl.add_argument("--show-all", action="store_true",
                     help="list every name that changed, not just ones the theme uses")
     cl.set_defaults(func=cmd_changelog)
@@ -470,6 +524,11 @@ def main(argv=None):
     g.add_argument("--self-contained", dest="self_contained", action="store_true",
                    help="also write catalogue.html with images inlined, as one file")
     g.set_defaults(func=cmd_catalogue)
+
+    sn = sub.add_parser("snapshot", help="record this Firefox's chrome names")
+    _common(sn)
+    sn.add_argument("--out", type=Path, required=True)
+    sn.set_defaults(func=cmd_snapshot)
 
     d = sub.add_parser("doctor", help="report what this Firefox supports")
     _common(d)

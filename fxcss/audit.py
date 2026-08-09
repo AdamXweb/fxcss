@@ -359,3 +359,237 @@ def changelog(before, after, theme_tokens=None):
     if theme_tokens is not None:
         result["affects_theme"] = sorted(set(result["removed"]) & set(theme_tokens))
     return result
+
+
+# --- unused code -----------------------------------------------------------
+
+IMPORT_RE = re.compile(r"""@import\s+(?:url\(\s*)?["']?([^"')]+)["']?\s*\)?\s*;""")
+PROP_DEF = re.compile(r"(--[\w-]+)\s*:")
+PROP_USE = re.compile(r"var\(\s*(--[\w-]+)")
+
+# Entry points Firefox loads by name. Anything not reachable from one of these
+# is only reachable if something imports it.
+ENTRY_SHEETS = ("userChrome.css", "userContent.css")
+
+# Directories of deliberately opt-in sheets. A theme ships these expecting its
+# installer (or the user) to enable them, so "nothing imports it" is the
+# intended state rather than a finding.
+OPTIONAL_DIRS = {"custom", "optional", "options", "extras", "variants"}
+
+
+def import_graph(theme: Path):
+    """Every stylesheet reachable by following @import from the entry sheets."""
+    chrome = theme / "chrome"
+    reachable, queue = set(), []
+    for entry in ENTRY_SHEETS:
+        path = chrome / entry
+        if path.exists():
+            queue.append(path.resolve())
+
+    while queue:
+        current = queue.pop()
+        if current in reachable or not current.exists():
+            continue
+        reachable.add(current)
+        text = COMMENT.sub("", current.read_text(encoding="utf-8", errors="replace"))
+        for target in IMPORT_RE.findall(text):
+            target = target.strip()
+            if re.match(r"^(chrome:|resource:|https?:|data:)", target):
+                continue
+            queue.append((current.parent / target).resolve())
+    return reachable
+
+
+def custom_properties(paths):
+    """Where each custom property is defined and where it is used."""
+    defined, used = {}, {}
+    for path in paths:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        blanked = COMMENT.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), text)
+        for number, line in enumerate(blanked.splitlines(), 1):
+            for name in PROP_DEF.findall(line):
+                defined.setdefault(name, []).append((path, number))
+            for name in PROP_USE.findall(line):
+                used.setdefault(name, []).append((path, number))
+    return defined, used
+
+
+PROBE_PROPERTIES = """
+const [names] = arguments;
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+const doc = win.document;
+const remaining = new Set(names);
+const found = [];
+// Custom properties can be declared on any element, not only :root, so probe
+// the whole document. The remaining set shrinks as names are resolved, so this
+// stays cheap in practice.
+for (const el of [doc.documentElement, ...doc.querySelectorAll("*")]) {
+  if (!remaining.size) { break; }
+  const cs = win.getComputedStyle(el);
+  for (const name of [...remaining]) {
+    if (cs.getPropertyValue(name).trim() !== "") {
+      found.push(name);
+      remaining.delete(name);
+    }
+  }
+}
+return found;
+"""
+
+
+def probe_properties(session, names):
+    """Which of these custom properties does this browser resolve to a value?"""
+    if not names:
+        return set()
+    return set(session.m.script(PROBE_PROPERTIES, [sorted(names)]))
+
+
+def collect_unused(theme: Path):
+    """The parts that need no browser: reachability and property bookkeeping."""
+    chrome = theme / "chrome"
+    if not chrome.is_dir():
+        return None
+
+    reachable = import_graph(theme)
+    orphans, optional = [], []
+    for sheet in sorted(chrome.rglob("*.css")):
+        if sheet.resolve() in reachable:
+            continue
+        if OPTIONAL_DIRS & {p.name for p in sheet.relative_to(chrome).parents}:
+            optional.append(sheet)
+        else:
+            orphans.append(sheet)
+
+    defined, used = custom_properties(sorted(reachable))
+    return {
+        "theme": theme,
+        "reachable": len(reachable),
+        "orphans": [p.relative_to(theme) for p in orphans],
+        "optional": [p.relative_to(theme) for p in optional],
+        "defined": defined,
+        "used": used,
+    }
+
+
+def classify_unused(static, firefox_knows):
+    """Separate real dead code from names Firefox itself reads or provides.
+
+    Both directions need the browser's opinion, and asking an *unthemed*
+    Firefox is what makes the answer meaningful:
+
+    * A property used but not defined here may still be one Firefox provides --
+      `--toolbarbutton-inner-padding` is Firefox's, not the theme's.
+    * A property defined here but never read here is usually the whole point:
+      setting `--arrowpanel-background` exists precisely so Firefox's own rules
+      pick it up. Only a name Firefox has never heard of is dead.
+    """
+    if static is None:
+        return None
+    theme = static["theme"]
+    defined, used = static["defined"], static["used"]
+
+    missing = [name for name in sorted(set(used) - set(defined))
+               if name not in firefox_knows]
+    dead = [name for name in sorted(set(defined) - set(used))
+            if name not in firefox_knows]
+    overrides = sorted((set(defined) - set(used)) & firefox_knows)
+
+    return {
+        "reachable": static["reachable"],
+        "orphans": static["orphans"],
+        "optional": static["optional"],
+        "overrides": len(overrides),
+        "unused_properties": [
+            {"name": name,
+             "file": str(defined[name][0][0].relative_to(theme)),
+             "line": defined[name][0][1]}
+            for name in dead],
+        "missing_properties": [
+            {"name": name,
+             "file": str(used[name][0][0].relative_to(theme)),
+             "line": used[name][0][1],
+             "uses": len(used[name])}
+            for name in missing],
+    }
+
+
+def report_unused(unused, colour=True, show_all=False):
+    def c(code, s):
+        return f"{code}{s}{RESET}" if colour else s
+
+    if not unused:
+        return
+    total = (len(unused["orphans"]) + len(unused["unused_properties"])
+             + len(unused["missing_properties"]))
+    print(c(BOLD, "  Unused and unreachable"))
+    print(f"  {c(DIM, 'Housekeeping, not breakage — nothing here stops the theme working.')}")
+    print()
+
+    if unused["orphans"]:
+        print(f"  {c(YELLOW, 'NOT IMPORTED')}  {len(unused['orphans'])} stylesheet"
+              f"{'s' if len(unused['orphans']) != 1 else ''} nothing reaches")
+        for path in unused["orphans"][:12]:
+            print(f"    {path}")
+        extra = len(unused["orphans"]) - 12
+        if extra > 0:
+            print("    " + c(DIM, f"… and {extra} more"))
+        print()
+
+    if unused["missing_properties"]:
+        print(f"  {c(RED, 'UNDEFINED')}     {len(unused['missing_properties'])} custom "
+              f"propert{'ies' if len(unused['missing_properties']) != 1 else 'y'} used "
+              f"but never set")
+        print(f"  {c(DIM, 'Firefox does not provide these either, so the var() falls back or fails.')}")
+        for item in unused["missing_properties"][:10]:
+            where = f"{item['file']}:{item['line']}"
+            print(f"    {item['name']:<44} {c(DIM, where)} {c(DIM, '×' + str(item['uses']))}")
+        print()
+
+    if unused.get("overrides"):
+        count = unused["overrides"]
+        noun = "property is" if count == 1 else "properties are"
+        print("  " + c(DIM, f"{count} more {noun} set here but read only by Firefox —"))
+        print("  " + c(DIM, "deliberate overrides, not dead code."))
+        print()
+
+    if unused["unused_properties"]:
+        print(f"  {c(DIM, 'DEFINED ONLY')}  {len(unused['unused_properties'])} custom "
+              f"propert{'ies' if len(unused['unused_properties']) != 1 else 'y'} set here "
+              f"and read nowhere in the theme")
+        print("  " + c(DIM, "An unthemed Firefox does not resolve these names either, so they are"))
+        print("  " + c(DIM, "likely renamed or dropped. Worth checking rather than deleting: a"))
+        print("  " + c(DIM, "name Firefox references without setting would look the same here."))
+        limit = None if show_all else 10
+        for item in unused["unused_properties"][:limit]:
+            print(f"    {item['name']:<44} {c(DIM, item['file'] + ':' + str(item['line']))}")
+        if limit and len(unused["unused_properties"]) > limit:
+            print(f"    {c(DIM, 'Pass --all to list them.')}")
+        print()
+
+    if total == 0:
+        print(f"  {c(DIM, 'Nothing unused found.')}\n")
+
+
+# --- snapshots -------------------------------------------------------------
+
+def make_snapshot(session, verbose=False):
+    """A record of every chrome name this Firefox has, plus its version.
+
+    Committing one of these lets a scheduled job answer "what did the new
+    Firefox change" without keeping an old browser around to compare against.
+    """
+    info = session.info()
+    dom = collect_dom(session, verbose=verbose)
+    return {
+        "version": info["version"],
+        "buildID": info["buildID"],
+        "os": info["os"],
+        "ids": sorted(dom["ids"]),
+        "classes": sorted(dom["classes"]),
+    }
+
+
+def load_snapshot(path: Path):
+    import json
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    return data, {"ids": set(data["ids"]), "classes": set(data["classes"])}
