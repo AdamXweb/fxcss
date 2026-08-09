@@ -225,14 +225,29 @@ user_pref("devtools.toolbox.host", "window");
 """
 
 # Hides artifacts of the automation harness itself -- never theme rules -- so
-# what you see is what a real user would see.
-CI_ONLY_CSS = """/* Injected by tools/fxcss -- harness only.
+# what you see is what a real user would see. Injected as its own user sheet
+# rather than written into the profile: an earlier version put these rules in
+# customChrome.css, which only takes effect for themes that happen to @import
+# it, so most themes showed the automation icons in every capture.
+HARNESS_CSS = """/* Injected by fxcss -- harness only.
  * Firefox marks automated sessions with a robot icon in the address bar. */
 #remote-control-box, #remote-control-icon { display: none !important; }
 
 /* Rollout-gated Mozilla feature button: present or absent depending on a
  * remote config rather than on this repo. */
 #ipprotection-button { display: none !important; }
+"""
+
+# Firefox paints a red diagonal hatch across the address bar background while a
+# session is under remote control -- its equivalent of Chrome's "controlled by
+# automated software" banner. Left alone it appears in every capture and makes
+# a perfectly good theme look broken.
+#
+# Loaded as an *agent* sheet with no !important, unlike HARNESS_CSS above, so a
+# theme's own rules still win: agent sheets lose to user sheets for normal
+# declarations. The robot icon must win over a theme, this must lose to one.
+AUTOMATION_DEFAULTS_CSS = """
+.urlbar-background { background-image: none; }
 """
 
 XULSTORE = {
@@ -305,7 +320,9 @@ def build_profile(repo: Path, profile: Path, dark=False, native_menus=None,
     shutil.copytree(repo / "chrome", profile / "chrome", dirs_exist_ok=True)
 
     # userChrome.css @imports customChrome.css, which the repo does not ship.
-    (profile / "chrome" / "customChrome.css").write_text(CI_ONLY_CSS, encoding="utf-8")
+    # Some themes @import this; create it empty so the import resolves.
+    (profile / "chrome" / "customChrome.css").write_text(
+        "/* placeholder created by fxcss */\n", encoding="utf-8")
     if empty_user_chrome:
         (profile / "chrome" / "userChrome.css").write_text(
             '@import "customChrome.css";\n', encoding="utf-8")
@@ -374,6 +391,7 @@ class Session:
         self.m.connect()
         self.m.set_context("chrome")
         self.m.script(RESIZE, [WINDOW_WIDTH, WINDOW_HEIGHT])
+        self.apply_harness_css()
         return self
 
     def __exit__(self, *exc):
@@ -398,6 +416,16 @@ class Session:
                                     self.urls["issues.html"]], pinned])
         time.sleep(3.0)
 
+    def apply_harness_css(self):
+        """Hide artifacts of the automation harness in every window.
+
+        Two sheets with deliberately different precedence: the agent sheet
+        neutralises Firefox's automation markings but yields to any theme rule,
+        while the user sheet hides harness-only widgets and must win.
+        """
+        self.m.script(LOAD_AGENT_SHEET, [AUTOMATION_DEFAULTS_CSS])
+        return self.m.script(LOAD_HARNESS_SHEET, [HARNESS_CSS])
+
     def apply_css(self, css_text):
         """Load a small ad-hoc rule set as a user sheet (for experiments)."""
         return self.m.script(SWAP_SHEET, [css_text])
@@ -419,10 +447,13 @@ class Session:
         dest = self.profile / "chrome" / f"live-{self._generation}"
         shutil.copytree(self.repo / "chrome", dest, dirs_exist_ok=True)
         # Keep the CI-only overrides that customChrome.css normally supplies.
-        (dest / "customChrome.css").write_text(CI_ONLY_CSS, encoding="utf-8")
+        (dest / "customChrome.css").write_text(
+            "/* placeholder created by fxcss */\n", encoding="utf-8")
 
         uri = (dest / "userChrome.css").resolve().as_uri()
         self.m.script(SWAP_FILE_SHEET, [uri])
+        # Re-apply after the theme so the harness rules stay on top.
+        self.apply_harness_css()
 
         previous = self.profile / "chrome" / f"live-{self._generation - 1}"
         if previous.exists():
@@ -483,6 +514,30 @@ if (win._fxcssSheet) {
 u.loadSheetUsingURIString(uri, u.USER_SHEET);
 win._fxcssSheet = uri;
 return uri.length;
+"""
+
+LOAD_AGENT_SHEET = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+const u = win.windowUtils;
+const uri = "data:text/css;charset=utf-8," + encodeURIComponent(arguments[0]);
+if (win._fxcssAgentSheet) {
+  try { u.removeSheetUsingURIString(win._fxcssAgentSheet, u.AGENT_SHEET); } catch (e) {}
+}
+u.loadSheetUsingURIString(uri, u.AGENT_SHEET);
+win._fxcssAgentSheet = uri;
+return true;
+"""
+
+LOAD_HARNESS_SHEET = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+const u = win.windowUtils;
+const uri = "data:text/css;charset=utf-8," + encodeURIComponent(arguments[0]);
+if (win._fxcssHarnessSheet) {
+  try { u.removeSheetUsingURIString(win._fxcssHarnessSheet, u.USER_SHEET); } catch (e) {}
+}
+u.loadSheetUsingURIString(uri, u.USER_SHEET);
+win._fxcssHarnessSheet = uri;
+return true;
 """
 
 SWAP_FILE_SHEET = """

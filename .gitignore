@@ -11,3 +11,4 @@ fxcss-catalogue/
 shots/
 *.png
 !examples/**/*.png
+!docs/*.png

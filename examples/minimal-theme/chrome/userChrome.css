@@ -1,30 +1,99 @@
-/* A minimal userChrome.css, used by this repo's CI smoke test and as a
- * starting point if you are new to Firefox theming.
+/* A small, complete userChrome.css — the starting point this repo's docs and
+ * CI use.
  *
  * Firefox only reads this file when
  * toolkit.legacyUserProfileCustomizations.stylesheets is true. fxcss sets that
- * for you in its throwaway profile.
+ * for you in its throwaway profile, so `fxcss watch` here works immediately.
+ *
+ * Try it:
+ *     fxcss watch --theme examples/minimal-theme
+ * then edit any value below and watch the window update.
  */
 
 @namespace xul url("http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul");
 
-/* Round the address bar and give it a visible edge. */
-#urlbar {
-  border-radius: 10px !important;
-}
-
-/* Tint the toolbar so it is obvious the sheet loaded at all. */
-#nav-bar {
-  background-color: #eef1f8 !important;
+:root {
+  --demo-accent: #4f6ef2;
+  --demo-toolbar: #eaeefb;
+  --demo-field: #ffffff;
+  --demo-edge: #d3dbf5;
+  --demo-text: #1b1f2a;
 }
 
 @media (prefers-color-scheme: dark) {
-  #nav-bar {
-    background-color: #23262e !important;
+  :root {
+    --demo-accent: #8aa2ff;
+    --demo-toolbar: #23283a;
+    --demo-field: #1a1e2b;
+    --demo-edge: #333b55;
+    --demo-text: #eef1f8;
   }
 }
 
-/* Square off the selected tab. */
+/* Toolbars ---------------------------------------------------------------- */
+
+#nav-bar,
+#PersonalToolbar {
+  background: var(--demo-toolbar) !important;
+  border-bottom: 1px solid var(--demo-edge) !important;
+}
+
+/* Address bar ------------------------------------------------------------- */
+
+/* Note the class. Plenty of older themes style #urlbar-background by *id*,
+ * but that id no longer exists in current Firefox, so those rules silently do
+ * nothing. `fxcss inspect '#urlbar-background'` reports exactly that. */
+.urlbar-background {
+  background: var(--demo-field) !important;
+}
+#urlbar {
+  --urlbar-height: 32px !important;
+  border-radius: 10px !important;
+  background: var(--demo-field) !important;
+  border: 1px solid var(--demo-edge) !important;
+  box-shadow: none !important;
+}
+
+#urlbar[focused] {
+  border-color: var(--demo-accent) !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--demo-accent) 28%, transparent) !important;
+}
+
+/* Tabs -------------------------------------------------------------------- */
+
+#TabsToolbar {
+  background: var(--demo-toolbar) !important;
+}
+
+.tabbrowser-tab .tab-content {
+  border-radius: 8px !important;
+}
+
 .tabbrowser-tab[selected] .tab-content {
-  border-radius: 4px !important;
+  background: var(--demo-field) !important;
+  box-shadow: 0 1px 3px rgba(20, 30, 70, 0.16) !important;
+}
+
+/* A coloured strip under the active tab, the sort of small flourish that is
+ * easy to get wrong by a pixel — which is what `fxcss watch` is for. */
+.tabbrowser-tab[selected] .tab-content::after {
+  content: "";
+  position: absolute;
+  inset-inline: 10px;
+  bottom: 2px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--demo-accent);
+}
+
+/* Find bar ---------------------------------------------------------------- */
+
+findbar {
+  background: var(--demo-toolbar) !important;
+  border-top: 1px solid var(--demo-edge) !important;
+}
+
+.findbar-textbox {
+  border-radius: 8px !important;
+  border: 1px solid var(--demo-edge) !important;
 }
