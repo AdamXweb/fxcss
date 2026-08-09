@@ -55,6 +55,8 @@ at it with `--theme /path/to/theme`.
 | [`watch`](#fxcss-watch) | Edit CSS and see it live, no restart |
 | [`pick`](#fxcss-pick) | Click any part of the UI to get its CSS selector |
 | [`inspect`](#fxcss-inspect) | Look up a selector you already have |
+| [`audit`](#fxcss-audit) | Find every selector that no longer matches, and suggest fixes |
+| [`changelog`](#fxcss-changelog) | Diff two Firefox builds to see what chrome changed |
 | [`catalogue`](#fxcss-catalogue) | Build a directory of themeable UI parts |
 | [`shot`](#fxcss-shot) / [`compare`](#fxcss-compare) | Screenshot and diff two versions |
 | [`doctor`](#fxcss-doctor) | Report what your Firefox supports |
@@ -132,6 +134,85 @@ That is a real example, not a contrived one: this repo's own example theme
 styled `#urlbar-background` by id, which many older themes still do. The id was
 replaced by a class, so the rule silently did nothing and the address bar
 rendered unstyled. One command found it; the fix was `.urlbar-background`.
+
+### fxcss audit
+
+```bash
+fxcss audit
+fxcss audit --patch fix.diff     # write the confident fixes as a patch
+fxcss audit --strict             # exit non-zero if anything needs attention
+```
+
+**Upgrading a theme after Firefox moved on.** `inspect` answers the question one
+selector at a time; `audit` does the whole theme at once. It walks every id and
+class your CSS mentions, resolves each against a running Firefox, and shows what
+to change — with the real line from your file and the replacement applied:
+
+```
+  14 selectors need attention
+
+  RENAMED  #urlbar-background  →  .urlbar-background
+           same name, now a class rather than an id
+
+    chrome/parts/headerbar-urlbar.css:52
+    - #urlbar-background {
+    + .urlbar-background {
+
+  SIMILAR  #appMenu-fullscreen-button  →  #appMenu-fullscreen-button2
+           no exact match; closest live name is #appMenu-fullscreen-button2
+
+    chrome/parts/icons.css:198
+    - #appMenu-fullscreen-button {
+    + #appMenu-fullscreen-button2 {
+```
+
+That output is real — it is what this finds in a long-running theme. The
+`…-button2` pattern is how Firefox has been versioning app-menu controls, and it
+breaks menu styling silently.
+
+Findings come in three kinds:
+
+| | meaning |
+| --- | --- |
+| **RENAMED** | The same name exists, but as a class instead of an id, or the reverse. The suggestion is exact. |
+| **SIMILAR** | No exact counterpart, but a close name exists. Usually a Firefox suffix change, or a typo in your CSS. |
+| *unresolved* | Nothing close. Listed separately with `--all` and **not** counted as a problem — normally an element that only appears in a state fxcss cannot reach, not one that was removed. |
+
+That last distinction is the point. Reporting every unmatched selector as broken
+would be noise; a theme legitimately styles things that only exist in private
+windows, on other platforms, or inside popups.
+
+Suggestions are inferred from the live browser, not from a hardcoded list of
+Firefox versions, so they keep working for releases that came out after this
+tool did.
+
+`--patch` writes a unified diff of the **RENAMED** findings only — the ones where
+the replacement is certain. Review it, then `git apply`. SIMILAR findings are
+deliberately excluded: they are usually right, but "usually" is not good enough
+to rewrite your CSS unattended.
+
+### fxcss changelog
+
+```bash
+fxcss changelog --firefox /path/to/old/firefox --against /path/to/new/firefox
+```
+
+**What actually changed between two Firefox releases.** Collects every chrome id
+and class from both builds, diffs them, and tells you which of the removals your
+theme depends on:
+
+```
+  Firefox 140.13.0 → 153.0.3
+    52 chrome names gone, 221 new
+
+  2 of them are used by this theme:
+    #urlbar-background          chrome/parts/headerbar-urlbar.css:52
+    #urlbar-go-button           chrome/parts/buttons-fixes.css:202
+```
+
+Point it at an ESR build and current release to see what a year of Firefox did
+to your theme, or at a Beta to find out what is about to break before your users
+do. `--show-all` lists every name that changed, not just the ones you use.
 
 ### fxcss catalogue
 

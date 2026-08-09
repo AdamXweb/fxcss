@@ -106,6 +106,9 @@ jobs:
           print(f"{len(s['changed_views'])} of {len(s['views'])} views changed, as expected")
           PY
 
+      - name: audit — the example theme must have no stale selectors
+        run: fxcss audit --theme examples/minimal-theme --strict --no-colour
+
       - name: catalogue
         run: fxcss catalogue --theme examples/minimal-theme --out out/catalogue --self-contained
 

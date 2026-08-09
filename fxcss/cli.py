@@ -4,6 +4,8 @@
     fxcss watch        edit CSS and see it live, no restart
     fxcss pick         click any part of the UI to get its CSS selector
     fxcss inspect      look up a selector you already have
+    fxcss audit        find selectors that no longer match, and suggest fixes
+    fxcss changelog    diff two Firefox builds to see what chrome changed
     fxcss catalogue    build a directory of themeable UI parts
     fxcss shot         capture a set of screenshots
     fxcss compare      diff two sets into before/after/diff images
@@ -133,6 +135,70 @@ def cmd_inspect(args):
         return probe.inspect_selector(session, args.selector, theme, _references)
 
 
+def cmd_audit(args):
+    from . import audit
+    theme = args.theme.resolve()
+    firefox = core.find_firefox(args.firefox)
+    print(f"fxcss audit\n  theme:   {theme}\n  firefox: {firefox}\n")
+    with core.Session(theme, firefox) as session:
+        result = audit.audit(session, theme)
+    audit.report(result, show_all=args.all, colour=not args.no_colour)
+    if args.patch:
+        files = audit.write_patch(result, theme, args.patch.resolve())
+        if files:
+            print(f"  wrote {args.patch} ({files} file(s)); review it, then:")
+            print(f"    git apply {args.patch}\n")
+        else:
+            print("  nothing confident enough to patch\n")
+    actionable = [f for f in result["findings"] if f["confidence"] != "unresolved"]
+    if args.strict and actionable:
+        print(f"  --strict: failing because {len(actionable)} selector(s) need attention\n")
+        return 1
+    return 0
+
+
+def cmd_changelog(args):
+    from . import audit
+    theme = args.theme.resolve()
+    before_bin = core.find_firefox(args.firefox)
+    after_bin = core.find_firefox(args.against)
+    print(f"fxcss changelog\n  before: {before_bin}\n  after:  {after_bin}\n")
+
+    snapshots = {}
+    for label, binary in (("before", before_bin), ("after", after_bin)):
+        with core.Session(theme, binary) as session:
+            version = session.info()["version"]
+            print(f"  {label} — Firefox {version}")
+            snapshots[label] = audit.collect_dom(session)
+            snapshots[label + "_version"] = version
+
+    tokens = audit.extract_tokens(theme)
+    delta = audit.changelog(snapshots["before"], snapshots["after"], tokens)
+
+    print(f"\n  Firefox {snapshots['before_version']} → {snapshots['after_version']}")
+    print(f"    {len(delta['removed'])} chrome names gone, {len(delta['added'])} new")
+
+    affected = delta.get("affects_theme") or []
+    if affected:
+        print(f"\n  {len(affected)} of them are used by this theme:")
+        for token in affected:
+            first = tokens[token][0]
+            print(f"    {token:<44} {first['file']}:{first['line']}")
+        print("\n  Run `fxcss audit` for suggested replacements.")
+    else:
+        print("\n  None of them are used by this theme.")
+
+    if args.show_all:
+        print("\n  gone:")
+        for token in delta["removed"]:
+            print(f"    - {token}")
+        print("\n  new:")
+        for token in delta["added"]:
+            print(f"    + {token}")
+    print()
+    return 0
+
+
 def cmd_shot(args):
     theme = args.theme.resolve()
     if not (theme / "chrome" / "userChrome.css").exists():
@@ -245,6 +311,26 @@ def main(argv=None):
     i.add_argument("selector", help="a CSS selector, e.g. '#urlbar' or '.tab-close-button'")
     i.add_argument("--dark", action="store_true", help="report dark-mode styles")
     i.set_defaults(func=cmd_inspect)
+
+    a = sub.add_parser("audit", help="find selectors that no longer match anything")
+    _common(a)
+    a.add_argument("--patch", type=Path, default=None,
+                   help="write the confident replacements as a unified diff")
+    a.add_argument("--all", action="store_true",
+                   help="also list tokens with no suggestion")
+    a.add_argument("--no-colour", action="store_true", help="plain output")
+    a.add_argument("--strict", action="store_true",
+                   help="exit non-zero if any selector needs attention (for CI)")
+    a.set_defaults(func=cmd_audit)
+
+    cl = sub.add_parser("changelog",
+                        help="diff two Firefox builds to see what chrome changed")
+    _common(cl)
+    cl.add_argument("--against", required=True,
+                    help="path to the other firefox binary to compare with")
+    cl.add_argument("--show-all", action="store_true",
+                    help="list every name that changed, not just ones the theme uses")
+    cl.set_defaults(func=cmd_changelog)
 
     s = sub.add_parser("shot", help="capture the standard screenshot set")
     _common(s)
