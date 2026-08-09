@@ -376,6 +376,7 @@ class Session:
         self.proc = None
         self.m = None
         self._generation = 0
+        self._window_ready = False
 
     def __enter__(self):
         env = dict(os.environ)
@@ -409,6 +410,12 @@ class Session:
         return self.m.script(BROWSER_INFO)
 
     def setup_window(self, pinned=True):
+        # Idempotent: callers legitimately nest (a command sets the window up,
+        # then hands the session to something that does the same). Seeding
+        # bookmarks twice used to leave the toolbar showing each one twice.
+        if self._window_ready:
+            return
+        self._window_ready = True
         result = self.m.async_script(SEED_BOOKMARKS)
         if result is not True:
             print(f"  note: bookmark seeding returned {result!r}", flush=True)

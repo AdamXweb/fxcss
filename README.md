@@ -52,6 +52,7 @@ at it with `--theme /path/to/theme`.
 
 | Command | What it's for |
 | --- | --- |
+| [`try`](#fxcss-try) | Download a theme from GitHub and test-drive it |
 | [`watch`](#fxcss-watch) | Edit CSS and see it live, no restart |
 | [`pick`](#fxcss-pick) | Click any part of the UI to get its CSS selector |
 | [`inspect`](#fxcss-inspect) | Look up a selector you already have |
@@ -60,6 +61,65 @@ at it with `--theme /path/to/theme`.
 | [`catalogue`](#fxcss-catalogue) | Build a directory of themeable UI parts |
 | [`shot`](#fxcss-shot) / [`compare`](#fxcss-compare) | Screenshot and diff two versions |
 | [`doctor`](#fxcss-doctor) | Report what your Firefox supports |
+
+### fxcss try
+
+```bash
+fxcss try adamXweb/WhiteSurFirefoxThemeMacOS
+fxcss try github.com/owner/theme --with compact-tabs
+fxcss try owner/theme --info            # report what's there, launch nothing
+```
+
+**Test-drive a theme before committing to it.** Downloads it, installs it into a
+throwaway profile, and opens Firefox so you can actually use it. Your own profile
+is never touched — close the window and nothing remains.
+
+It reports what it found before doing anything:
+
+```
+  adamxweb/whitesurfirefoxthememacos  ★614  MIT
+    MacOS Big Sur like theme for Firefox on MacOS & Windows.
+    latest release   v1.6.3  (2025-07-26)
+    latest commit    b10c574  (2025-07-26)  Merge pull request #167 …
+
+  fetching release v1.6.3 …
+  theme found at the repository root  (39 stylesheets, 134 KB)
+
+  This theme ships install.sh. fxcss does not run it —
+  it installs the files itself, which is all those scripts do.
+
+  Options its README documents:
+    -c     Left hand side tab close button
+    -p     Makes tabs height compact like current Safari
+    …
+
+  Optional stylesheets you can layer on with --with:
+    compact-tabs, hideextension, noidentity, tabs-swapclose, …
+```
+
+Releases are preferred over branch tips, since that is what the author blessed;
+`--commit` takes the latest commit instead, and `--ref` takes any tag, branch or
+SHA. `--with name,name` layers on the theme's optional stylesheets so you can see
+a variant without hunting through install flags. `--shot dir` captures the
+standard screenshots instead of opening a window, and `--keep dir` leaves the
+download behind so you can start editing it with `watch`.
+
+#### It does not run the theme's install script
+
+That is deliberate, and worth being plain about: fetching a shell script from a
+URL and executing it to preview a stylesheet is a bad trade. Those scripts are,
+in substance, `cp -r chrome/ <profile>/` plus flipping a pref — which fxcss
+already does. So it finds the script, tells you it exists, parses the options its
+README documents, and then installs the files itself.
+
+What is left is the theme's own content: CSS, SVG, and occasionally a `.js` file.
+Firefox does not execute a `.js` file sitting in a profile's chrome folder; that
+requires an autoconfig hook in the *application* directory, which fxcss does not
+create. Archives are size-capped and path-checked on extraction, and symlinks in
+them are skipped.
+
+If you decide you want the theme permanently, follow its own install
+instructions — that part is between you and the theme.
 
 ### fxcss watch
 

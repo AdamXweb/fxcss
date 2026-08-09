@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """fxcss - a testing toolkit for Firefox userChrome.css themes.
 
+    fxcss try          download a theme from GitHub and test-drive it
     fxcss watch        edit CSS and see it live, no restart
     fxcss pick         click any part of the UI to get its CSS selector
     fxcss inspect      look up a selector you already have
@@ -56,6 +57,101 @@ def _install_signal_handlers():
 def _references(theme, selector):
     from .catalogue import css_references
     return css_references(theme, selector)
+
+
+def cmd_try(args):
+    import shutil
+    import tempfile
+    from . import fetch
+
+    _install_signal_handlers()
+    owner, name = fetch.parse_repo(args.repo)
+
+    if args.ref:
+        ref, why = args.ref, f"ref {args.ref}"
+        info = None
+    else:
+        info = fetch.resolve(owner, name)
+        print()
+        for line in fetch.humanise(info):
+            print("  " + line)
+        prefer = "commit" if args.commit else "release"
+        ref, why = fetch.choose_ref(info, prefer)
+
+    workdir = Path(tempfile.mkdtemp(prefix="fxcss-try-"))
+    keep = args.keep.resolve() if args.keep else None
+    try:
+        print(f"\n  fetching {why} …")
+        repo_root = fetch.download(owner, name, ref, workdir / "src")
+        theme_root = fetch.find_theme_root(repo_root)
+        if theme_root is None:
+            print("\n  No chrome/userChrome.css anywhere in this repository, so "
+                  "there is\n  nothing for Firefox to load. Is it a userChrome theme?")
+            return 2
+
+        facts = fetch.describe(repo_root, theme_root)
+        where = theme_root.relative_to(repo_root)
+        print(f"  theme found at {where if str(where) != '.' else 'the repository root'}"
+              f"  ({facts['stylesheets']} stylesheets, {facts['bytes'] // 1024} KB)")
+
+        if facts["scripts"]:
+            print(f"\n  This theme ships {', '.join(facts['scripts'])}. fxcss does not run "
+                  f"it —\n  it installs the files itself, which is all those scripts do.")
+        if facts["flags"]:
+            print("\n  Options its README documents:")
+            for entry in facts["flags"]:
+                print(f"    {entry['flag']:<6} {entry['text']}")
+        if facts["variants"]:
+            names = [v.stem for v in facts["variants"]]
+            print(f"\n  Optional stylesheets you can layer on with --with:")
+            print("    " + ", ".join(names))
+
+        chosen = []
+        if args.with_sheets:
+            wanted = {w.strip().lower() for w in args.with_sheets.split(",") if w.strip()}
+            by_name = {v.stem.lower(): v for v in facts["variants"]}
+            missing = wanted - set(by_name)
+            if missing:
+                print(f"\n  error: no optional sheet named {', '.join(sorted(missing))}",
+                      file=sys.stderr)
+                return 2
+            chosen = [by_name[w] for w in sorted(wanted)]
+
+        if args.info:
+            return 0
+
+        firefox = core.find_firefox(args.firefox)
+        session = core.Session(theme_root, firefox, dark=args.dark,
+                               native_menus=args.native_menus,
+                               devtools=not args.no_devtools)
+        if chosen:
+            fetch.apply_variants(session.profile, chosen)
+            print(f"  layering on: {', '.join(c.stem for c in chosen)}")
+
+        with session:
+            session.setup_window()
+            version = session.info()["version"]
+            print(f"\n  Firefox {version} — this is a throwaway profile; your own "
+                  f"Firefox\n  profile has not been touched.")
+            if args.shot:
+                core.capture_views(session, args.shot.resolve())
+                print(f"\n  wrote screenshots to {args.shot}")
+                return 0
+            print("  Ctrl-C here when you are done.\n")
+            try:
+                while True:
+                    time.sleep(0.5)
+            except KeyboardInterrupt:
+                print("\n  closing.")
+        return 0
+    finally:
+        if keep:
+            keep.parent.mkdir(parents=True, exist_ok=True)
+            if keep.exists():
+                shutil.rmtree(keep, ignore_errors=True)
+            shutil.copytree(workdir / "src", keep)
+            print(f"  kept the download at {keep}")
+        shutil.rmtree(workdir, ignore_errors=True)
 
 
 def cmd_watch(args):
@@ -290,6 +386,28 @@ def main(argv=None):
         prog="fxcss", description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
+
+    for verb, helptext in (("try", "download a theme from GitHub and test-drive it"),
+                           ("install", "alias for try")):
+        tr = sub.add_parser(verb, help=helptext)
+        tr.add_argument("repo", help="owner/name, or a github.com URL")
+        tr.add_argument("--firefox", default=None,
+                        help="path to the firefox binary (default: autodetect)")
+        tr.add_argument("--ref", default=None, help="tag, branch or commit to fetch")
+        tr.add_argument("--commit", action="store_true",
+                        help="use the latest commit rather than the latest release")
+        tr.add_argument("--with", dest="with_sheets", default=None, metavar="NAME[,NAME]",
+                        help="also load named optional stylesheets")
+        tr.add_argument("--dark", action="store_true", help="start in dark mode")
+        tr.add_argument("--shot", type=Path, default=None,
+                        help="capture screenshots instead of opening interactively")
+        tr.add_argument("--keep", type=Path, default=None,
+                        help="keep the downloaded theme at this path")
+        tr.add_argument("--info", action="store_true",
+                        help="report what was found and stop, without launching")
+        tr.add_argument("--no-devtools", action="store_true")
+        _menus(tr)
+        tr.set_defaults(func=cmd_try)
 
     w = sub.add_parser("watch", help="live-reload the theme as you edit")
     _common(w); _menus(w)
