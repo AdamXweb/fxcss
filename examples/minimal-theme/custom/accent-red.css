@@ -1,0 +1,12 @@
+/* An optional variant sheet, layered on with either of:
+ *     fxcss shot --variants accent-red
+ *     fxcss try <repo> --with accent-red
+ * Kept deliberately loud so a variant capture is visibly different. */
+
+:root {
+  --demo-accent: #d6336c !important;
+}
+
+.tabbrowser-tab[selected] .tab-content::after {
+  background: #d6336c !important;
+}

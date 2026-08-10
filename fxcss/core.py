@@ -343,7 +343,7 @@ def _write_atomic(path: Path, text: str):
 
 def build_profile(repo: Path, profile: Path, dark=False, native_menus=None,
                   empty_user_chrome=False, port=MARIONETTE_DEFAULT_PORT,
-                  devtools=False):
+                  devtools=False, extra_prefs=None):
     """Install the theme into a fresh profile the way install.sh does.
 
     empty_user_chrome leaves userChrome.css blank so the caller owns the
@@ -371,6 +371,8 @@ def build_profile(repo: Path, profile: Path, dark=False, native_menus=None,
     # The theme's dark rules sit behind @media (prefers-color-scheme: dark),
     # so this pref is what switches between the two.
     prefs += 'user_pref("ui.systemUsesDarkTheme", %d);\n' % (1 if dark else 0)
+    if extra_prefs:
+        prefs += extra_prefs
     if native_menus is not None:
         # On macOS Firefox uses native context menus by default, and CSS cannot
         # style them at all. Turning this off makes them XUL menus, which the
@@ -397,7 +399,8 @@ class Session:
     """A running Firefox with a themed profile and a Marionette connection."""
 
     def __init__(self, repo: Path, firefox: str, dark=False, native_menus=None,
-                 empty_user_chrome=False, keep_profile=False, devtools=False):
+                 empty_user_chrome=False, keep_profile=False, devtools=False,
+                 extra_prefs=None):
         self.repo, self.firefox = Path(repo), firefox
         self.workdir = Path(tempfile.mkdtemp(prefix="fxcss-"))
         self.profile = self.workdir / "profile"
@@ -406,7 +409,7 @@ class Session:
         self.port = free_port()
         build_profile(self.repo, self.profile, dark=dark, native_menus=native_menus,
                       empty_user_chrome=empty_user_chrome, port=self.port,
-                      devtools=devtools)
+                      devtools=devtools, extra_prefs=extra_prefs)
         self.proc = None
         self.m = None
         self._generation = 0
@@ -593,6 +596,62 @@ win._fxcssSheet = uri;
 return uri;
 """
 
+SET_DENSITY = """
+Services.prefs.setIntPref("browser.uidensity", arguments[0]);
+return Services.prefs.getIntPref("browser.uidensity");
+"""
+
+SHOW_SIDEBAR = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+const ui = win.SidebarController || win.SidebarUI;
+if (!ui) { return false; }
+try { ui.show("viewBookmarksSidebar"); return true; } catch (e) { return false; }
+"""
+
+HIDE_SIDEBAR = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+const ui = win.SidebarController || win.SidebarUI;
+if (ui) { try { ui.hide(); } catch (e) {} }
+return true;
+"""
+
+GET_DIRECTION = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+return win.getComputedStyle(win.document.documentElement).direction;
+"""
+
+ENTER_CUSTOMIZE = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+try { win.gCustomizeMode.enter(); return true; } catch (e) { return false; }
+"""
+
+EXIT_CUSTOMIZE = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+try { win.gCustomizeMode.exit(); } catch (e) {}
+return true;
+"""
+
+LOAD_VARIANT_SHEET = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+const u = win.windowUtils;
+if (win._fxcssVariantSheet) {
+  try { u.removeSheetUsingURIString(win._fxcssVariantSheet, u.USER_SHEET); } catch (e) {}
+}
+u.loadSheetUsingURIString(arguments[0], u.USER_SHEET);
+win._fxcssVariantSheet = arguments[0];
+return true;
+"""
+
+UNLOAD_VARIANT_SHEET = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+const u = win.windowUtils;
+if (win._fxcssVariantSheet) {
+  try { u.removeSheetUsingURIString(win._fxcssVariantSheet, u.USER_SHEET); } catch (e) {}
+  win._fxcssVariantSheet = null;
+}
+return true;
+"""
+
 SET_DARK = """
 Services.prefs.setIntPref("ui.systemUsesDarkTheme", arguments[0]);
 return Services.prefs.getIntPref("ui.systemUsesDarkTheme");
@@ -769,7 +828,8 @@ return {
 
 # --- views -----------------------------------------------------------------
 
-def capture_views(session: Session, outdir: Path, modes=("light", "dark")):
+def capture_views(session: Session, outdir: Path, modes=("light", "dark"),
+                  variants=None):
     """Capture the standard set of views. Returns the browser info dict."""
     outdir.mkdir(parents=True, exist_ok=True)
     session.setup_window()
@@ -879,6 +939,55 @@ def capture_views(session: Session, outdir: Path, modes=("light", "dark")):
     else:
         print("  note: private window did not open; skipping that view", flush=True)
 
+    # Density, direction, the sidebar and customize mode are in-window states
+    # of the same browser, captured once each. Every one restores what it
+    # changed so the next view starts from the same place.
+    m.script(SET_DENSITY, [1])
+    time.sleep(1.5)
+    _shot(m, outdir, "extra-09-compact")
+    m.script(SET_DENSITY, [0])
+    time.sleep(1.0)
+
+    if m.script(SHOW_SIDEBAR):
+        time.sleep(1.8)
+        _shot(m, outdir, "extra-10-sidebar")
+        m.script(HIDE_SIDEBAR)
+        time.sleep(1.0)
+    else:
+        print("  note: no sidebar API in this Firefox; skipping that view", flush=True)
+
+    # Current Firefox ignores intl.uidirection entirely -- the pref reaches the
+    # profile and the chrome stays LTR (measured, not assumed). The supported
+    # lever is pseudo-localisation: intl.l10n.pseudo="bidi" builds the chrome
+    # right-to-left, applied at startup in a short dedicated session. Labels
+    # come out in Firefox's fake-bidi lettering by design; the point of the
+    # view is the mirrored layout, not the strings.
+    with Session(session.repo, session.firefox,
+                 extra_prefs='user_pref("intl.l10n.pseudo", "bidi");\n') as rtl:
+        rtl.setup_window()
+        if rtl.m.script(GET_DIRECTION) == "rtl":
+            _shot(rtl.m, outdir, "extra-11-rtl")
+        else:
+            print("  note: chrome did not come up RTL; skipping that view", flush=True)
+
+    if m.script(ENTER_CUSTOMIZE):
+        time.sleep(2.5)
+        _shot(m, outdir, "extra-12-customize")
+        m.script(EXIT_CUSTOMIZE)
+        time.sleep(2.0)
+    else:
+        print("  note: customize mode unavailable; skipping that view", flush=True)
+
+    # Optional stylesheets, one capture per variant. Loaded live as a user
+    # sheet by file URI -- relative url()s inside the sheet keep resolving --
+    # then removed, so variants never contaminate each other.
+    for slug, sheet in sorted((variants or {}).items()):
+        m.script(LOAD_VARIANT_SHEET, [sheet.resolve().as_uri()])
+        time.sleep(1.5)
+        _shot(m, outdir, "variant-" + slug)
+        m.script(UNLOAD_VARIANT_SHEET)
+        time.sleep(0.8)
+
     (outdir / "render-info.json").write_text(json.dumps(info, indent=2), encoding="utf-8")
     return info
 
@@ -941,6 +1050,23 @@ def _shot(m, outdir: Path, name: str, tries=8, delay=0.5, before=None):
         raise RuntimeError(f"screenshot {name} is implausibly small ({len(png)} bytes)")
     (outdir / f"{name}.png").write_bytes(png)
     print(f"  captured {name}.png ({len(png) // 1024} KB)", flush=True)
+
+
+def find_variant_sheets(theme: Path):
+    """Optional stylesheets a theme ships for users to layer on.
+
+    Looks in the same folders `fxcss try --with` does. Keys are slugs safe for
+    a filename, so a capture can be named after its variant.
+    """
+    sheets = {}
+    for folder in ("custom", "optional", "options", "extras", "variants"):
+        directory = theme / folder
+        if directory.is_dir():
+            for css in sorted(directory.glob("*.css")):
+                slug = re.sub(r"[^a-z0-9-]+", "-", css.stem.lower()).strip("-")
+                if slug:
+                    sheets[slug] = css
+    return sheets
 
 
 def find_firefox(explicit=None):

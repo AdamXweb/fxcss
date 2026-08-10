@@ -23,7 +23,7 @@ permissions:
   contents: write
 
 env:
-  FXCSS_VERSION: v0.6.0
+  FXCSS_VERSION: v0.7.0
   DEFAULT_URLS: >-
     https://github.com/AdamXweb/WhiteSurFirefoxThemeMacOS
     https://adam.kostarelas.com/?utm_source=fxcss-auto

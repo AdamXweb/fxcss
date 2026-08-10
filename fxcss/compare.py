@@ -38,7 +38,23 @@ FRIENDLY_NAMES = {
     "06-containers": "Container tabs",
     "07-many-tabs": "Tab strip overflowing",
     "08-private": "Private window",
+    "09-compact": "Compact density",
+    "10-sidebar": "Sidebar open",
+    "11-rtl": "Right-to-left UI",
+    "12-customize": "Customize mode",
 }
+
+
+def title_for(view_name):
+    """(title, mode) for a capture filename stem.
+
+    Variant captures are named after theme-specific stylesheets, so they get
+    a generic prefix rather than an entry in FRIENDLY_NAMES.
+    """
+    mode, _, key = view_name.partition("-")
+    if mode == "variant":
+        return "Variant: " + key, "variant"
+    return FRIENDLY_NAMES.get(key, view_name), mode
 
 
 def load_font(size):
@@ -117,8 +133,8 @@ def compare_view(name, base_path, head_path, outdir):
 
     result = {
         "view": name,
-        "title": FRIENDLY_NAMES.get(name.split("-", 1)[1], name),
-        "mode": name.split("-", 1)[0],
+        "title": title_for(name)[0],
+        "mode": title_for(name)[1],
         "changed_pixels": changed,
         "total_pixels": total,
         "percent": round(pct, 4),

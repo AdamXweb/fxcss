@@ -40,6 +40,8 @@ LANDMARKS = [
      "Padlock / permissions area at the left of the address bar."),
     ("Address bar", "star-button", "#star-button-box", "Bookmark star",
      "The bookmark-this-page control at the right of the address bar."),
+    ("Address bar", "container-label", "#userContext-label", "Container identity label",
+     "Names the active tab's container (e.g. Banking) inside the address bar."),
     ("Address bar", "urlbar-results", "#urlbar-results", "Address bar dropdown",
      "Suggestion list shown while typing. Rendered inside the window, so it is themeable."),
 
@@ -53,6 +55,10 @@ LANDMARKS = [
      "Per-tab close control. The install script can move it to the left."),
     ("Tabs", "newtab-button", "#tabs-newtab-button", "New tab button",
      "The + at the end of the tab strip."),
+    ("Tabs", "tab-audio", ".tab-audio-button", "Tab audio button",
+     "Speaker / mute toggle shown on a tab that is playing sound."),
+    ("Tabs", "container-tab", ".tabbrowser-tab[usercontextid]", "Container tab",
+     "A tab opened in a container, carrying its identity colour."),
 
     ("Toolbar buttons", "back-button", "#back-button", "Back button", "Navigation back."),
     ("Toolbar buttons", "reload-button", "#reload-button", "Reload button", "Reload / stop."),
@@ -182,6 +188,12 @@ def build(session, repo: Path, outdir: Path, self_contained=False):
     time.sleep(1.2)
     session.m.script(core.RESET_FINDBAR)
     time.sleep(0.6)
+    # A tab playing audio and a container tab, so their landmarks exist to
+    # be measured. Both degrade gracefully on a Firefox that lacks them.
+    session.m.script(core.OPEN_AUDIO_TAB, [session.urls["audio.html"]])
+    time.sleep(4.0)
+    session.m.script(core.CONTAINER_TABS, [session.urls["docs.html"]])
+    time.sleep(2.5)
 
     info = session.info()
     dpr = info["dpr"]

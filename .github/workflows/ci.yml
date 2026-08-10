@@ -116,9 +116,9 @@ jobs:
       - name: Capture three times
         shell: bash
         run: |
-          fxcss shot --theme examples/minimal-theme --out shots/a
-          fxcss shot --theme examples/minimal-theme --out shots/b
-          fxcss shot --theme examples/minimal-theme --out shots/c
+          fxcss shot --theme examples/minimal-theme --out shots/a --variants all
+          fxcss shot --theme examples/minimal-theme --out shots/b --variants all
+          fxcss shot --theme examples/minimal-theme --out shots/c --variants all
 
       - name: Determinism — the same theme must render identically
         shell: bash

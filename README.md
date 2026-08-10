@@ -38,14 +38,14 @@ The tidiest way, which keeps fxcss and its one dependency out of your other
 Python environments:
 
 ```bash
-pipx install "fxcss[images] @ git+https://github.com/AdamXweb/fxcss@v0.6.1"
+pipx install "fxcss[images] @ git+https://github.com/AdamXweb/fxcss@v0.7.0"
 ```
 
 Or with pip, pinned to a release so a change here cannot alter your setup
 unannounced:
 
 ```bash
-python3 -m pip install "fxcss[images] @ git+https://github.com/AdamXweb/fxcss@v0.6.1"
+python3 -m pip install "fxcss[images] @ git+https://github.com/AdamXweb/fxcss@v0.7.0"
 ```
 
 Either gives you an `fxcss` command. To hack on it, clone and install editable:
@@ -360,8 +360,19 @@ inlined, for attaching to an issue.
 fxcss shot --out shots/before
 ```
 
-Captures a set of views — browser window, focused address bar, find bar, each in
-light and dark — as PNGs.
+Captures the standard set of views as PNGs: browser window, focused address bar
+and find bar in light and dark, then a tab playing audio, the same tab muted,
+container tabs, an overflowing tab strip, a private window, compact density, the
+sidebar, right-to-left chrome, and customize mode.
+
+```bash
+fxcss shot --out shots --variants all
+```
+
+`--variants` additionally captures one view per optional stylesheet the theme
+ships (`custom/`, `optional/`, `variants/`…), each loaded on its own and removed
+again — so `tabs-swapclose` or `compact-tabs` are checked by CI without a
+separate install. Name specific ones (`--variants a,b`) or take them all.
 
 #### Against real websites
 

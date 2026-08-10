@@ -358,10 +358,29 @@ def cmd_shot(args):
     if getattr(args, "only_live", False) and not urls:
         print("error: --only-live needs at least one --url", file=sys.stderr)
         return 2
+    variants = {}
+    spec = getattr(args, "variants", None)
+    if spec:
+        available = core.find_variant_sheets(theme)
+        if spec.strip().lower() == "all":
+            variants = available
+            if not variants:
+                print("  note: --variants all found no optional stylesheets",
+                      flush=True)
+        else:
+            wanted = [w.strip().lower() for w in spec.split(",") if w.strip()]
+            missing = [w for w in wanted if w not in available]
+            if missing:
+                print("error: no optional stylesheet named "
+                      + ", ".join(missing) + "; available: "
+                      + (", ".join(sorted(available)) or "none"), file=sys.stderr)
+                return 2
+            variants = {w: available[w] for w in wanted}
+
     firefox = core.find_firefox(args.firefox)
     with core.Session(theme, firefox) as session:
         if not getattr(args, "only_live", False):
-            core.capture_views(session, args.out.resolve())
+            core.capture_views(session, args.out.resolve(), variants=variants)
         if urls:
             print("\n  live sites (captured, never compared):", flush=True)
             core.capture_live(session, args.out.resolve(), urls)
@@ -525,6 +544,9 @@ def main(argv=None):
                    help="also capture the theme against a live site, light and "
                         "dark; repeatable. Written to <out>/live/ and never "
                         "included in a comparison")
+    s.add_argument("--variants", default=None, metavar="all|NAME[,NAME]",
+                   help="also capture one view per optional stylesheet from "
+                        "the theme's custom/ (or optional/, variants/) folder")
     s.add_argument("--only-live", action="store_true",
                    help="capture just the --url views, skipping the standard set")
     s.set_defaults(func=cmd_shot)

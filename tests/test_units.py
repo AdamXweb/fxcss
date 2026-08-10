@@ -182,3 +182,44 @@ class ImportabilityTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TitleForTests(unittest.TestCase):
+    def title(self, name):
+        from fxcss.compare import title_for
+        return title_for(name)
+
+    def test_standard_views(self):
+        self.assertEqual(self.title("light-01-window"), ("Browser window", "light"))
+        self.assertEqual(self.title("dark-03-findbar"), ("Find bar", "dark"))
+
+    def test_extra_views(self):
+        self.assertEqual(self.title("extra-09-compact"), ("Compact density", "extra"))
+        self.assertEqual(self.title("extra-12-customize"), ("Customize mode", "extra"))
+
+    def test_variant_views_are_generic(self):
+        self.assertEqual(self.title("variant-tabs-swapclose"),
+                         ("Variant: tabs-swapclose", "variant"))
+
+    def test_unknown_name_falls_back_to_itself(self):
+        self.assertEqual(self.title("mystery-view")[0], "mystery-view")
+
+
+class FindVariantSheetsTests(unittest.TestCase):
+    def test_discovers_and_slugs(self):
+        from fxcss.core import find_variant_sheets
+        with tempfile.TemporaryDirectory() as td:
+            theme = Path(td)
+            (theme / "custom").mkdir()
+            (theme / "custom" / "Compact Tabs.css").write_text("x{}")
+            (theme / "optional").mkdir()
+            (theme / "optional" / "no-line.css").write_text("y{}")
+            (theme / "chrome").mkdir()
+            (theme / "chrome" / "not-a-variant.css").write_text("z{}")
+            sheets = find_variant_sheets(theme)
+            self.assertEqual(sorted(sheets), ["compact-tabs", "no-line"])
+
+    def test_empty_theme_has_none(self):
+        from fxcss.core import find_variant_sheets
+        with tempfile.TemporaryDirectory() as td:
+            self.assertEqual(find_variant_sheets(Path(td)), {})
