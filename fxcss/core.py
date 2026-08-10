@@ -883,6 +883,28 @@ def capture_views(session: Session, outdir: Path, modes=("light", "dark")):
     return info
 
 
+def _capture_png(m, attempts=4, delay=1.5):
+    """Take a screenshot, tolerating transient capture failures.
+
+    Windows runners occasionally fail a single WebDriver:TakeScreenshot with
+    "Unable to capture screenshot" from the canvas layer and then succeed
+    immediately afterwards. A screenshot is idempotent, so a short bounded
+    retry is strictly better than aborting a multi-minute capture run. A
+    browser that is genuinely gone still raises, after the last attempt.
+    """
+    last = None
+    for attempt in range(attempts):
+        try:
+            return m.screenshot()
+        except MarionetteError as exc:
+            last = exc
+            if attempt < attempts - 1:
+                print(f"  note: screenshot attempt {attempt + 1} failed "
+                      f"({str(exc)[:80]}); retrying", flush=True)
+                time.sleep(delay)
+    raise last
+
+
 def _shot(m, outdir: Path, name: str, tries=8, delay=0.5, before=None):
     """Capture once the window has stopped changing.
 
@@ -901,13 +923,13 @@ def _shot(m, outdir: Path, name: str, tries=8, delay=0.5, before=None):
     """
     if before:
         m.script(before)
-    previous = m.screenshot()
+    previous = _capture_png(m)
     png = previous
     for attempt in range(tries):
         time.sleep(delay)
         if before:
             m.script(before)
-        png = m.screenshot()
+        png = _capture_png(m)
         if png == previous:
             break
         previous = png
