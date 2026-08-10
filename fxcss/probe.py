@@ -217,4 +217,4 @@ def pick(session, repo, references):
             session.m.script(STOP_PICKER)
         except Exception:
             pass
-    return 0 if picked else 0
+    return 0

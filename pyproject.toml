@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fxcss"
-version = "0.6.1"
 description = "Live-reload, inspect and screenshot-test Firefox userChrome.css themes"
+dynamic = ["version"]
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
@@ -35,3 +35,6 @@ Issues = "https://github.com/AdamXweb/fxcss/issues"
 
 [tool.setuptools]
 packages = ["fxcss"]
+
+[tool.setuptools.dynamic]
+version = {attr = "fxcss.__version__"}

@@ -24,6 +24,7 @@ import time
 from pathlib import Path
 
 from . import core
+from . import __version__
 
 TOOLBOX_KEY = {
     "darwin": "Cmd+Opt+Shift+I",
@@ -146,6 +147,9 @@ def cmd_try(args):
                 print("\n  closing.")
         return 0
     finally:
+        if keep and not (workdir / "src").exists():
+            print("  nothing was downloaded, so nothing was kept", file=sys.stderr)
+            keep = None
         if keep:
             keep.parent.mkdir(parents=True, exist_ok=True)
             if keep.exists():
@@ -350,8 +354,11 @@ def cmd_shot(args):
     if not (theme / "chrome" / "userChrome.css").exists():
         print(f"error: no chrome/userChrome.css under {theme}", file=sys.stderr)
         return 2
-    firefox = core.find_firefox(args.firefox)
     urls = getattr(args, "url", [])
+    if getattr(args, "only_live", False) and not urls:
+        print("error: --only-live needs at least one --url", file=sys.stderr)
+        return 2
+    firefox = core.find_firefox(args.firefox)
     with core.Session(theme, firefox) as session:
         if not getattr(args, "only_live", False):
             core.capture_views(session, args.out.resolve())
@@ -389,6 +396,7 @@ def cmd_catalogue(args):
 def cmd_doctor(args):
     theme = args.theme.resolve()
     firefox = core.find_firefox(args.firefox)
+    print(f"fxcss:   {__version__}")
     print(f"theme:   {theme}")
     print(f"firefox: {firefox}")
     with core.Session(theme, firefox, devtools=True) as session:
@@ -440,6 +448,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(
         prog="fxcss", description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--version", action="version", version=f"fxcss {__version__}")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     for verb, helptext in (("try", "download a theme from GitHub and test-drive it"),

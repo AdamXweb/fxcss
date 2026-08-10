@@ -154,7 +154,13 @@ def download(owner, name, ref, into: Path):
 
     into.mkdir(parents=True, exist_ok=True)
     with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
-        archive.extractall(into, members=_safe_members(archive, into))
+        members = _safe_members(archive, into)
+        try:
+            # Python 3.12+: the 'data' filter also strips absolute paths and
+            # rejects links, complementing the checks in _safe_members.
+            archive.extractall(into, members=members, filter="data")
+        except TypeError:  # Python < 3.12 has no filter parameter
+            archive.extractall(into, members=members)
 
     entries = [p for p in into.iterdir() if p.is_dir()]
     if len(entries) == 1:

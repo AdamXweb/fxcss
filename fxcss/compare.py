@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Turn two sets of theme screenshots into before/after/diff images.
 
-Reads a base/ and a head/ directory of PNGs produced by render.py, compares
+Reads a base/ and a head/ directory of PNGs produced by `fxcss shot`, compares
 each matching view, and writes one stacked comparison image per view that
 changed, plus a summary.json describing what changed and by how much.
 
@@ -9,7 +9,7 @@ Views that render identically are reported but not drawn -- the point is to put
 the reviewer's eye straight on the difference.
 
 Usage:
-    python3 compose.py --base base/ --head head/ --out out/ --platform macos
+    fxcss compare --base base/ --head head/ --out out/ --platform macos
 """
 
 import argparse
@@ -33,6 +33,11 @@ FRIENDLY_NAMES = {
     "01-window": "Browser window",
     "02-urlbar": "Address bar focused",
     "03-findbar": "Find bar",
+    "04-audio": "Tab playing audio",
+    "05-muted": "Tab muted",
+    "06-containers": "Container tabs",
+    "07-many-tabs": "Tab strip overflowing",
+    "08-private": "Private window",
 }
 
 
