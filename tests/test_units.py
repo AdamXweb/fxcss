@@ -280,3 +280,56 @@ class ChromaSensitivityTests(unittest.TestCase):
         b = Image.new("RGB", (10, 10), (0xFD, 0xEA, 0xDD))
         changed, total, _ = diff_stats(a, b)
         self.assertEqual((changed, total), (100, 100))
+
+
+class VariantSpecTests(unittest.TestCase):
+    def available(self):
+        return {"a": Path("/t/a.css"), "b": Path("/t/b.css"), "c": Path("/t/c.css")}
+
+    def test_all_and_singles(self):
+        from fxcss.core import parse_variant_spec
+        self.assertEqual(sorted(parse_variant_spec("all", self.available())), ["a", "b", "c"])
+        self.assertEqual(parse_variant_spec("b", self.available()),
+                         {"b": [Path("/t/b.css")]})
+
+    def test_combo_loads_together(self):
+        from fxcss.core import parse_variant_spec
+        result = parse_variant_spec("a+c,b", self.available())
+        self.assertEqual(result["a+c"], [Path("/t/a.css"), Path("/t/c.css")])
+        self.assertEqual(result["b"], [Path("/t/b.css")])
+
+    def test_unknown_names_raise_listing_available(self):
+        from fxcss.core import parse_variant_spec
+        with self.assertRaises(ValueError) as ctx:
+            parse_variant_spec("a+nope,zap", self.available())
+        self.assertIn("nope", str(ctx.exception))
+        self.assertIn("zap", str(ctx.exception))
+        self.assertIn("a, b, c", str(ctx.exception))
+
+    def test_combo_slug_is_regex_escaped_in_allowlist(self):
+        from fxcss.scaffold import variant_alternation
+        self.assertEqual(variant_alternation(["a+b", "plain"]),
+                         "|variant-(?:a\\+b|plain)")
+
+
+class TweaksMarkdownTests(unittest.TestCase):
+    def test_document_shape(self):
+        from fxcss.tweaks import render_markdown
+        entries = [
+            {"slug": "compact-tabs", "sheets": [Path("/t/custom/compact-tabs.css")],
+             "percent": 3.21, "image": "compact-tabs-diff.png"},
+            {"slug": "a+b", "sheets": [Path("/t/custom/a.css"), Path("/t/custom/b.css")],
+             "percent": 5.0, "image": "a+b-diff.png"},
+            {"slug": "stale-one", "sheets": [Path("/t/custom/stale-one.css")],
+             "percent": 0.0, "image": None},
+        ]
+        flags = [{"flag": "-c", "text": "Left hand side tab close button"}]
+        md = render_markdown(Path("/t"), entries, flags, "153.0.3")
+        self.assertIn("<details>", md)
+        self.assertIn("changes 3.21% of the chrome", md)
+        self.assertIn("a + b", md)                       # combo title humanised
+        self.assertIn("changes nothing on current Firefox", md)
+        self.assertIn("| `-c` | Left hand side tab close button |", md)
+        self.assertIn("![before and after of compact-tabs](compact-tabs-diff.png)", md)
+        # relative paths only -- the doc must be committable anywhere
+        self.assertNotIn("/t/custom", md.replace("`custom/", ""))

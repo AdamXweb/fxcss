@@ -31,10 +31,12 @@ def variant_alternation(slugs):
     Empty when there are no variants, so the allowlist stays as tight as the
     theme is simple.
     """
-    names = sorted(s for s in slugs if re.fullmatch(r"[a-z0-9-]+", s))
+    names = sorted(s for s in slugs if re.fullmatch(r"[a-z0-9+-]+", s))
     if not names:
         return ""
-    return "|variant-(?:" + "|".join(names) + ")"
+    # Only '+' needs escaping in this position; re.escape would also escape
+    # '-', which is harmless but makes the generated workflow harder to read.
+    return "|variant-(?:" + "|".join(n.replace("+", "\\+") for n in names) + ")"
 
 
 def https_repo_url(remote):

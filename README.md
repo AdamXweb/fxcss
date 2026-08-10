@@ -81,6 +81,7 @@ at it with `--theme /path/to/theme`.
 | [`pick`](#fxcss-pick) | Click any part of the UI to get its CSS selector |
 | [`inspect`](#fxcss-inspect) | Look up a selector you already have |
 | [`init`](#fxcss-init) | Add PR previews and CI checks to your theme repo |
+| [`tweaks`](#fxcss-tweaks) | Screenshot every install option into a committable doc |
 | [`audit`](#fxcss-audit) | Find every selector that no longer matches, and suggest fixes |
 | [`changelog`](#fxcss-changelog) | Diff two Firefox builds to see what chrome changed |
 | [`snapshot`](#fxcss-changelog) | Record a Firefox's chrome names, to diff against later |
@@ -248,6 +249,29 @@ default branch; first-time contributors need one approval click).
 If you'd like people to know:
 
 [![theme previews by fxcss](https://img.shields.io/badge/theme%20previews-fxcss-ff7139)](https://github.com/AdamXweb/fxcss)
+
+### fxcss tweaks
+
+```bash
+fxcss tweaks
+fxcss tweaks --combo compact-tabs+tabs-swapclose
+```
+
+**Document your install options with screenshots.** Themes describe their
+optional stylesheets in prose — accordions of flags, `install.sh -c -n -s`
+incantations — and a user assembles their preferred setup in their head. This
+renders the answer instead: the base theme, every optional stylesheet, and any
+combination you bless with `--combo`, each with a labelled **before/after crop
+of the region it actually changes** and how much of the chrome it touches.
+
+The output is a folder of PNGs plus `TWEAKS.md`, written to be committed:
+relative links, and a `<details>` accordion per option so a long list stays
+scannable on GitHub. If your README documents installer flags, they are parsed
+and included as a table.
+
+A tweak that changes nothing is reported as exactly that — *"changes nothing on
+current Firefox, possibly stale"*. Optional sheets rot at least as fast as
+selectors do, and nobody notices because nobody has them enabled.
 
 ### fxcss audit
 

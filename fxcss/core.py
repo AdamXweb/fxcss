@@ -634,21 +634,19 @@ return true;
 LOAD_VARIANT_SHEET = """
 const win = Services.wm.getMostRecentWindow("navigator:browser");
 const u = win.windowUtils;
-if (win._fxcssVariantSheet) {
-  try { u.removeSheetUsingURIString(win._fxcssVariantSheet, u.USER_SHEET); } catch (e) {}
-}
+if (!win._fxcssVariantSheets) { win._fxcssVariantSheets = []; }
 u.loadSheetUsingURIString(arguments[0], u.USER_SHEET);
-win._fxcssVariantSheet = arguments[0];
-return true;
+win._fxcssVariantSheets.push(arguments[0]);
+return win._fxcssVariantSheets.length;
 """
 
-UNLOAD_VARIANT_SHEET = """
+UNLOAD_VARIANT_SHEETS = """
 const win = Services.wm.getMostRecentWindow("navigator:browser");
 const u = win.windowUtils;
-if (win._fxcssVariantSheet) {
-  try { u.removeSheetUsingURIString(win._fxcssVariantSheet, u.USER_SHEET); } catch (e) {}
-  win._fxcssVariantSheet = null;
+for (const uri of (win._fxcssVariantSheets || [])) {
+  try { u.removeSheetUsingURIString(uri, u.USER_SHEET); } catch (e) {}
 }
+win._fxcssVariantSheets = [];
 return true;
 """
 
@@ -981,11 +979,14 @@ def capture_views(session: Session, outdir: Path, modes=("light", "dark"),
     # Optional stylesheets, one capture per variant. Loaded live as a user
     # sheet by file URI -- relative url()s inside the sheet keep resolving --
     # then removed, so variants never contaminate each other.
-    for slug, sheet in sorted((variants or {}).items()):
-        m.script(LOAD_VARIANT_SHEET, [sheet.resolve().as_uri()])
+    for slug, sheets in sorted((variants or {}).items()):
+        # A value may be one sheet or several: a combo loads them together, the
+        # way a user stacking install options would run them.
+        for sheet in ([sheets] if isinstance(sheets, Path) else sheets):
+            m.script(LOAD_VARIANT_SHEET, [sheet.resolve().as_uri()])
         time.sleep(1.5)
         _shot(m, outdir, "variant-" + slug)
-        m.script(UNLOAD_VARIANT_SHEET)
+        m.script(UNLOAD_VARIANT_SHEETS)
         time.sleep(0.8)
 
     (outdir / "render-info.json").write_text(json.dumps(info, indent=2), encoding="utf-8")
@@ -1067,6 +1068,39 @@ def find_variant_sheets(theme: Path):
                 if slug:
                     sheets[slug] = css
     return sheets
+
+
+def parse_variant_spec(spec, available):
+    """Turn a --variants value into {slug: [sheet, ...]}.
+
+    Commas separate captures; a plus combines sheets within one capture, the
+    way a user stacking install options would run them:
+
+        all                     every optional sheet, one capture each
+        a,b                     two captures
+        a+b,c                   a and b together, then c alone
+
+    Raises ValueError naming anything unknown, listing what exists.
+    """
+    if not spec:
+        return {}
+    spec = spec.strip()
+    if spec.lower() == "all":
+        return {slug: [path] for slug, path in available.items()}
+    chosen = {}
+    unknown = []
+    for part in (p.strip().lower() for p in spec.split(",") if p.strip()):
+        names = [n.strip() for n in part.split("+") if n.strip()]
+        missing = [n for n in names if n not in available]
+        if missing:
+            unknown += missing
+            continue
+        chosen["+".join(names)] = [available[n] for n in names]
+    if unknown:
+        raise ValueError(
+            "no optional stylesheet named " + ", ".join(sorted(set(unknown)))
+            + "; available: " + (", ".join(sorted(available)) or "none"))
+    return chosen
 
 
 def find_firefox(explicit=None):

@@ -3,6 +3,7 @@
 
     fxcss try          download a theme from GitHub and test-drive it
     fxcss init         add PR previews and CI checks to your theme repo
+    fxcss tweaks       screenshot every install option, into a committable doc
     fxcss watch        edit CSS and see it live, no restart
     fxcss pick         click any part of the UI to get its CSS selector
     fxcss inspect      look up a selector you already have
@@ -38,6 +39,7 @@ LANDING = """fxcss - a testing toolkit for Firefox userChrome.css themes
 
   Maintaining a theme repository?
     fxcss init                     add before/after PR previews and CI checks
+    fxcss tweaks                   screenshot every install option for your README
     fxcss audit                    find selectors Firefox has renamed
 
 Run `fxcss --help` for the full command list, or `fxcss <command> --help`
@@ -174,6 +176,40 @@ def cmd_try(args):
             shutil.copytree(workdir / "src", keep)
             print(f"  kept the download at {keep}")
         shutil.rmtree(workdir, ignore_errors=True)
+
+
+def cmd_tweaks(args):
+    from . import tweaks
+    theme = args.theme.resolve()
+    if not (theme / "chrome" / "userChrome.css").exists():
+        print(f"error: no chrome/userChrome.css under {theme}", file=sys.stderr)
+        return 2
+    available = core.find_variant_sheets(theme)
+    if not available:
+        print("This theme ships no optional stylesheets (looked in custom/, "
+              "optional/, options/, extras/, variants/), so there is nothing "
+              "to document.", file=sys.stderr)
+        return 2
+    variants = {slug: [path] for slug, path in available.items()}
+    for combo in args.combo or []:
+        try:
+            variants.update(core.parse_variant_spec(combo, available))
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+
+    firefox = core.find_firefox(args.firefox)
+    out = args.out.resolve()
+    print(f"fxcss tweaks\n  theme: {theme}\n  out:   {out}\n")
+    with core.Session(theme, firefox, dark=args.dark) as session:
+        entries = tweaks.build(session, theme, out, variants, tweaks.readme_flags(theme))
+    stale = [e["slug"] for e in entries if not e["image"]]
+    print(f"\n  wrote {out / 'TWEAKS.md'} with {len(entries)} option(s)")
+    if stale:
+        print(f"  note: {', '.join(stale)} changed nothing — possibly stale, "
+              f"worth a look")
+    print("  Commit the folder and link TWEAKS.md from your README.")
+    return 0
 
 
 def cmd_init(args):
@@ -392,21 +428,13 @@ def cmd_shot(args):
     variants = {}
     spec = getattr(args, "variants", None)
     if spec:
-        available = core.find_variant_sheets(theme)
-        if spec.strip().lower() == "all":
-            variants = available
-            if not variants:
-                print("  note: --variants all found no optional stylesheets",
-                      flush=True)
-        else:
-            wanted = [w.strip().lower() for w in spec.split(",") if w.strip()]
-            missing = [w for w in wanted if w not in available]
-            if missing:
-                print("error: no optional stylesheet named "
-                      + ", ".join(missing) + "; available: "
-                      + (", ".join(sorted(available)) or "none"), file=sys.stderr)
-                return 2
-            variants = {w: available[w] for w in wanted}
+        try:
+            variants = core.parse_variant_spec(spec, core.find_variant_sheets(theme))
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        if not variants:
+            print("  note: --variants all found no optional stylesheets", flush=True)
 
     firefox = core.find_firefox(args.firefox)
     with core.Session(theme, firefox) as session:
@@ -524,6 +552,20 @@ def main(argv=None):
         tr.add_argument("--no-devtools", action="store_true")
         _menus(tr)
         tr.set_defaults(func=cmd_try)
+
+    tw = sub.add_parser("tweaks",
+                        help="screenshot every install option into a committable doc")
+    tw.add_argument("--theme", type=Path, default=Path.cwd(),
+                    help="theme root, the folder containing chrome/ (default: cwd)")
+    tw.add_argument("--firefox", default=None,
+                    help="path to the firefox binary (default: autodetect)")
+    tw.add_argument("--out", type=Path, default=Path("docs/tweaks"),
+                    help="output folder (default: docs/tweaks)")
+    tw.add_argument("--combo", action="append", metavar="NAME+NAME",
+                    help="also render options together, e.g. --combo "
+                         "compact-tabs+tabs-swapclose; repeatable")
+    tw.add_argument("--dark", action="store_true", help="render in dark mode")
+    tw.set_defaults(func=cmd_tweaks)
 
     ini = sub.add_parser("init", help="add PR previews and CI checks to your theme repo")
     ini.add_argument("--theme", type=Path, default=Path.cwd(),
