@@ -2,6 +2,7 @@
 """fxcss - a testing toolkit for Firefox userChrome.css themes.
 
     fxcss try          download a theme from GitHub and test-drive it
+    fxcss init         add PR previews and CI checks to your theme repo
     fxcss watch        edit CSS and see it live, no restart
     fxcss pick         click any part of the UI to get its CSS selector
     fxcss inspect      look up a selector you already have
@@ -25,6 +26,22 @@ from pathlib import Path
 
 from . import core
 from . import __version__
+
+LANDING = """fxcss - a testing toolkit for Firefox userChrome.css themes
+
+  Building a theme?
+    fxcss watch                    edit CSS, see it live, no restart
+    fxcss pick                     click any part of the UI to get its selector
+
+  Trying someone else's theme?
+    fxcss try owner/repo           test-drive it in a throwaway profile
+
+  Maintaining a theme repository?
+    fxcss init                     add before/after PR previews and CI checks
+    fxcss audit                    find selectors Firefox has renamed
+
+Run `fxcss --help` for the full command list, or `fxcss <command> --help`
+for one command. Nothing here ever touches your real Firefox profile."""
 
 TOOLBOX_KEY = {
     "darwin": "Cmd+Opt+Shift+I",
@@ -157,6 +174,20 @@ def cmd_try(args):
             shutil.copytree(workdir / "src", keep)
             print(f"  kept the download at {keep}")
         shutil.rmtree(workdir, ignore_errors=True)
+
+
+def cmd_init(args):
+    from . import scaffold
+    theme = args.theme.resolve()
+    if not (theme / "chrome" / "userChrome.css").exists():
+        print(f"error: no chrome/userChrome.css under {theme} - run this from "
+              f"your theme's root, or pass --theme", file=sys.stderr)
+        return 2
+    slugs = sorted(core.find_variant_sheets(theme))
+    written, skipped = scaffold.write_workflows(
+        theme, slugs, watch=args.watch, showcase=args.showcase, force=args.force)
+    print(scaffold.next_steps(written, skipped, slugs, args.watch, args.showcase))
+    return 0
 
 
 def cmd_watch(args):
@@ -442,6 +473,8 @@ def cmd_doctor(args):
     print(f"\ntheme: {len(sheets)} stylesheets, {total:,} bytes")
     missing = [p for p in ("chrome/userChrome.css",) if not (theme / p).exists()]
     print("missing expected files: " + (", ".join(missing) if missing else "none"))
+    print("\nnew here? `fxcss try owner/repo` test-drives a theme; `fxcss init`")
+    print("adds PR previews to yours.")
     return 0
 
 
@@ -468,7 +501,7 @@ def main(argv=None):
         prog="fxcss", description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--version", action="version", version=f"fxcss {__version__}")
-    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub = ap.add_subparsers(dest="cmd", required=False)
 
     for verb, helptext in (("try", "download a theme from GitHub and test-drive it"),
                            ("install", "alias for try")):
@@ -491,6 +524,17 @@ def main(argv=None):
         tr.add_argument("--no-devtools", action="store_true")
         _menus(tr)
         tr.set_defaults(func=cmd_try)
+
+    ini = sub.add_parser("init", help="add PR previews and CI checks to your theme repo")
+    ini.add_argument("--theme", type=Path, default=Path.cwd(),
+                     help="theme root, the folder containing chrome/ (default: cwd)")
+    ini.add_argument("--watch", action="store_true",
+                     help="also add the weekly Firefox release/beta/nightly audit")
+    ini.add_argument("--showcase", action="store_true",
+                     help="also add the on-release showcase screenshot workflow")
+    ini.add_argument("--force", action="store_true",
+                     help="replace workflow files that already exist")
+    ini.set_defaults(func=cmd_init)
 
     w = sub.add_parser("watch", help="live-reload the theme as you edit")
     _common(w); _menus(w)
@@ -577,6 +621,12 @@ def main(argv=None):
     d.set_defaults(func=cmd_doctor)
 
     args = ap.parse_args(argv)
+    if args.cmd is None:
+        # Bare `fxcss` used to be an argparse error. Greet by task instead:
+        # the three reasons someone installs this are not obvious from a
+        # subcommand list.
+        print(LANDING)
+        return 0
     # Long-running commands are a live log; keep them readable when piped.
     try:
         sys.stdout.reconfigure(line_buffering=True)

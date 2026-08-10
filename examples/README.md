@@ -1,49 +1,39 @@
-# Example workflows
+# Examples
 
-Copy the ones you want into your theme's `.github/workflows/`. Each pins fxcss
-to a tag, so a change here cannot alter your CI without a commit in your repo —
-bump `FXCSS_VERSION` when you want the newer one.
+## Adding CI to your theme
 
-| File | What it does | Triggers |
-| --- | --- | --- |
-| `pr-preview.yml` | Renders the theme before and after a pull request and uploads the comparison | `pull_request` |
-| `pr-preview-publish.yml` | Posts that comparison as a PR comment | `workflow_run` |
-| `pr-preview-cleanup.yml` | Deletes a PR's images when it closes | `pull_request_target` |
-| `firefox-watch.yml` | Audits the theme against release/beta/nightly on a schedule, opening a PR or an issue | `schedule` |
-| `showcase.yml` | Captures the theme against real websites for your README | `release`, manual |
+Don't copy workflow files from here — run this from your theme's root instead:
 
-## Start with the previews
+```bash
+fxcss init                       # before/after PR previews
+fxcss init --watch --showcase    # plus the weekly Firefox audit and
+                                 # release screenshots
+```
 
-`pr-preview.yml` and `pr-preview-publish.yml` are a pair and only work together.
-They are split because **pull requests from forks get a read-only token**:
+That generates the workflows with the fxcss version pinned and your theme's
+variant stylesheets already enumerated in the publish allowlist, which is the
+part people used to have to hand-edit (and forget). The generated files carry
+comments explaining the shape — most importantly why the preview is split into
+two workflows: pull requests from forks get a read-only token, so the half that
+runs their code cannot be the half that posts the comment.
 
-- `pr-preview.yml` runs the pull request's code, so it has **no write
-  permissions and no secrets**. It only produces an artifact.
-- `pr-preview-publish.yml` holds the write access and **never runs pull request
-  code**. It treats the artifact as untrusted: the PR number is verified against
-  the head SHA of the run that produced it, only recognised filenames are
-  republished, and the comment is built from validated numbers rather than any
-  string in the artifact.
+The templates live in [`fxcss/templates/`](../fxcss/templates/) if you want to
+read them before generating anything.
 
-Two things to know before you wire them up:
+## `minimal-theme/`
 
-- **The comment only appears once these are on your default branch.**
-  `workflow_run` always runs the default-branch copy of a workflow, so a pull
-  request adding them exercises the rendering half only. That is expected, not a
-  misconfiguration.
-- Images are published to an orphan `ci-previews` branch so they can be
-  embedded. `pr-preview-cleanup.yml` removes each PR's images when it closes.
+A small, complete `userChrome.css` starting point. This repo's CI renders it on
+macOS, Windows and Linux on every push — an unchanged theme must render
+identically three times, and an obvious CSS change must be detected. Its
+`custom/accent-red.css` exists so variant capture is exercised too.
 
-## Then the watcher
+```bash
+fxcss watch --theme examples/minimal-theme
+```
 
-`firefox-watch.yml` is the one that earns its keep over time. Firefox ships
-every few weeks and renames chrome elements without announcing it; a theme does
-not break loudly when that happens. Running `fxcss audit` against **beta and
-nightly** gives you weeks of warning before your users see it.
+## Writing your own checks
 
-## Adding your own checks
-
-If you write your own workflow, assert the comparison in **both** directions:
+Whatever you build, assert the comparison in **both** directions:
 
 ```bash
 fxcss shot --theme . --out shots/a
@@ -52,7 +42,4 @@ fxcss compare --base shots/a --head shots/b --out out   # must report 0 changed
 ```
 
 An unchanged theme rendering identically twice is what makes a reported change
-trustworthy. Every real bug in fxcss so far was caught by that assertion rather
-than by review. The repo's own `.github/workflows/ci.yml` does exactly this, and
-also checks the opposite — that an obvious CSS change *is* detected — so a
-comparison that silently stopped working would fail the build.
+trustworthy. Every real bug in fxcss so far was caught by that assertion.

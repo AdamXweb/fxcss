@@ -36,5 +36,8 @@ Issues = "https://github.com/AdamXweb/fxcss/issues"
 [tool.setuptools]
 packages = ["fxcss"]
 
+[tool.setuptools.package-data]
+fxcss = ["templates/*.yml"]
+
 [tool.setuptools.dynamic]
 version = {attr = "fxcss.__version__"}

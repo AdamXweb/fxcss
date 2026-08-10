@@ -223,3 +223,60 @@ class FindVariantSheetsTests(unittest.TestCase):
         from fxcss.core import find_variant_sheets
         with tempfile.TemporaryDirectory() as td:
             self.assertEqual(find_variant_sheets(Path(td)), {})
+
+
+class ScaffoldTests(unittest.TestCase):
+    def test_variant_alternation(self):
+        from fxcss.scaffold import variant_alternation
+        self.assertEqual(variant_alternation([]), "")
+        self.assertEqual(variant_alternation(["b-2", "a"]), "|variant-(?:a|b-2)")
+        # Anything that could break out of the regex is dropped, not escaped:
+        # the allowlist is a security boundary and only boring names belong.
+        self.assertEqual(variant_alternation(["ok", "Bad.Name", "x|y"]),
+                         "|variant-(?:ok)")
+
+    def test_https_repo_url(self):
+        from fxcss.scaffold import https_repo_url
+        self.assertEqual(https_repo_url("git@github.com:o/r.git"),
+                         "https://github.com/o/r")
+        self.assertEqual(https_repo_url("https://github.com/o/r.git"),
+                         "https://github.com/o/r")
+        self.assertEqual(https_repo_url("https://github.com/o/r/"),
+                         "https://github.com/o/r")
+        self.assertIsNone(https_repo_url(""))
+        self.assertIsNone(https_repo_url("not a remote"))
+
+    def test_write_workflows_and_skip(self):
+        from fxcss.scaffold import write_workflows
+        with tempfile.TemporaryDirectory() as td:
+            theme = Path(td)
+            (theme / "chrome").mkdir()
+            (theme / "custom").mkdir()
+            (theme / "custom" / "my-variant.css").write_text("x{}")
+            written, skipped = write_workflows(theme, ["my-variant"],
+                                               version="v9.9.9")
+            self.assertEqual(len(written), 3)
+            self.assertEqual(skipped, [])
+            publish = (theme / ".github" / "workflows"
+                       / "pr-preview-publish.yml").read_text()
+            self.assertIn("|variant-(?:my-variant)", publish)
+            self.assertNotIn("__FXCSS_", publish)
+            preview = (theme / ".github" / "workflows" / "pr-preview.yml").read_text()
+            self.assertIn("FXCSS_VERSION: v9.9.9", preview)
+            # second run leaves the files alone
+            written2, skipped2 = write_workflows(theme, [], version="v9.9.9")
+            self.assertEqual(written2, [])
+            self.assertEqual(len(skipped2), 3)
+
+
+class ChromaSensitivityTests(unittest.TestCase):
+    def test_chroma_only_shift_is_detected(self):
+        # A blue-grey to peach tint changes channels by (+19, -4, -30): its
+        # luminance delta is ~11, under the threshold, but any theme user
+        # would see it. The per-channel max must catch it.
+        from PIL import Image
+        from fxcss.compare import diff_stats
+        a = Image.new("RGB", (10, 10), (0xEA, 0xEE, 0xFB))
+        b = Image.new("RGB", (10, 10), (0xFD, 0xEA, 0xDD))
+        changed, total, _ = diff_stats(a, b)
+        self.assertEqual((changed, total), (100, 100))

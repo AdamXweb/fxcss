@@ -73,9 +73,19 @@ def normalise(im, width=PANEL_WIDTH):
 
 
 def diff_stats(base, head):
-    """Return (changed_pixel_count, total, mask) ignoring sub-threshold noise."""
-    delta = ImageChops.difference(base, head).convert("L")
-    mask = delta.point(lambda v: 255 if v >= NOISE_THRESHOLD else 0)
+    """Return (changed_pixel_count, total, mask) ignoring sub-threshold noise.
+
+    Thresholds the per-channel *maximum* difference, not the luminance of the
+    difference. Luminance averages the channels, so a chroma-only shift -- a
+    toolbar tinted from blue-grey to peach, say -- can slide under the
+    threshold while being plainly visible. Recolouring is exactly the kind of
+    change a theme differ exists to catch.
+    """
+    delta = ImageChops.difference(base, head)
+    channel_max = delta.split()[0]
+    for channel in delta.split()[1:]:
+        channel_max = ImageChops.lighter(channel_max, channel)
+    mask = channel_max.point(lambda v: 255 if v >= NOISE_THRESHOLD else 0)
     changed = mask.histogram()[255]
     return changed, base.width * base.height, mask
 
