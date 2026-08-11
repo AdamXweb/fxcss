@@ -746,6 +746,21 @@ win.gBrowser.selectedTab.toggleMuteAudio();
 return win.gBrowser.selectedTab.hasAttribute("muted");
 """
 
+# After the strip overflows, Firefox scrolls the selected tab into view -- and
+# where that lands is bistable between runs (seen live: two runs settling at
+# different offsets, each internally stable, ~1% of pixels apart). Pinning the
+# strip to its start before capture removes the freedom. Runs as a _shot
+# `before` hook because a relayout (density change, sidebar opening) triggers
+# the ensure-visible scroll again.
+PIN_TABSTRIP = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+const box = win.gBrowser.tabContainer.arrowScrollbox;
+if (box && box.scrollbox) {
+  box.scrollbox.scrollTo({left: 0, top: 0, behavior: "instant"});
+}
+return true;
+"""
+
 MANY_TABS = """
 const [url, count] = arguments;
 const win = Services.wm.getMostRecentWindow("navigator:browser");
@@ -901,7 +916,7 @@ def capture_views(session: Session, outdir: Path, modes=("light", "dark"),
     # and the shrunken tab layout.
     m.script(MANY_TABS, [session.urls["docs.html"], 18])
     time.sleep(3.0)
-    _shot(m, outdir, "extra-07-many-tabs")
+    _shot(m, outdir, "extra-07-many-tabs", before=PIN_TABSTRIP)
 
     # A private window is a separate window with its own styling; plenty of
     # themes style it and never look at it again.
@@ -943,13 +958,13 @@ def capture_views(session: Session, outdir: Path, modes=("light", "dark"),
     # changed so the next view starts from the same place.
     m.script(SET_DENSITY, [1])
     time.sleep(1.5)
-    _shot(m, outdir, "extra-09-compact")
+    _shot(m, outdir, "extra-09-compact", before=PIN_TABSTRIP)
     m.script(SET_DENSITY, [0])
     time.sleep(1.0)
 
     if m.script(SHOW_SIDEBAR):
         time.sleep(1.8)
-        _shot(m, outdir, "extra-10-sidebar")
+        _shot(m, outdir, "extra-10-sidebar", before=PIN_TABSTRIP)
         m.script(HIDE_SIDEBAR)
         time.sleep(1.0)
     else:
@@ -971,7 +986,7 @@ def capture_views(session: Session, outdir: Path, modes=("light", "dark"),
 
     if m.script(ENTER_CUSTOMIZE):
         time.sleep(2.5)
-        _shot(m, outdir, "extra-12-customize")
+        _shot(m, outdir, "extra-12-customize", before=PIN_TABSTRIP)
         m.script(EXIT_CUSTOMIZE)
         time.sleep(2.0)
     else:
