@@ -26,8 +26,8 @@ jobs:
         # prove every module at least loads there.
         python: ['3.9', '3.12']
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
       - run: python -m pip install --disable-pip-version-check ".[images]"
@@ -49,9 +49,9 @@ jobs:
             label: Linux
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -169,7 +169,7 @@ jobs:
       - name: catalogue
         run: fxcss catalogue --theme fxcss/templates/starter --out out/catalogue --self-contained
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: fxcss-${{ matrix.label }}
