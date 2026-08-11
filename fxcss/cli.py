@@ -2,6 +2,7 @@
 """fxcss - a testing toolkit for Firefox userChrome.css themes.
 
     fxcss try          download a theme from GitHub and test-drive it
+    fxcss new          start a theme from a small, working scaffold
     fxcss init         add PR previews and CI checks to your theme repo
     fxcss tweaks       screenshot every install option, into a committable doc
     fxcss watch        edit CSS and see it live, no restart
@@ -31,11 +32,14 @@ from . import __version__
 LANDING = """fxcss - a testing toolkit for Firefox userChrome.css themes
 
   Building a theme?
+    fxcss new my-theme             start from a small, working scaffold
     fxcss watch                    edit CSS, see it live, no restart
     fxcss pick                     click any part of the UI to get its selector
 
   Trying someone else's theme?
     fxcss try owner/repo           test-drive it in a throwaway profile
+                                   (find themes: firefoxcss-store.github.io,
+                                    r/FirefoxCSS)
 
   Maintaining a theme repository?
     fxcss init                     add before/after PR previews and CI checks
@@ -176,6 +180,26 @@ def cmd_try(args):
             shutil.copytree(workdir / "src", keep)
             print(f"  kept the download at {keep}")
         shutil.rmtree(workdir, ignore_errors=True)
+
+
+def cmd_new(args):
+    from . import scaffold
+    target = args.directory.resolve()
+    try:
+        created = scaffold.new_theme(target)
+    except FileExistsError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"Started a theme in {target}:")
+    for rel in created:
+        print(f"  {rel}")
+    print()
+    print("Next:")
+    print(f"  cd {args.directory}")
+    print("  fxcss watch        # open it live; edit chrome/userChrome.css and save")
+    print("  fxcss pick         # click any part of the UI to get its selector")
+    print("  fxcss init         # when it lives on GitHub, add PR previews")
+    return 0
 
 
 def cmd_tweaks(args):
@@ -533,7 +557,10 @@ def main(argv=None):
 
     for verb, helptext in (("try", "download a theme from GitHub and test-drive it"),
                            ("install", "alias for try")):
-        tr = sub.add_parser(verb, help=helptext)
+        tr = sub.add_parser(
+            verb, help=helptext,
+            epilog="Looking for themes? Browse firefoxcss-store.github.io or "
+                   "r/FirefoxCSS — anything with a userChrome.css on GitHub works.")
         tr.add_argument("repo", help="owner/name, or a github.com URL")
         tr.add_argument("--firefox", default=None,
                         help="path to the firefox binary (default: autodetect)")
@@ -552,6 +579,10 @@ def main(argv=None):
         tr.add_argument("--no-devtools", action="store_true")
         _menus(tr)
         tr.set_defaults(func=cmd_try)
+
+    nw = sub.add_parser("new", help="start a theme from a small, working scaffold")
+    nw.add_argument("directory", type=Path, help="directory to create")
+    nw.set_defaults(func=cmd_new)
 
     tw = sub.add_parser("tweaks",
                         help="screenshot every install option into a committable doc")

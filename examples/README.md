@@ -20,16 +20,14 @@ runs their code cannot be the half that posts the comment.
 The templates live in [`fxcss/templates/`](../fxcss/templates/) if you want to
 read them before generating anything.
 
-## `minimal-theme/`
+## The starter theme
 
-A small, complete `userChrome.css` starting point. This repo's CI renders it on
-macOS, Windows and Linux on every push — an unchanged theme must render
-identically three times, and an obvious CSS change must be detected. Its
-`custom/accent-red.css` exists so variant capture is exercised too.
-
-```bash
-fxcss watch --theme examples/minimal-theme
-```
+`fxcss new my-theme` scaffolds a small, complete `userChrome.css` starting
+point. It ships inside the package (`fxcss/templates/starter/`), and this
+repo's CI renders that exact tree on macOS, Windows and Linux on every push —
+an unchanged theme must render identically three times, and an obvious CSS
+change must be detected. Its `custom/accent-red.css` exists so variant capture
+is exercised too.
 
 ## Writing your own checks
 

@@ -15,7 +15,7 @@ and screenshot-test changes in CI.
 
 | You are… | Start with |
 | --- | --- |
-| **Building a theme** | `fxcss watch` — edit CSS, see it live in ~50ms. `fxcss pick` names any element you click. |
+| **Building a theme** | `fxcss new my-theme` scaffolds one; `fxcss watch` shows edits live in ~50ms; `fxcss pick` names any element you click. |
 | **Trying someone's theme** | `fxcss try owner/repo` — test-drive it in a throwaway profile; close the window and nothing remains. |
 | **Maintaining a theme repo** | `fxcss init` — before/after screenshots on every pull request, on macOS, Windows and Linux. |
 
@@ -26,6 +26,9 @@ pipx install "fxcss[images]"
 
 # See it work on a real theme before touching your own:
 fxcss try AdamXweb/WhiteSurFirefoxThemeMacOS
+
+# No theme yet? Start from a small working one:
+fxcss new my-theme
 
 # Point it at your theme (the folder containing chrome/) and edit live:
 cd my-theme && fxcss watch
@@ -85,7 +88,7 @@ For CI, or anywhere a surprise upgrade would be unwelcome, pin the release —
 the [releases page](https://github.com/AdamXweb/fxcss/releases) has the latest:
 
 ```bash
-python3 -m pip install "fxcss[images]==0.9.0"
+python3 -m pip install "fxcss[images]==0.10.0"
 ```
 
 Either gives you an `fxcss` command. To hack on it, clone and install editable:
@@ -108,6 +111,7 @@ at it with `--theme /path/to/theme`.
 
 | Command | What it's for |
 | --- | --- |
+| `new` | Start a theme from a small, working scaffold |
 | [`try`](#fxcss-try) | Download a theme from GitHub and test-drive it |
 | [`watch`](#fxcss-watch) | Edit CSS and see it live, no restart |
 | [`pick`](#fxcss-pick) | Click any part of the UI to get its CSS selector |
@@ -537,7 +541,7 @@ check out the base revision and the pull request revision, render both, compare,
 and publish the result.
 
 ```yaml
-- run: pip install "fxcss[images]==0.9.0"   # pin: your CI, your upgrades
+- run: pip install "fxcss[images]==0.10.0"   # pin: your CI, your upgrades
 - run: fxcss shot --theme base --out shots/base
 - run: fxcss shot --theme head --out shots/head
 - run: fxcss compare --base shots/base --head shots/head --out out/ --platform ${{ runner.os }}
@@ -557,7 +561,7 @@ allowlist and version pin included. [`examples/README.md`](examples/README.md)
 explains the shape of what it writes, most importantly why the preview is two
 workflows (fork PRs get a read-only token, so the half that runs their code
 cannot be the half that posts the comment). This repo's own CI runs the full
-pipeline against `examples/minimal-theme` on macOS, Windows and Linux.
+pipeline against the packaged starter theme on macOS, Windows and Linux.
 
 ## Things worth knowing
 

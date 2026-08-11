@@ -254,7 +254,7 @@ class ScaffoldTests(unittest.TestCase):
             (theme / "custom").mkdir()
             (theme / "custom" / "my-variant.css").write_text("x{}")
             written, skipped = write_workflows(theme, ["my-variant"],
-                                               version="v9.9.9")
+                                               version="9.9.9")
             self.assertEqual(len(written), 3)
             self.assertEqual(skipped, [])
             publish = (theme / ".github" / "workflows"
@@ -262,9 +262,11 @@ class ScaffoldTests(unittest.TestCase):
             self.assertIn("|variant-(?:my-variant)", publish)
             self.assertNotIn("__FXCSS_", publish)
             preview = (theme / ".github" / "workflows" / "pr-preview.yml").read_text()
-            self.assertIn("FXCSS_VERSION: v9.9.9", preview)
+            self.assertIn("FXCSS_VERSION: 9.9.9", preview)
+            self.assertIn("fxcss[images]==${{ env.FXCSS_VERSION }}", preview)
+            self.assertNotIn("git+https", preview)
             # second run leaves the files alone
-            written2, skipped2 = write_workflows(theme, [], version="v9.9.9")
+            written2, skipped2 = write_workflows(theme, [], version="9.9.9")
             self.assertEqual(written2, [])
             self.assertEqual(len(skipped2), 3)
 
@@ -333,3 +335,23 @@ class TweaksMarkdownTests(unittest.TestCase):
         self.assertIn("![before and after of compact-tabs](compact-tabs-diff.png)", md)
         # relative paths only -- the doc must be committable anywhere
         self.assertNotIn("/t/custom", md.replace("`custom/", ""))
+
+
+class NewThemeTests(unittest.TestCase):
+    def test_scaffolds_the_starter(self):
+        from fxcss.scaffold import new_theme
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "my-theme"
+            created = new_theme(target)
+            self.assertIn(Path("chrome/userChrome.css"), created)
+            self.assertIn(Path("custom/accent-red.css"), created)
+            text = (target / "chrome/userChrome.css").read_text()
+            self.assertIn("--demo-accent", text)
+
+    def test_refuses_non_empty_target(self):
+        from fxcss.scaffold import new_theme
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td)
+            (target / "existing.txt").write_text("x")
+            with self.assertRaises(FileExistsError):
+                new_theme(target)

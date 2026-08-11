@@ -1,6 +1,6 @@
 name: CI
 
-# Smoke-tests the toolkit against examples/minimal-theme on the two platforms
+# Smoke-tests the toolkit against fxcss/templates/starter on the two platforms
 # most themes target. The determinism check is the important one: rendering the
 # same unchanged theme twice must produce identical screenshots, or `compare`
 # would report noise as a change on every pull request.
@@ -109,16 +109,16 @@ jobs:
           "FIREFOX_BIN=$bin" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: doctor
-        run: fxcss doctor --theme examples/minimal-theme
+        run: fxcss doctor --theme fxcss/templates/starter
 
       # Three, not two. The flakes this has caught were intermittent, so a
       # single pair passed often enough to be misleading.
       - name: Capture three times
         shell: bash
         run: |
-          fxcss shot --theme examples/minimal-theme --out shots/a --variants all
-          fxcss shot --theme examples/minimal-theme --out shots/b --variants all
-          fxcss shot --theme examples/minimal-theme --out shots/c --variants all
+          fxcss shot --theme fxcss/templates/starter --out shots/a --variants all
+          fxcss shot --theme fxcss/templates/starter --out shots/b --variants all
+          fxcss shot --theme fxcss/templates/starter --out shots/c --variants all
 
       - name: Determinism — the same theme must render identically
         shell: bash
@@ -147,7 +147,7 @@ jobs:
       - name: Detects a real change
         shell: bash
         run: |
-          cp -r examples/minimal-theme "$RUNNER_TEMP/changed-theme"
+          cp -r fxcss/templates/starter "$RUNNER_TEMP/changed-theme"
           printf '\n#nav-bar { background-color: #ff2d55 !important; }\n' \
             >> "$RUNNER_TEMP/changed-theme/chrome/userChrome.css"
           fxcss shot --theme "$RUNNER_TEMP/changed-theme" --out shots/changed
@@ -164,10 +164,10 @@ jobs:
           PY
 
       - name: audit — the example theme must have no stale selectors
-        run: fxcss audit --theme examples/minimal-theme --strict --no-colour
+        run: fxcss audit --theme fxcss/templates/starter --strict --no-colour
 
       - name: catalogue
-        run: fxcss catalogue --theme examples/minimal-theme --out out/catalogue --self-contained
+        run: fxcss catalogue --theme fxcss/templates/starter --out out/catalogue --self-contained
 
       - uses: actions/upload-artifact@v4
         if: always()

@@ -6,7 +6,8 @@ The templates ship inside the package, so a `pipx install fxcss` user gets
 them without ever visiting the repository. Three things are substituted per
 theme, which is exactly the hand-editing that used to trip people up:
 
-* the fxcss version pin, set to the version doing the generating
+* the fxcss version pin (a PyPI release), set to the version doing the
+  generating
 * the publish allowlist's variant names, enumerated from the theme's own
   optional stylesheets -- an allowlist someone has to remember to extend is
   an allowlist that silently drops views
@@ -83,7 +84,7 @@ def write_workflows(theme: Path, variant_slugs, watch=False, showcase=False,
     carry local edits, and clobbering them silently would be worse than making
     someone pass --force.
     """
-    version = version or f"v{__version__}"
+    version = version or __version__
     alt = variant_alternation(variant_slugs)
     repo_url = detect_repo_url(theme)
 
@@ -107,6 +108,28 @@ def write_workflows(theme: Path, variant_slugs, watch=False, showcase=False,
                           encoding="utf-8")
         written.append(rel)
     return written, skipped
+
+
+def new_theme(target: Path):
+    """Copy the starter theme into target. Returns the files created.
+
+    The starter is the same theme this repo's CI renders on every push, so a
+    scaffold is never something that "should" work -- it is the exact tree the
+    determinism and sensitivity checks run against.
+    """
+    root = resources.files("fxcss") / "templates" / "starter"
+    if target.exists() and any(target.iterdir()):
+        raise FileExistsError(f"{target} exists and is not empty")
+    created = []
+    for entry in root.rglob("*"):
+        if not entry.is_file():
+            continue
+        rel = Path(str(entry)).relative_to(Path(str(root)))
+        dest = target / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(entry.read_text(encoding="utf-8"), encoding="utf-8")
+        created.append(rel)
+    return sorted(created)
 
 
 BADGE = ("[![theme previews by fxcss]"
