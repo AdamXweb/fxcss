@@ -163,6 +163,37 @@ jobs:
           print(f"{len(s['changed_views'])} of {len(s['views'])} views changed, as expected")
           PY
 
+      - name: The sidebar, vertical-tab and toolbar views cover new ground
+        shell: bash
+        run: |
+          # Each rule here is unreachable from the views that existed before
+          # 0.12: nothing rendered a sidebar panel body, a vertical tab strip,
+          # or a rearranged nav bar. If one of these views regresses into
+          # capturing the plain window, this step is what notices.
+          cp -r fxcss/templates/starter "$RUNNER_TEMP/state-theme"
+          cat >> "$RUNNER_TEMP/state-theme/chrome/userChrome.css" <<'CSS'
+          #sidebar-header { background-color: #ff2d55 !important; }
+          #tabbrowser-tabs[orient="vertical"] { background-color: #34c759 !important; }
+          #home-button { background-color: #ff9500 !important; }
+          CSS
+          fxcss shot --theme "$RUNNER_TEMP/state-theme" --out shots/state
+          fxcss compare --base shots/a --head shots/state --out out/state \
+            --platform ${{ matrix.label }}
+          python - <<'PY'
+          import json, pathlib, sys
+          summary = json.loads(pathlib.Path("out/state/summary.json").read_text())
+          changed = {v["view"] for v in summary["changed_views"]}
+          wanted = {"extra-10-sidebar-bookmarks", "extra-11-sidebar-history",
+                    "extra-14-vertical-tabs", "extra-15-toolbar"}
+          missing = sorted(wanted - changed)
+          if missing:
+              print("These views did not react to a rule that only they can "
+                    "render, so they are not capturing the state they claim: "
+                    + ", ".join(missing))
+              sys.exit(1)
+          print(f"all four state views reacted; {len(changed)} views changed")
+          PY
+
       - name: audit — the example theme must have no stale selectors
         run: fxcss audit --theme fxcss/templates/starter --strict --no-colour
 

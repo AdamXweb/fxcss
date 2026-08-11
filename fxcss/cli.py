@@ -94,6 +94,37 @@ def _needs_pillow(command, exc):
     return 2
 
 
+def _toolbar_ops(args):
+    """Parse --toolbar, turning a bad spec into a message rather than a stack."""
+    spec = getattr(args, "toolbar", None)
+    if not spec:
+        return None
+    try:
+        return core.parse_toolbar_spec(spec)
+    except ValueError as exc:
+        raise SystemExit(f"error: --toolbar: {exc}")
+
+
+def _apply_toolbar(session, ops):
+    """Rearrange a live window, reporting widget ids Firefox does not know.
+
+    Worth reporting rather than ignoring: CustomizableUI accepts any string and
+    writes it into the placements, so a typo is otherwise invisible -- the
+    window simply comes up unchanged.
+    """
+    if not ops:
+        return
+    result = session.m.script(core.APPLY_TOOLBAR, [ops]) or {}
+    if result.get("unknown"):
+        print(f"  no such toolbar widget: {', '.join(result['unknown'])}",
+              flush=True)
+    if result.get("applied"):
+        print(f"  toolbar: {', '.join(result['applied'])}", flush=True)
+    if result.get("overflowing"):
+        print("  the nav bar overflowed; some widgets are behind the chevron",
+              flush=True)
+
+
 def _parse_choice(raw, count, default):
     """Menu input -> zero-based index. Anything unusable means the default."""
     raw = (raw or "").strip()
@@ -215,6 +246,7 @@ def cmd_try(args):
 
         with session:
             session.setup_window()
+            _apply_toolbar(session, _toolbar_ops(args))
             version = session.info()["version"]
             print(f"\n  Firefox {version} — this is a throwaway profile; your own "
                   f"Firefox\n  profile has not been touched.")
@@ -330,6 +362,7 @@ def cmd_watch(args):
                            empty_user_chrome=True, devtools=not args.no_devtools)
     with session:
         session.setup_window()
+        _apply_toolbar(session, _toolbar_ops(args))
         session.reload_theme()
         print("\n  theme loaded. Saving any file under chrome/ reloads it.")
         if not args.no_devtools:
@@ -523,10 +556,12 @@ def cmd_shot(args):
         if not variants:
             print("  note: --variants all found no optional stylesheets", flush=True)
 
+    toolbar = _toolbar_ops(args)
     firefox = choose_firefox(args.firefox)
     with core.Session(theme, firefox) as session:
         if not getattr(args, "only_live", False):
-            core.capture_views(session, args.out.resolve(), variants=variants)
+            core.capture_views(session, args.out.resolve(), variants=variants,
+                               toolbar=toolbar)
         if urls:
             print("\n  live sites (captured, never compared):", flush=True)
             core.capture_live(session, args.out.resolve(), urls)
@@ -657,6 +692,8 @@ def main(argv=None):
                         help="keep the downloaded theme at this path")
         tr.add_argument("--info", action="store_true",
                         help="report what was found and stop, without launching")
+        tr.add_argument("--toolbar", default=None, metavar="SPEC",
+                        help="rearrange the toolbar, e.g. 'new-tab-button>nav-bar'")
         tr.add_argument("--no-devtools", action="store_true")
         _menus(tr)
         tr.set_defaults(func=cmd_try)
@@ -696,6 +733,9 @@ def main(argv=None):
     w.add_argument("--interval", type=float, default=0.4, help="poll seconds")
     w.add_argument("--shot", type=Path, default=None,
                    help="also write a screenshot here after every reload")
+    w.add_argument("--toolbar", default=None, metavar="SPEC",
+                   help="rearrange the toolbar before watching, e.g. "
+                        "'new-tab-button>nav-bar'")
     w.add_argument("--no-devtools", action="store_true",
                    help="do not enable the Browser Toolbox in the temp profile")
     w.set_defaults(func=cmd_watch)
@@ -742,6 +782,9 @@ def main(argv=None):
                    help="also capture the theme against a live site, light and "
                         "dark; repeatable. Written to <out>/live/ and never "
                         "included in a comparison")
+    s.add_argument("--toolbar", default=None, metavar="SPEC",
+                   help="arrangement for the toolbar view, e.g. "
+                        "'new-tab-button>nav-bar, -downloads-button'")
     s.add_argument("--variants", default=None, metavar="all|NAME[,NAME]",
                    help="also capture one view per optional stylesheet from "
                         "the theme's custom/ (or optional/, variants/) folder")

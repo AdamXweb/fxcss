@@ -97,7 +97,7 @@ the [releases page](https://github.com/AdamXweb/fxcss/releases) has the latest.
 CI runners' Pythons are not externally managed, so plain pip is fine there:
 
 ```bash
-pip install "fxcss[images]==0.11.2"
+pip install "fxcss[images]==0.12.0"
 ```
 
 Either gives you an `fxcss` command. To hack on it, clone and install editable:
@@ -529,6 +529,39 @@ context menus are themeable on your platform, how many stylesheets your theme
 has — and **every Gecko build installed on the machine**, with versions. Start
 here if something isn't behaving.
 
+#### Browser states it captures
+
+`fxcss shot` renders 18 views, so a change is judged against the states people
+actually use rather than one idle window: light and dark, the focused address
+bar, the find bar, audio and muted tabs, container tabs, an overflowing tab
+strip, a private window, compact density, right-to-left chrome, Customize
+mode — and three that a theme is most likely to have never been tested in:
+
+- **Sidebar — bookmarks and history.** Both panels, with their trees expanded,
+  because a fresh profile shows them collapsed and a collapsed panel has almost
+  nothing in it to style.
+- **Vertical tabs.** Firefox 133+ does not restyle the tab strip here, it
+  *moves* it: `#tabbrowser-tabs` leaves `#TabsToolbar` for `#vertical-tabs`, so
+  every `#TabsToolbar > …` rule a theme owns silently stops matching while its
+  unscoped `.tabbrowser-tab` rules keep applying horizontal geometry to a
+  vertical column. Older builds without vertical tabs skip the view.
+- **Customised toolbar.** The nav bar with widgets moved into it — by default
+  including the new tab button, which is the rearrangement plenty of theme
+  READMEs ask users to make by hand and which nothing could test until now.
+
+Set your own arrangement with `--toolbar`, on `shot`, `watch` or `try`:
+
+```bash
+fxcss watch --toolbar "new-tab-button>nav-bar, -downloads-button"
+fxcss shot  --toolbar "home-button>nav-bar@0" --out shots/
+```
+
+`widget>area` moves a widget (optionally `@position`), `-widget` removes one.
+Areas are `nav-bar`, `TabsToolbar`, `PersonalToolbar`, `vertical-tabs`,
+`unified-extensions-area`. A widget id Firefox does not recognise is reported
+rather than ignored — Firefox itself accepts any string and then quietly
+renders nothing.
+
 #### Testing against Nightly, Developer Edition, ESR — or a fork
 
 Every command that opens a browser takes a channel name as well as a path:
@@ -571,7 +604,7 @@ check out the base revision and the pull request revision, render both, compare,
 and publish the result.
 
 ```yaml
-- run: pip install "fxcss[images]==0.11.2"   # pin: your CI, your upgrades
+- run: pip install "fxcss[images]==0.12.0"   # pin: your CI, your upgrades
 - run: fxcss shot --theme base --out shots/base
 - run: fxcss shot --theme head --out shots/head
 - run: fxcss compare --base shots/base --head shots/head --out out/ --platform ${{ runner.os }}
