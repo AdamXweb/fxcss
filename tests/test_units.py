@@ -6,6 +6,7 @@ parsers. The full pipeline is exercised by the smoke job in CI; this file is
 for the logic that can regress silently inside it.
 """
 
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -355,3 +356,180 @@ class NewThemeTests(unittest.TestCase):
             (target / "existing.txt").write_text("x")
             with self.assertRaises(FileExistsError):
                 new_theme(target)
+
+
+class FirefoxDiscoveryTests(unittest.TestCase):
+    def fake_apps(self, td, names):
+        for name in names:
+            macos = Path(td) / f"{name}.app" / "Contents" / "MacOS"
+            macos.mkdir(parents=True)
+            binary = macos / "firefox"
+            binary.write_text("#!/bin/sh\n")
+            binary.chmod(0o755)
+
+    def test_labels(self):
+        from fxcss.core import _label_for
+        self.assertEqual(_label_for("Firefox"), "stable")
+        self.assertEqual(_label_for("Firefox Nightly"), "nightly")
+        self.assertEqual(_label_for("Firefox Developer Edition"), "developer")
+        self.assertEqual(_label_for("FirefoxESR"), "esr")
+        self.assertEqual(_label_for("LibreWolf"), "librewolf")
+        self.assertIsNone(_label_for("Google Chrome"))
+
+    def test_discovery_orders_and_dedupes(self):
+        from fxcss.core import discover_firefoxes
+        with tempfile.TemporaryDirectory() as td:
+            self.fake_apps(td, ["Firefox Nightly", "Firefox", "LibreWolf"])
+            builds = discover_firefoxes(extra_roots=[Path(td)])
+            labels = [b["label"] for b in builds if str(td) in b["path"]]
+            self.assertEqual(labels, ["stable", "nightly", "librewolf"])
+
+    def test_channel_resolution_and_helpful_error(self):
+        import os
+        from fxcss.core import find_firefox
+        with tempfile.TemporaryDirectory() as td:
+            self.fake_apps(td, ["Firefox Nightly"])
+            os.environ["FXCSS_FIREFOX_ROOTS"] = td
+            try:
+                path = find_firefox("nightly")
+                self.assertIn("Firefox Nightly.app", path)
+                with self.assertRaises(SystemExit) as ctx:
+                    find_firefox("floorp")
+                self.assertIn("nightly", str(ctx.exception))
+            finally:
+                del os.environ["FXCSS_FIREFOX_ROOTS"]
+
+
+class MenuChoiceTests(unittest.TestCase):
+    def test_parse_choice(self):
+        from fxcss.cli import _parse_choice
+        self.assertEqual(_parse_choice("", 3, 0), 0)       # Enter = default
+        self.assertEqual(_parse_choice("2", 3, 0), 1)
+        self.assertEqual(_parse_choice("9", 3, 0), 0)      # out of range
+        self.assertEqual(_parse_choice("x", 3, 0), 0)      # nonsense
+        self.assertEqual(_parse_choice(None, 3, 2), 2)
+
+
+class PillowFreeCoreTests(unittest.TestCase):
+    """The base install must never touch PIL outside the three image commands.
+
+    This exact regression shipped once: css_references lived in catalogue.py,
+    whose module header imports PIL, so `fxcss pick` crashed for anyone
+    installed without the [images] extra.
+    """
+
+    def run_blocked(self, code):
+        import subprocess, sys
+        return subprocess.run(
+            [sys.executable, "-c", "import sys; sys.modules['PIL'] = None; " + code],
+            capture_output=True, text=True)
+
+    def test_core_modules_import_without_pillow(self):
+        result = self.run_blocked(
+            "import fxcss.cli, fxcss.core, fxcss.audit, fxcss.probe, "
+            "fxcss.fetch, fxcss.scaffold; "
+            "from fxcss.audit import css_references; print('ok')")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("ok", result.stdout)
+
+    def test_image_commands_explain_instead_of_crashing(self):
+        result = self.run_blocked(
+            "from fxcss.cli import main; "
+            "import sys; sys.exit(main(['compare', '--base', 'a', '--head', 'b', "
+            "'--out', 'c', '--platform', 'p']))")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("needs Pillow", result.stderr)
+        self.assertIn("pipx inject fxcss pillow", result.stderr)
+
+
+class PublishAllowlistCoverageTests(unittest.TestCase):
+    """Every view core captures must survive the publish workflow's allowlist.
+
+    The allowlist filters an untrusted artifact, so it is deliberately an
+    enumeration rather than a pattern -- and an enumeration someone has to
+    remember to extend is one that silently drops views, which is exactly what
+    happened once: five newer views vanished from PR comments with no error
+    anywhere. This closes that door by construction.
+    """
+
+    def view_names(self):
+        source = (Path(__file__).parent.parent / "fxcss" / "core.py").read_text()
+        # Match the names wherever they are written, not just as a literal
+        # argument to _shot: views captured in a loop keep their names in a
+        # tuple, and an earlier version of this guard silently skipped those --
+        # which is the same class of gap it exists to catch.
+        names = set(re.findall(r'"(extra-\d{2}-[a-z0-9-]+)"', source))
+        for name in re.findall(r'f"\{mode\}-(\d{2}-[a-z0-9-]+)"', source):
+            names.update({f"light-{name}", f"dark-{name}"})
+        return names
+
+    def test_every_captured_view_is_publishable(self):
+        template = (Path(__file__).parent.parent / "fxcss" / "templates"
+                    / "pr-preview-publish.yml").read_text()
+        pattern = re.search(r"const NAME = /\^(.+?)\$/", template).group(1)
+        pattern = pattern.replace("__FXCSS_VARIANT_ALT__", "")
+        names = self.view_names()
+        self.assertGreaterEqual(len(names), 12, "view extraction looks broken")
+        for name in sorted(names):
+            with self.subTest(view=name):
+                self.assertRegex(name + ".png", pattern,
+                                 f"{name} is captured but the publish allowlist "
+                                 f"drops it; add it to NAME in "
+                                 f"templates/pr-preview-publish.yml")
+
+    def test_every_extra_view_has_a_title(self):
+        template = (Path(__file__).parent.parent / "fxcss" / "templates"
+                    / "pr-preview-publish.yml").read_text()
+        titled = set(re.findall(r"'([0-9]{2}-[a-z0-9-]+)':", template))
+        for name in sorted(self.view_names()):
+            key = name.split("-", 1)[1] if name.startswith(("light-", "dark-")) else name
+            key = key[len("extra-"):] if key.startswith("extra-") else key
+            with self.subTest(view=name):
+                self.assertIn(key, titled,
+                              f"{name} would appear in the PR comment as a raw "
+                              f"slug; add it to TITLES")
+
+
+class ToolbarSpecTests(unittest.TestCase):
+    def parse(self, spec):
+        from fxcss.core import parse_toolbar_spec
+        return parse_toolbar_spec(spec)
+
+    def test_move_remove_and_position(self):
+        ops = self.parse("new-tab-button>nav-bar, -downloads-button, "
+                         "home-button>nav-bar@2")
+        self.assertEqual([o["op"] for o in ops], ["move", "remove", "move"])
+        self.assertEqual(ops[0], {"op": "move", "widget": "new-tab-button",
+                                  "area": "nav-bar", "position": None})
+        self.assertEqual(ops[1]["widget"], "downloads-button")
+        self.assertEqual(ops[2]["position"], 2)
+
+    def test_order_is_preserved(self):
+        # Positions are resolved against the arrangement as it stands when each
+        # step runs, so reordering the ops would change the result.
+        ops = self.parse("a>nav-bar@0, b>nav-bar@0")
+        self.assertEqual([o["widget"] for o in ops], ["a", "b"])
+
+    def test_whitespace_and_empties_are_tolerated(self):
+        self.assertEqual(len(self.parse("  a>nav-bar ,, -b ,  ")), 2)
+        self.assertEqual(self.parse(""), [])
+        self.assertEqual(self.parse(None), [])
+
+    def test_rejects_nonsense_with_a_usable_message(self):
+        for spec, expected in (("new-tab-button", "widget>area"),
+                               ("x>somewhere", "not a toolbar area"),
+                               ("-", "no widget"),
+                               (">nav-bar", "no widget"),
+                               ("a>nav-bar@x", "not a position number")):
+            with self.subTest(spec=spec):
+                with self.assertRaises(ValueError) as ctx:
+                    self.parse(spec)
+                self.assertIn(expected, str(ctx.exception))
+
+    def test_default_arrangement_is_valid_and_small(self):
+        from fxcss.core import DEFAULT_TOOLBAR, default_toolbar_ops
+        ops = default_toolbar_ops()
+        self.assertTrue(all(o["area"] == "nav-bar" for o in ops))
+        # A longer list overflows the nav bar at the capture window width,
+        # which hides the widgets the view exists to show.
+        self.assertLessEqual(len(ops), 6, DEFAULT_TOOLBAR)

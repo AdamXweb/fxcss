@@ -116,7 +116,7 @@ jobs:
             // it can be published.
                         // Enumerated on purpose: this is an allowlist over an untrusted
             // artifact. `fxcss init` regenerates it from the theme's variants.
-            const NAME = /^(?:(?:light|dark)-(?:01-window|02-urlbar|03-findbar)|extra-(?:04-audio|05-muted|06-containers|07-many-tabs|08-private|09-compact|10-sidebar|11-rtl|12-customize)__FXCSS_VARIANT_ALT__)\.png$/;
+            const NAME = /^(?:(?:light|dark)-(?:01-window|02-urlbar|03-findbar)|extra-(?:04-audio|05-muted|06-containers|07-many-tabs|08-private|09-compact|10-sidebar-bookmarks|11-sidebar-history|12-rtl|13-customize|14-vertical-tabs|15-toolbar)__FXCSS_VARIANT_ALT__)\.png$/;
             const staged = 'staged';
             fs.mkdirSync(staged, { recursive: true });
 
@@ -226,9 +226,12 @@ jobs:
               '07-many-tabs': 'Tab strip overflowing',
               '08-private': 'Private window',
               '09-compact': 'Compact density',
-              '10-sidebar': 'Sidebar open',
-              '11-rtl': 'Right-to-left UI',
-              '12-customize': 'Customize mode',
+              '10-sidebar-bookmarks': 'Sidebar — bookmarks',
+              '11-sidebar-history': 'Sidebar — history',
+              '12-rtl': 'Right-to-left UI',
+              '13-customize': 'Customize mode',
+              '14-vertical-tabs': 'Vertical tabs',
+              '15-toolbar': 'Customised toolbar',
             };
             const PLATFORM = { macos: 'macOS', windows: 'Windows', linux: 'Linux' };
 

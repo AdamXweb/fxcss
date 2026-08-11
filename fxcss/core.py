@@ -23,6 +23,7 @@ import re
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -601,18 +602,117 @@ Services.prefs.setIntPref("browser.uidensity", arguments[0]);
 return Services.prefs.getIntPref("browser.uidensity");
 """
 
-SHOW_SIDEBAR = """
+# SidebarController.show is async. Marionette's ExecuteScript does not await,
+# so the plain-script version of this returned while the panel's inner document
+# was still loading and the tree was empty -- measured: currentID flips at
+# +0.02s, the document reaches "complete" with rows at +0.07s. Awaiting removes
+# the guesswork entirely. An unknown panel id resolves false and leaves the
+# previous panel up rather than throwing, so the boolean must be checked.
+SHOW_SIDEBAR_PANEL = """
+const done = arguments[arguments.length - 1];
 const win = Services.wm.getMostRecentWindow("navigator:browser");
-const ui = win.SidebarController || win.SidebarUI;
-if (!ui) { return false; }
-try { ui.show("viewBookmarksSidebar"); return true; } catch (e) { return false; }
+const ui = win.SidebarController;
+if (!ui) { done(false); }
+else {
+  (async () => {
+    try {
+      const ok = await ui.show(arguments[0]);
+      done(ok === true && ui.currentID === arguments[0]);
+    } catch (e) { done(false); }
+  })();
+}
+"""
+
+# A fresh profile shows history as a single collapsed "Today" row and bookmarks
+# as three collapsed folders -- a panel with nothing in it for a theme to style.
+# Expanding is what makes these views worth capturing. Bottom-up, because
+# opening a container inserts rows below it and invalidates later indices.
+EXPAND_SIDEBAR_TREE = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+const browser = win.document.getElementById("sidebar");
+const doc = browser && browser.contentDocument;
+if (!doc) { return null; }
+const tree = doc.getElementById("historyTree") || doc.getElementById("bookmarks-view");
+if (!tree || !tree.view) { return null; }
+for (let i = tree.view.rowCount - 1; i >= 0; i--) {
+  if (tree.view.getLevel(i) === 0 &&
+      tree.view.isContainer(i) && !tree.view.isContainerOpen(i)) {
+    tree.view.toggleOpenState(i);
+  }
+}
+return {id: tree.id, rows: tree.view.rowCount};
 """
 
 HIDE_SIDEBAR = """
 const win = Services.wm.getMostRecentWindow("navigator:browser");
-const ui = win.SidebarController || win.SidebarUI;
+const ui = win.SidebarController;
 if (ui) { try { ui.hide(); } catch (e) {} }
 return true;
+"""
+
+# One pref does it: Firefox writes sidebar.revamp itself in response. Setting
+# revamp alone does nothing (measured: the strip stayed horizontal in
+# #TabsToolbar-customization-target). This applies live -- unlike the RTL pref,
+# the startup route is actively worse here, producing a nav bar missing its
+# stop/reload, downloads and account buttons.
+ENABLE_VERTICAL_TABS = """
+Services.prefs.setBoolPref("sidebar.verticalTabs", true);
+return Services.prefs.getBoolPref("sidebar.verticalTabs");
+"""
+
+# The pref reads back true long before -- and independently of -- the layout
+# moving, so the pref is not the test. #tabbrowser-tabs is physically relocated
+# into #vertical-tabs, and that relocation is what a theme's #TabsToolbar
+# descendant selectors stop matching against.
+VERTICAL_TABS_STATE = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+const tabs = win.document.querySelector("#tabbrowser-tabs");
+if (!tabs) { return null; }
+const rect = tabs.getBoundingClientRect();
+return {
+  orient: tabs.getAttribute("orient"),
+  parent: tabs.parentElement ? tabs.parentElement.id : null,
+  width: Math.round(rect.width),
+  height: Math.round(rect.height),
+};
+"""
+
+# win.CustomizableUI, not ChromeUtils.importESModule: the module URL moved
+# between builds (moz-src:/// on 153, resource:/// on ESR 140) and each hard
+# fails on the other, while the window property is the same object on both.
+#
+# addWidgetToArea neither throws nor validates -- a misspelled id is written
+# into the placements and getWidget() answers plausibly for it. An actual DOM
+# node is the only proof a widget id was real, which is what makes the typo in
+# someone's --toolbar an error message rather than a silently empty capture.
+APPLY_TOOLBAR = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+const CUI = win.CustomizableUI;
+if (!CUI) { return null; }
+const applied = [], unknown = [];
+for (const op of arguments[0]) {
+  try {
+    if (op.op === "remove") {
+      CUI.removeWidgetFromArea(op.widget);
+    } else if (op.position === null) {
+      CUI.addWidgetToArea(op.widget, op.area);
+    } else {
+      CUI.addWidgetToArea(op.widget, op.area, op.position);
+    }
+  } catch (e) {
+    unknown.push(op.widget);
+    continue;
+  }
+  const node = win.document.getElementById(op.widget);
+  const ok = op.op === "remove" ? !node : !!node;
+  (ok ? applied : unknown).push(op.widget);
+}
+const navbar = win.document.getElementById("nav-bar");
+return {
+  applied: applied,
+  unknown: unknown,
+  overflowing: navbar ? navbar.hasAttribute("overflowing") : false,
+};
 """
 
 GET_DIRECTION = """
@@ -745,6 +845,21 @@ win.gBrowser.selectedTab.toggleMuteAudio();
 return win.gBrowser.selectedTab.hasAttribute("muted");
 """
 
+# After the strip overflows, Firefox scrolls the selected tab into view -- and
+# where that lands is bistable between runs (seen live: two runs settling at
+# different offsets, each internally stable, ~1% of pixels apart). Pinning the
+# strip to its start before capture removes the freedom. Runs as a _shot
+# `before` hook because a relayout (density change, sidebar opening) triggers
+# the ensure-visible scroll again.
+PIN_TABSTRIP = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+const box = win.gBrowser.tabContainer.arrowScrollbox;
+if (box && box.scrollbox) {
+  box.scrollbox.scrollTo({left: 0, top: 0, behavior: "instant"});
+}
+return true;
+"""
+
 MANY_TABS = """
 const [url, count] = arguments;
 const win = Services.wm.getMostRecentWindow("navigator:browser");
@@ -827,7 +942,7 @@ return {
 # --- views -----------------------------------------------------------------
 
 def capture_views(session: Session, outdir: Path, modes=("light", "dark"),
-                  variants=None):
+                  variants=None, toolbar=None):
     """Capture the standard set of views. Returns the browser info dict."""
     outdir.mkdir(parents=True, exist_ok=True)
     session.setup_window()
@@ -900,7 +1015,7 @@ def capture_views(session: Session, outdir: Path, modes=("light", "dark"),
     # and the shrunken tab layout.
     m.script(MANY_TABS, [session.urls["docs.html"], 18])
     time.sleep(3.0)
-    _shot(m, outdir, "extra-07-many-tabs")
+    _shot(m, outdir, "extra-07-many-tabs", before=PIN_TABSTRIP)
 
     # A private window is a separate window with its own styling; plenty of
     # themes style it and never look at it again.
@@ -942,17 +1057,22 @@ def capture_views(session: Session, outdir: Path, modes=("light", "dark"),
     # changed so the next view starts from the same place.
     m.script(SET_DENSITY, [1])
     time.sleep(1.5)
-    _shot(m, outdir, "extra-09-compact")
+    _shot(m, outdir, "extra-09-compact", before=PIN_TABSTRIP)
     m.script(SET_DENSITY, [0])
     time.sleep(1.0)
 
-    if m.script(SHOW_SIDEBAR):
-        time.sleep(1.8)
-        _shot(m, outdir, "extra-10-sidebar")
-        m.script(HIDE_SIDEBAR)
-        time.sleep(1.0)
-    else:
-        print("  note: no sidebar API in this Firefox; skipping that view", flush=True)
+    for panel, name in (("viewBookmarksSidebar", "extra-10-sidebar-bookmarks"),
+                        ("viewHistorySidebar", "extra-11-sidebar-history")):
+        if m.async_script(SHOW_SIDEBAR_PANEL, [panel]) is True:
+            time.sleep(1.0)
+            m.script(EXPAND_SIDEBAR_TREE)
+            time.sleep(0.8)
+            _shot(m, outdir, name, before=PIN_TABSTRIP)
+        else:
+            print(f"  note: {panel} unavailable here; skipping that view",
+                  flush=True)
+    m.script(HIDE_SIDEBAR)
+    time.sleep(1.0)
 
     # Current Firefox ignores intl.uidirection entirely -- the pref reaches the
     # profile and the chrome stays LTR (measured, not assumed). The supported
@@ -964,17 +1084,58 @@ def capture_views(session: Session, outdir: Path, modes=("light", "dark"),
                  extra_prefs='user_pref("intl.l10n.pseudo", "bidi");\n') as rtl:
         rtl.setup_window()
         if rtl.m.script(GET_DIRECTION) == "rtl":
-            _shot(rtl.m, outdir, "extra-11-rtl")
+            _shot(rtl.m, outdir, "extra-12-rtl")
         else:
             print("  note: chrome did not come up RTL; skipping that view", flush=True)
 
     if m.script(ENTER_CUSTOMIZE):
         time.sleep(2.5)
-        _shot(m, outdir, "extra-12-customize")
+        _shot(m, outdir, "extra-13-customize", before=PIN_TABSTRIP)
         m.script(EXIT_CUSTOMIZE)
         time.sleep(2.0)
     else:
         print("  note: customize mode unavailable; skipping that view", flush=True)
+
+    # Vertical tabs and a customised toolbar both leave the window changed in
+    # ways that do not undo, so each gets its own short Session rather than
+    # contaminating everything captured after it. Turning vertical tabs back off
+    # restores the tab strip's geometry but leaves the launcher rail behind, and
+    # CustomizableUI.reset() does not restore a nav bar that has overflowed --
+    # measured at 1.0% of pixels on Firefox 153 and 2.8% on ESR 140, with the
+    # placements reading as default the whole time.
+    with Session(session.repo, session.firefox) as vt:
+        vt.setup_window()
+        vt.m.script(ENABLE_VERTICAL_TABS)
+        time.sleep(2.5)
+        state = vt.m.script(VERTICAL_TABS_STATE) or {}
+        # Not "taller than wide": at this window size ESR's strip is 242x227,
+        # so that test would skip a view that is working perfectly. The
+        # relocation into #vertical-tabs is the real signal, and a non-zero
+        # width rules out the hidden-sidebar state, which keeps orient=vertical
+        # while rendering no strip at all.
+        if (state.get("orient") == "vertical"
+                and state.get("parent") == "vertical-tabs"
+                and state.get("width")):
+            _shot(vt.m, outdir, "extra-14-vertical-tabs")
+        else:
+            print("  note: vertical tabs unavailable on this Firefox "
+                  "(needs 133+); skipping that view", flush=True)
+
+    with Session(session.repo, session.firefox) as tb:
+        tb.setup_window()
+        result = tb.m.script(APPLY_TOOLBAR, [toolbar or default_toolbar_ops()])
+        if result and result.get("applied"):
+            if result.get("unknown"):
+                print(f"  note: no such toolbar widget: "
+                      f"{', '.join(result['unknown'])}", flush=True)
+            if result.get("overflowing"):
+                print("  note: the nav bar overflowed, so some widgets are "
+                      "behind the chevron rather than visible", flush=True)
+            time.sleep(2.0)
+            _shot(tb.m, outdir, "extra-15-toolbar", before=PIN_TABSTRIP)
+        else:
+            print("  note: could not rearrange the toolbar; skipping that view",
+                  flush=True)
 
     # Optional stylesheets, one capture per variant. Loaded live as a user
     # sheet by file URI -- relative url()s inside the sheet keep resolving --
@@ -1053,6 +1214,69 @@ def _shot(m, outdir: Path, name: str, tries=8, delay=0.5, before=None):
     print(f"  captured {name}.png ({len(png) // 1024} KB)", flush=True)
 
 
+# Exactly the areas CustomizableUI registers, measured on both builds. Naming a
+# real-but-unregistered area (toolbar-menubar, say) throws "Unknown
+# customization area" deep inside Firefox; catching it here says so in English.
+TOOLBAR_AREAS = ("nav-bar", "TabsToolbar", "PersonalToolbar", "vertical-tabs",
+                 "unified-extensions-area", "widget-overflow-fixed-list")
+
+# What the toolbar view arranges when nobody says otherwise. Moving
+# new-tab-button into the nav bar is not an arbitrary choice: it is the
+# rearrangement WhiteSur's own README asks users to make by hand, and themes
+# that document such a setup have no other way to test it. Kept deliberately
+# small -- a longer list overflows the nav bar at this window width, which hides
+# the very widgets the view exists to show.
+DEFAULT_TOOLBAR = ("new-tab-button>nav-bar, home-button>nav-bar, "
+                   "bookmarks-menu-button>nav-bar, history-panelmenu>nav-bar, "
+                   "preferences-button>nav-bar")
+
+
+def parse_toolbar_spec(spec):
+    """Turn "widget>area@position, -widget" into CustomizableUI operations.
+
+    'widget>area' moves a widget into an area, optionally at '@position';
+    '-widget' removes one. Order is preserved, because position indices are
+    resolved against the arrangement as it stands when each step runs.
+    """
+    ops = []
+    for raw in (spec or "").split(","):
+        item = raw.strip()
+        if not item:
+            continue
+        if item.startswith("-"):
+            widget = item[1:].strip()
+            if not widget:
+                raise ValueError("'-' with no widget after it")
+            ops.append({"op": "remove", "widget": widget,
+                        "area": None, "position": None})
+            continue
+        if ">" not in item:
+            raise ValueError(
+                f"{item!r} is not a toolbar move: write 'widget>area', "
+                f"e.g. 'new-tab-button>nav-bar', or '-widget' to remove one")
+        widget, _, target = (part.strip() for part in item.partition(">"))
+        area, _, position = (part.strip() for part in target.partition("@"))
+        if not widget:
+            raise ValueError(f"{item!r} has no widget before the '>'")
+        if area not in TOOLBAR_AREAS:
+            raise ValueError(
+                f"{area!r} is not a toolbar area. Known areas: "
+                f"{', '.join(TOOLBAR_AREAS)}")
+        if position:
+            try:
+                position = int(position)
+            except ValueError:
+                raise ValueError(f"{position!r} is not a position number "
+                                 f"in {item!r}") from None
+        ops.append({"op": "move", "widget": widget, "area": area,
+                    "position": position if position != "" else None})
+    return ops
+
+
+def default_toolbar_ops():
+    return parse_toolbar_spec(DEFAULT_TOOLBAR)
+
+
 def find_variant_sheets(theme: Path):
     """Optional stylesheets a theme ships for users to layer on.
 
@@ -1103,28 +1327,140 @@ def parse_variant_spec(spec, available):
     return chosen
 
 
-def find_firefox(explicit=None):
-    """Locate a Firefox binary, preferring an explicit path.
+# Order matters twice over: it is the menu order, and the first entry is the
+# default when nothing is chosen. Gecko forks are included because userChrome
+# themes are as popular there as in Firefox proper, and they speak Marionette.
+CHANNEL_ORDER = ("stable", "beta", "developer", "nightly", "esr",
+                 "librewolf", "floorp", "waterfox", "zen")
 
-    Always returns an absolute path: Firefox resolves its own application
-    directory from argv[0], and a relative path can leave it unable to find its
-    resources, which surfaces much later as a Marionette connection timeout.
+CHANNEL_ALIASES = {"dev": "developer", "developer-edition": "developer",
+                   "release": "stable", "firefox": "stable"}
+
+
+def _label_for(name):
+    """Which build a file or app name looks like, or None."""
+    n = name.lower()
+    for label in CHANNEL_ORDER[1:]:
+        if label in n:
+            return label
+    if "firefox" in n or n in ("zen browser",):
+        return "stable"
+    return None
+
+
+def _mac_binary(app: Path):
+    macos_dir = app / "Contents" / "MacOS"
+    if not macos_dir.is_dir():
+        return None
+    for name in ("firefox", "librewolf", "floorp", "waterfox", "zen"):
+        candidate = macos_dir / name
+        if candidate.is_file():
+            return candidate
+    executables = [p for p in macos_dir.iterdir()
+                   if p.is_file() and os.access(p, os.X_OK)]
+    return executables[0] if len(executables) == 1 else None
+
+
+def discover_firefoxes(extra_roots=None):
+    """Every Gecko build installed in the usual places.
+
+    Returns [{"label", "path"}] in CHANNEL_ORDER, one entry per label, first
+    found wins. FXCSS_FIREFOX_ROOTS (os.pathsep-separated directories) extends
+    the search, for builds kept somewhere unusual.
+    """
+    roots = list(extra_roots or [])
+    env_roots = os.environ.get("FXCSS_FIREFOX_ROOTS", "")
+    roots += [Path(r) for r in env_roots.split(os.pathsep) if r]
+
+    found = {}
+
+    def record(label, binary):
+        if label and binary and label not in found:
+            found[label] = str(Path(binary).resolve())
+
+    if sys.platform == "darwin" or extra_roots or env_roots:
+        for root in roots + [Path("/Applications"), Path.home() / "Applications"]:
+            if not Path(root).is_dir():
+                continue
+            for app in sorted(Path(root).glob("*.app")):
+                record(_label_for(app.stem), _mac_binary(app))
+
+    if sys.platform == "win32":
+        program_dirs = [Path(r"C:\Program Files"), Path(r"C:\Program Files (x86)")]
+        names = {"Mozilla Firefox": "stable", "Firefox Nightly": "nightly",
+                 "Firefox Developer Edition": "developer", "Firefox Beta": "beta",
+                 "Mozilla Firefox ESR": "esr", "LibreWolf": "librewolf",
+                 "Ablaze Floorp": "floorp", "Waterfox": "waterfox",
+                 "Zen Browser": "zen"}
+        for base in program_dirs + [Path(r) for r in roots]:
+            for folder, label in names.items():
+                for exe_name in ("firefox.exe", "librewolf.exe", "floorp.exe",
+                                 "waterfox.exe", "zen.exe"):
+                    exe = Path(base) / folder / exe_name
+                    if exe.is_file():
+                        record(label, exe)
+
+    if sys.platform.startswith("linux"):
+        which_names = {"firefox": "stable", "firefox-esr": "esr",
+                       "firefox-beta": "beta", "firefox-nightly": "nightly",
+                       "firefox-developer-edition": "developer",
+                       "librewolf": "librewolf", "floorp": "floorp",
+                       "waterfox": "waterfox", "zen-browser": "zen"}
+        for name, label in which_names.items():
+            binary = shutil.which(name)
+            if binary:
+                record(label, binary)
+        for opt in sorted(Path("/opt").glob("firefox*")) if Path("/opt").is_dir() else []:
+            binary = opt / "firefox"
+            if binary.is_file():
+                record(_label_for(opt.name) or "stable", binary)
+
+    return [{"label": label, "path": found[label]}
+            for label in CHANNEL_ORDER if label in found]
+
+
+def firefox_version(binary):
+    """The build's version string, or None if it will not say."""
+    try:
+        out = subprocess.run([str(binary), "--version"], capture_output=True,
+                             text=True, timeout=15).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out.split("Firefox")[-1].strip() or out or None
+
+
+def find_firefox(explicit=None):
+    """Resolve a Firefox: a path, a channel name, or the best install found.
+
+    `explicit` may be a filesystem path, or a channel/fork name -- stable,
+    beta, developer (or dev), nightly, esr, librewolf, floorp, waterfox, zen --
+    resolved against the builds installed on this machine. Always returns an
+    absolute path: Firefox resolves its own application directory from argv[0],
+    and a relative path surfaces much later as a Marionette connection timeout.
     """
     if explicit:
-        return str(Path(explicit).expanduser().resolve())
+        looks_like_path = (os.sep in explicit or explicit.startswith("~")
+                           or Path(explicit).exists())
+        if looks_like_path:
+            return str(Path(explicit).expanduser().resolve())
+        wanted = CHANNEL_ALIASES.get(explicit.lower(), explicit.lower())
+        builds = discover_firefoxes()
+        for build in builds:
+            if build["label"] == wanted:
+                return build["path"]
+        installed = ", ".join(b["label"] for b in builds) or "none found"
+        raise SystemExit(
+            f"No {explicit!r} build installed (installed: {installed}). "
+            f"Pass a path instead, or set FXCSS_FIREFOX_ROOTS if it lives "
+            f"somewhere unusual.")
+
     env = os.environ.get("FIREFOX_BIN")
     if env:
         return str(Path(env).expanduser().resolve())
-    candidates = [
-        "/Applications/Firefox.app/Contents/MacOS/firefox",
-        str(Path.home() / "Applications/Firefox.app/Contents/MacOS/firefox"),
-        r"C:\Program Files\Mozilla Firefox\firefox.exe",
-        r"C:\Program Files (x86)\Mozilla Firefox\firefox.exe",
-        "/usr/bin/firefox", "/usr/local/bin/firefox", "/snap/bin/firefox",
-    ]
-    for c in candidates:
-        if Path(c).exists():
-            return c
+
+    builds = discover_firefoxes()
+    if builds:
+        return builds[0]["path"]
     found = shutil.which("firefox")
     if found:
         return found
