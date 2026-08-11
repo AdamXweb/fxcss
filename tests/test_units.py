@@ -355,3 +355,55 @@ class NewThemeTests(unittest.TestCase):
             (target / "existing.txt").write_text("x")
             with self.assertRaises(FileExistsError):
                 new_theme(target)
+
+
+class FirefoxDiscoveryTests(unittest.TestCase):
+    def fake_apps(self, td, names):
+        for name in names:
+            macos = Path(td) / f"{name}.app" / "Contents" / "MacOS"
+            macos.mkdir(parents=True)
+            binary = macos / "firefox"
+            binary.write_text("#!/bin/sh\n")
+            binary.chmod(0o755)
+
+    def test_labels(self):
+        from fxcss.core import _label_for
+        self.assertEqual(_label_for("Firefox"), "stable")
+        self.assertEqual(_label_for("Firefox Nightly"), "nightly")
+        self.assertEqual(_label_for("Firefox Developer Edition"), "developer")
+        self.assertEqual(_label_for("FirefoxESR"), "esr")
+        self.assertEqual(_label_for("LibreWolf"), "librewolf")
+        self.assertIsNone(_label_for("Google Chrome"))
+
+    def test_discovery_orders_and_dedupes(self):
+        from fxcss.core import discover_firefoxes
+        with tempfile.TemporaryDirectory() as td:
+            self.fake_apps(td, ["Firefox Nightly", "Firefox", "LibreWolf"])
+            builds = discover_firefoxes(extra_roots=[Path(td)])
+            labels = [b["label"] for b in builds if str(td) in b["path"]]
+            self.assertEqual(labels, ["stable", "nightly", "librewolf"])
+
+    def test_channel_resolution_and_helpful_error(self):
+        import os
+        from fxcss.core import find_firefox
+        with tempfile.TemporaryDirectory() as td:
+            self.fake_apps(td, ["Firefox Nightly"])
+            os.environ["FXCSS_FIREFOX_ROOTS"] = td
+            try:
+                path = find_firefox("nightly")
+                self.assertIn("Firefox Nightly.app", path)
+                with self.assertRaises(SystemExit) as ctx:
+                    find_firefox("floorp")
+                self.assertIn("nightly", str(ctx.exception))
+            finally:
+                del os.environ["FXCSS_FIREFOX_ROOTS"]
+
+
+class MenuChoiceTests(unittest.TestCase):
+    def test_parse_choice(self):
+        from fxcss.cli import _parse_choice
+        self.assertEqual(_parse_choice("", 3, 0), 0)       # Enter = default
+        self.assertEqual(_parse_choice("2", 3, 0), 1)
+        self.assertEqual(_parse_choice("9", 3, 0), 0)      # out of range
+        self.assertEqual(_parse_choice("x", 3, 0), 0)      # nonsense
+        self.assertEqual(_parse_choice(None, 3, 2), 2)

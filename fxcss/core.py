@@ -23,6 +23,7 @@ import re
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -1103,28 +1104,140 @@ def parse_variant_spec(spec, available):
     return chosen
 
 
-def find_firefox(explicit=None):
-    """Locate a Firefox binary, preferring an explicit path.
+# Order matters twice over: it is the menu order, and the first entry is the
+# default when nothing is chosen. Gecko forks are included because userChrome
+# themes are as popular there as in Firefox proper, and they speak Marionette.
+CHANNEL_ORDER = ("stable", "beta", "developer", "nightly", "esr",
+                 "librewolf", "floorp", "waterfox", "zen")
 
-    Always returns an absolute path: Firefox resolves its own application
-    directory from argv[0], and a relative path can leave it unable to find its
-    resources, which surfaces much later as a Marionette connection timeout.
+CHANNEL_ALIASES = {"dev": "developer", "developer-edition": "developer",
+                   "release": "stable", "firefox": "stable"}
+
+
+def _label_for(name):
+    """Which build a file or app name looks like, or None."""
+    n = name.lower()
+    for label in CHANNEL_ORDER[1:]:
+        if label in n:
+            return label
+    if "firefox" in n or n in ("zen browser",):
+        return "stable"
+    return None
+
+
+def _mac_binary(app: Path):
+    macos_dir = app / "Contents" / "MacOS"
+    if not macos_dir.is_dir():
+        return None
+    for name in ("firefox", "librewolf", "floorp", "waterfox", "zen"):
+        candidate = macos_dir / name
+        if candidate.is_file():
+            return candidate
+    executables = [p for p in macos_dir.iterdir()
+                   if p.is_file() and os.access(p, os.X_OK)]
+    return executables[0] if len(executables) == 1 else None
+
+
+def discover_firefoxes(extra_roots=None):
+    """Every Gecko build installed in the usual places.
+
+    Returns [{"label", "path"}] in CHANNEL_ORDER, one entry per label, first
+    found wins. FXCSS_FIREFOX_ROOTS (os.pathsep-separated directories) extends
+    the search, for builds kept somewhere unusual.
+    """
+    roots = list(extra_roots or [])
+    env_roots = os.environ.get("FXCSS_FIREFOX_ROOTS", "")
+    roots += [Path(r) for r in env_roots.split(os.pathsep) if r]
+
+    found = {}
+
+    def record(label, binary):
+        if label and binary and label not in found:
+            found[label] = str(Path(binary).resolve())
+
+    if sys.platform == "darwin" or extra_roots or env_roots:
+        for root in roots + [Path("/Applications"), Path.home() / "Applications"]:
+            if not Path(root).is_dir():
+                continue
+            for app in sorted(Path(root).glob("*.app")):
+                record(_label_for(app.stem), _mac_binary(app))
+
+    if sys.platform == "win32":
+        program_dirs = [Path(r"C:\Program Files"), Path(r"C:\Program Files (x86)")]
+        names = {"Mozilla Firefox": "stable", "Firefox Nightly": "nightly",
+                 "Firefox Developer Edition": "developer", "Firefox Beta": "beta",
+                 "Mozilla Firefox ESR": "esr", "LibreWolf": "librewolf",
+                 "Ablaze Floorp": "floorp", "Waterfox": "waterfox",
+                 "Zen Browser": "zen"}
+        for base in program_dirs + [Path(r) for r in roots]:
+            for folder, label in names.items():
+                for exe_name in ("firefox.exe", "librewolf.exe", "floorp.exe",
+                                 "waterfox.exe", "zen.exe"):
+                    exe = Path(base) / folder / exe_name
+                    if exe.is_file():
+                        record(label, exe)
+
+    if sys.platform.startswith("linux"):
+        which_names = {"firefox": "stable", "firefox-esr": "esr",
+                       "firefox-beta": "beta", "firefox-nightly": "nightly",
+                       "firefox-developer-edition": "developer",
+                       "librewolf": "librewolf", "floorp": "floorp",
+                       "waterfox": "waterfox", "zen-browser": "zen"}
+        for name, label in which_names.items():
+            binary = shutil.which(name)
+            if binary:
+                record(label, binary)
+        for opt in sorted(Path("/opt").glob("firefox*")) if Path("/opt").is_dir() else []:
+            binary = opt / "firefox"
+            if binary.is_file():
+                record(_label_for(opt.name) or "stable", binary)
+
+    return [{"label": label, "path": found[label]}
+            for label in CHANNEL_ORDER if label in found]
+
+
+def firefox_version(binary):
+    """The build's version string, or None if it will not say."""
+    try:
+        out = subprocess.run([str(binary), "--version"], capture_output=True,
+                             text=True, timeout=15).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out.split("Firefox")[-1].strip() or out or None
+
+
+def find_firefox(explicit=None):
+    """Resolve a Firefox: a path, a channel name, or the best install found.
+
+    `explicit` may be a filesystem path, or a channel/fork name -- stable,
+    beta, developer (or dev), nightly, esr, librewolf, floorp, waterfox, zen --
+    resolved against the builds installed on this machine. Always returns an
+    absolute path: Firefox resolves its own application directory from argv[0],
+    and a relative path surfaces much later as a Marionette connection timeout.
     """
     if explicit:
-        return str(Path(explicit).expanduser().resolve())
+        looks_like_path = (os.sep in explicit or explicit.startswith("~")
+                           or Path(explicit).exists())
+        if looks_like_path:
+            return str(Path(explicit).expanduser().resolve())
+        wanted = CHANNEL_ALIASES.get(explicit.lower(), explicit.lower())
+        builds = discover_firefoxes()
+        for build in builds:
+            if build["label"] == wanted:
+                return build["path"]
+        installed = ", ".join(b["label"] for b in builds) or "none found"
+        raise SystemExit(
+            f"No {explicit!r} build installed (installed: {installed}). "
+            f"Pass a path instead, or set FXCSS_FIREFOX_ROOTS if it lives "
+            f"somewhere unusual.")
+
     env = os.environ.get("FIREFOX_BIN")
     if env:
         return str(Path(env).expanduser().resolve())
-    candidates = [
-        "/Applications/Firefox.app/Contents/MacOS/firefox",
-        str(Path.home() / "Applications/Firefox.app/Contents/MacOS/firefox"),
-        r"C:\Program Files\Mozilla Firefox\firefox.exe",
-        r"C:\Program Files (x86)\Mozilla Firefox\firefox.exe",
-        "/usr/bin/firefox", "/usr/local/bin/firefox", "/snap/bin/firefox",
-    ]
-    for c in candidates:
-        if Path(c).exists():
-            return c
+
+    builds = discover_firefoxes()
+    if builds:
+        return builds[0]["path"]
     found = shutil.which("firefox")
     if found:
         return found

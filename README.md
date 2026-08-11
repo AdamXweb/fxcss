@@ -96,7 +96,7 @@ the [releases page](https://github.com/AdamXweb/fxcss/releases) has the latest.
 CI runners' Pythons are not externally managed, so plain pip is fine there:
 
 ```bash
-pip install "fxcss[images]==0.10.0"
+pip install "fxcss[images]==0.11.0"
 ```
 
 Either gives you an `fxcss` command. To hack on it, clone and install editable:
@@ -524,8 +524,29 @@ fxcss doctor
 ```
 
 Reports your Firefox version, whether `userChrome.css` is enabled, whether
-context menus are themeable on your platform, and how many stylesheets your
-theme has. Start here if something isn't behaving.
+context menus are themeable on your platform, how many stylesheets your theme
+has — and **every Gecko build installed on the machine**, with versions. Start
+here if something isn't behaving.
+
+#### Testing against Nightly, Developer Edition, ESR — or a fork
+
+Every command that opens a browser takes a channel name as well as a path:
+
+```bash
+fxcss watch --firefox nightly
+fxcss audit --firefox dev          # what will break before it ships
+fxcss shot  --firefox esr --out shots/esr
+```
+
+Recognised names: `stable`, `beta`, `dev`, `nightly`, `esr`, and the Gecko
+forks theme users actually run — `librewolf`, `floorp`, `waterfox`, `zen`.
+They resolve against what is installed in the usual places; a build kept
+somewhere unusual can be added with `FXCSS_FIREFOX_ROOTS=/path/to/dir`.
+
+With **several builds installed and no `--firefox` given**, interactive
+commands show a picker — press Enter for stable, or a number for another
+build. CI and scripts are never prompted: non-interactive runs keep the old
+behaviour exactly.
 
 ## Inspecting the UI with devtools
 
@@ -549,7 +570,7 @@ check out the base revision and the pull request revision, render both, compare,
 and publish the result.
 
 ```yaml
-- run: pip install "fxcss[images]==0.10.0"   # pin: your CI, your upgrades
+- run: pip install "fxcss[images]==0.11.0"   # pin: your CI, your upgrades
 - run: fxcss shot --theme base --out shots/base
 - run: fxcss shot --theme head --out shots/head
 - run: fxcss compare --base shots/base --head shots/head --out out/ --platform ${{ runner.os }}

@@ -20,6 +20,7 @@ Run `fxcss <command> --help` for the options of each.
 """
 
 import argparse
+import os
 import signal
 import subprocess
 import sys
@@ -77,6 +78,51 @@ def _install_signal_handlers():
             signal.signal(sig, _bail)
         except (ValueError, OSError):
             pass
+
+
+def _parse_choice(raw, count, default):
+    """Menu input -> zero-based index. Anything unusable means the default."""
+    raw = (raw or "").strip()
+    if not raw:
+        return default
+    try:
+        index = int(raw) - 1
+    except ValueError:
+        return default
+    return index if 0 <= index < count else default
+
+
+def choose_firefox(explicit):
+    """Resolve which Firefox to drive, asking when that is a real question.
+
+    An explicit --firefox (path or channel name) or FIREFOX_BIN always wins,
+    and non-interactive runs never prompt -- CI must not block on stdin. The
+    menu appears only when several builds are installed and a human is at the
+    terminal, because that is the one case where silently picking stable
+    hides a capability people ask for.
+    """
+    if explicit or os.environ.get("FIREFOX_BIN"):
+        return core.find_firefox(explicit)
+    builds = core.discover_firefoxes()
+    interactive = (sys.stdin.isatty() and sys.stdout.isatty()
+                   and not os.environ.get("CI"))
+    if len(builds) < 2 or not interactive:
+        return core.find_firefox(None)
+
+    default = 0
+    print("Several Gecko builds are installed:")
+    for i, build in enumerate(builds, 1):
+        version = core.firefox_version(build["path"]) or "?"
+        marker = "  (Enter)" if i - 1 == default else ""
+        print(f"  {i}. {build['label']:<10} {version:<14} {build['path']}{marker}")
+    try:
+        raw = input(f"Test against [1-{len(builds)}]: ")
+    except EOFError:
+        raw = ""
+    picked = builds[_parse_choice(raw, len(builds), default)]
+    print(f"  using {picked['label']} — skip this menu with "
+          f"--firefox {picked['label']}\n")
+    return picked["path"]
 
 
 def _references(theme, selector):
@@ -145,7 +191,7 @@ def cmd_try(args):
         if args.info:
             return 0
 
-        firefox = core.find_firefox(args.firefox)
+        firefox = choose_firefox(args.firefox)
         session = core.Session(theme_root, firefox, dark=args.dark,
                                native_menus=args.native_menus,
                                devtools=not args.no_devtools)
@@ -222,7 +268,7 @@ def cmd_tweaks(args):
             print(f"error: {exc}", file=sys.stderr)
             return 2
 
-    firefox = core.find_firefox(args.firefox)
+    firefox = choose_firefox(args.firefox)
     out = args.out.resolve()
     print(f"fxcss tweaks\n  theme: {theme}\n  out:   {out}\n")
     with core.Session(theme, firefox, dark=args.dark) as session:
@@ -252,7 +298,7 @@ def cmd_init(args):
 
 def cmd_watch(args):
     theme = args.theme.resolve()
-    firefox = core.find_firefox(args.firefox)
+    firefox = choose_firefox(args.firefox)
     _install_signal_handlers()
 
     print(f"fxcss watch\n  theme:   {theme}\n  firefox: {firefox}")
@@ -309,7 +355,7 @@ def cmd_watch(args):
 def cmd_pick(args):
     from . import probe
     theme = args.theme.resolve()
-    firefox = core.find_firefox(args.firefox)
+    firefox = choose_firefox(args.firefox)
     _install_signal_handlers()
     print(f"fxcss pick\n  theme:   {theme}\n  firefox: {firefox}")
     with core.Session(theme, firefox, dark=args.dark,
@@ -321,7 +367,7 @@ def cmd_pick(args):
 def cmd_inspect(args):
     from . import probe
     theme = args.theme.resolve()
-    firefox = core.find_firefox(args.firefox)
+    firefox = choose_firefox(args.firefox)
     with core.Session(theme, firefox, dark=args.dark, devtools=True) as session:
         session.setup_window()
         return probe.inspect_selector(session, args.selector, theme, _references)
@@ -330,7 +376,7 @@ def cmd_inspect(args):
 def cmd_audit(args):
     from . import audit
     theme = args.theme.resolve()
-    firefox = core.find_firefox(args.firefox)
+    firefox = choose_firefox(args.firefox)
     print(f"fxcss audit\n  theme:   {theme}\n  firefox: {firefox}\n")
     static = None if args.no_unused else audit.collect_unused(theme)
     with core.Session(theme, firefox) as session:
@@ -373,7 +419,7 @@ def cmd_snapshot(args):
     import json
     from . import audit
     theme = args.theme.resolve()
-    firefox = core.find_firefox(args.firefox)
+    firefox = choose_firefox(args.firefox)
     with core.Session(theme, firefox) as session:
         snap = audit.make_snapshot(session, verbose=True)
     args.out.parent.mkdir(parents=True, exist_ok=True)
@@ -391,7 +437,7 @@ def cmd_changelog(args):
         print("error: pass --against <firefox> or --baseline <snapshot.json>",
               file=sys.stderr)
         return 2
-    after_bin = core.find_firefox(args.firefox)
+    after_bin = choose_firefox(args.firefox)
 
     snapshots = {}
     if args.baseline:
@@ -460,7 +506,7 @@ def cmd_shot(args):
         if not variants:
             print("  note: --variants all found no optional stylesheets", flush=True)
 
-    firefox = core.find_firefox(args.firefox)
+    firefox = choose_firefox(args.firefox)
     with core.Session(theme, firefox) as session:
         if not getattr(args, "only_live", False):
             core.capture_views(session, args.out.resolve(), variants=variants)
@@ -480,7 +526,7 @@ def cmd_compare(args):
 def cmd_catalogue(args):
     from . import catalogue
     theme = args.theme.resolve()
-    firefox = core.find_firefox(args.firefox)
+    firefox = choose_firefox(args.firefox)
     out = args.out.resolve()
     with core.Session(theme, firefox, native_menus=args.native_menus) as session:
         result = catalogue.build(session, theme, out,
@@ -497,7 +543,7 @@ def cmd_catalogue(args):
 
 def cmd_doctor(args):
     theme = args.theme.resolve()
-    firefox = core.find_firefox(args.firefox)
+    firefox = choose_firefox(args.firefox)
     print(f"fxcss:   {__version__}")
     print(f"theme:   {theme}")
     print(f"firefox: {firefox}")
@@ -525,7 +571,18 @@ def cmd_doctor(args):
     print(f"\ntheme: {len(sheets)} stylesheets, {total:,} bytes")
     missing = [p for p in ("chrome/userChrome.css",) if not (theme / p).exists()]
     print("missing expected files: " + (", ".join(missing) if missing else "none"))
-    print("\nnew here? `fxcss try owner/repo` test-drives a theme; `fxcss init`")
+    builds = core.discover_firefoxes()
+    if builds:
+        print("\ninstalled Gecko builds:")
+        for build in builds:
+            version = core.firefox_version(build["path"]) or "?"
+            in_use = "  <- in use" if build["path"] == firefox else ""
+            print(f"  {build['label']:<10} {version:<14} {build['path']}{in_use}")
+        if len(builds) > 1:
+            print("  pick one per run with --firefox <name>, e.g. --firefox "
+                  + builds[-1]["label"])
+
+    print(f"\nnew here? `fxcss try owner/repo` test-drives a theme; `fxcss init`")
     print("adds PR previews to yours.")
     return 0
 
@@ -539,7 +596,8 @@ def _common(p, theme=True):
         p.add_argument("--theme", type=Path, default=Path.cwd(),
                        help="theme root, the folder containing chrome/ (default: cwd)")
     p.add_argument("--firefox", default=None,
-                   help="path to the firefox binary (default: autodetect, or $FIREFOX_BIN)")
+                   help="a channel or fork name (stable, beta, dev, nightly, esr, librewolf, floorp, waterfox, zen) or a path to a binary "
+                        "(default: ask if several are installed)")
 
 
 def _menus(p):
@@ -563,7 +621,7 @@ def main(argv=None):
                    "r/FirefoxCSS — anything with a userChrome.css on GitHub works.")
         tr.add_argument("repo", help="owner/name, or a github.com URL")
         tr.add_argument("--firefox", default=None,
-                        help="path to the firefox binary (default: autodetect)")
+                        help="a channel/fork name (e.g. nightly, dev, esr) or a binary path")
         tr.add_argument("--ref", default=None, help="tag, branch or commit to fetch")
         tr.add_argument("--commit", action="store_true",
                         help="use the latest commit rather than the latest release")
@@ -589,7 +647,7 @@ def main(argv=None):
     tw.add_argument("--theme", type=Path, default=Path.cwd(),
                     help="theme root, the folder containing chrome/ (default: cwd)")
     tw.add_argument("--firefox", default=None,
-                    help="path to the firefox binary (default: autodetect)")
+                    help="a channel/fork name (e.g. nightly, dev, esr) or a binary path")
     tw.add_argument("--out", type=Path, default=Path("docs/tweaks"),
                     help="output folder (default: docs/tweaks)")
     tw.add_argument("--combo", action="append", metavar="NAME+NAME",
