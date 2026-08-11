@@ -407,3 +407,35 @@ class MenuChoiceTests(unittest.TestCase):
         self.assertEqual(_parse_choice("9", 3, 0), 0)      # out of range
         self.assertEqual(_parse_choice("x", 3, 0), 0)      # nonsense
         self.assertEqual(_parse_choice(None, 3, 2), 2)
+
+
+class PillowFreeCoreTests(unittest.TestCase):
+    """The base install must never touch PIL outside the three image commands.
+
+    This exact regression shipped once: css_references lived in catalogue.py,
+    whose module header imports PIL, so `fxcss pick` crashed for anyone
+    installed without the [images] extra.
+    """
+
+    def run_blocked(self, code):
+        import subprocess, sys
+        return subprocess.run(
+            [sys.executable, "-c", "import sys; sys.modules['PIL'] = None; " + code],
+            capture_output=True, text=True)
+
+    def test_core_modules_import_without_pillow(self):
+        result = self.run_blocked(
+            "import fxcss.cli, fxcss.core, fxcss.audit, fxcss.probe, "
+            "fxcss.fetch, fxcss.scaffold; "
+            "from fxcss.audit import css_references; print('ok')")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("ok", result.stdout)
+
+    def test_image_commands_explain_instead_of_crashing(self):
+        result = self.run_blocked(
+            "from fxcss.cli import main; "
+            "import sys; sys.exit(main(['compare', '--base', 'a', '--head', 'b', "
+            "'--out', 'c', '--platform', 'p']))")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("needs Pillow", result.stderr)
+        self.assertIn("pipx inject fxcss pillow", result.stderr)

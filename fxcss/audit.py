@@ -83,6 +83,37 @@ def extract_tokens(theme: Path):
     return found
 
 
+def css_references(repo: Path, selector: str):
+    """Find where the theme styles this selector.
+
+    Matches on the id or class token rather than the literal selector string,
+    since a rule is far more likely to read `#urlbar[focused]` or
+    `#nav-bar > .foo` than to repeat the selector verbatim.
+    """
+    token = selector.lstrip(".#[").split("[")[0].split(">")[0].strip()
+    if not token:
+        return []
+    pattern = re.compile(r"(?<![\w-])[.#]?" + re.escape(token) + r"(?![\w-])")
+    hits = []
+    for path in sorted((repo / "chrome").rglob("*.css")):
+        try:
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for n, line in enumerate(lines, 1):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("/*"):
+                continue
+            if pattern.search(line):
+                hits.append({
+                    "file": str(path.relative_to(repo)),
+                    "line": n,
+                    "text": stripped[:160],
+                })
+    return hits
+
+
+
 COLLECT_DOM = """
 const win = Services.wm.getMostRecentWindow("navigator:browser");
 const doc = win.document;

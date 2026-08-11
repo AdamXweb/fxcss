@@ -80,6 +80,20 @@ def _install_signal_handlers():
             pass
 
 
+PILLOW_HINT = (
+    "error: `fxcss {cmd}` needs Pillow, which the base install leaves out.\n"
+    "  pipx:  pipx inject fxcss pillow      (or reinstall: pipx install \"fxcss[images]\")\n"
+    "  pip:   pip install pillow")
+
+
+def _needs_pillow(command, exc):
+    """A missing PIL becomes instructions; any other import error stays loud."""
+    if getattr(exc, "name", None) not in ("PIL", "PIL.Image"):
+        raise exc
+    print(PILLOW_HINT.format(cmd=command), file=sys.stderr)
+    return 2
+
+
 def _parse_choice(raw, count, default):
     """Menu input -> zero-based index. Anything unusable means the default."""
     raw = (raw or "").strip()
@@ -126,7 +140,7 @@ def choose_firefox(explicit):
 
 
 def _references(theme, selector):
-    from .catalogue import css_references
+    from .audit import css_references
     return css_references(theme, selector)
 
 
@@ -249,7 +263,10 @@ def cmd_new(args):
 
 
 def cmd_tweaks(args):
-    from . import tweaks
+    try:
+        from . import tweaks
+    except ImportError as exc:
+        return _needs_pillow("tweaks", exc)
     theme = args.theme.resolve()
     if not (theme / "chrome" / "userChrome.css").exists():
         print(f"error: no chrome/userChrome.css under {theme}", file=sys.stderr)
@@ -518,13 +535,19 @@ def cmd_shot(args):
 
 
 def cmd_compare(args):
-    from . import compare
+    try:
+        from . import compare
+    except ImportError as exc:
+        return _needs_pillow("compare", exc)
     return compare.run(args.base.resolve(), args.head.resolve(),
                        args.out.resolve(), args.platform)
 
 
 def cmd_catalogue(args):
-    from . import catalogue
+    try:
+        from . import catalogue
+    except ImportError as exc:
+        return _needs_pillow("catalogue", exc)
     theme = args.theme.resolve()
     firefox = choose_firefox(args.firefox)
     out = args.out.resolve()
