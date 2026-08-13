@@ -2,6 +2,8 @@
 """fxcss - a testing toolkit for Firefox userChrome.css themes.
 
     fxcss try          download a theme from GitHub and test-drive it
+    fxcss install      install a theme into your real Firefox profile
+    fxcss uninstall    remove it again, restoring what was there before
     fxcss new          start a theme from a small, working scaffold
     fxcss init         add PR previews and CI checks to your theme repo
     fxcss tweaks       screenshot every install option, into a committable doc
@@ -41,6 +43,8 @@ LANDING = """fxcss - a testing toolkit for Firefox userChrome.css themes
     fxcss try owner/repo           test-drive it in a throwaway profile
                                    (find themes: firefoxcss-store.github.io,
                                     r/FirefoxCSS)
+    fxcss install owner/repo       keep it: install into your real profile,
+                                   with a backup; uninstall restores it
 
   Maintaining a theme repository?
     fxcss init                     add before/after PR previews and CI checks
@@ -48,7 +52,8 @@ LANDING = """fxcss - a testing toolkit for Firefox userChrome.css themes
     fxcss audit                    find selectors Firefox has renamed
 
 Run `fxcss --help` for the full command list, or `fxcss <command> --help`
-for one command. Nothing here ever touches your real Firefox profile."""
+for one command. Only `fxcss install` touches your real Firefox profile —
+everything else runs in throwaway profiles."""
 
 TOOLBOX_KEY = {
     "darwin": "Cmd+Opt+Shift+I",
@@ -272,6 +277,201 @@ def cmd_try(args):
             shutil.copytree(workdir / "src", keep)
             print(f"  kept the download at {keep}")
         shutil.rmtree(workdir, ignore_errors=True)
+
+
+def _print_profiles():
+    from . import install
+    profiles = install.discover_profiles()
+    if not profiles:
+        print("No Firefox profiles found (no profiles.ini in the usual "
+              "places).", file=sys.stderr)
+        return 2
+    print("Firefox profiles:")
+    for profile in profiles:
+        marker = "  (default)" if profile["default"] else ""
+        print(f"  {profile['name']:<24} {profile['path']}{marker}")
+    return 0
+
+
+def _choose_profile(explicit, interactive):
+    """Which real profile to touch, asking only when that is a real question.
+
+    Mirrors choose_firefox: an explicit --profile always wins, a clear default
+    is used silently, and the menu appears only for a human at a terminal --
+    CI must not block on stdin. Ambiguity without a terminal is an error
+    rather than a guess, because this command edits a profile someone lives in.
+    """
+    from . import install
+    profiles = install.discover_profiles()
+    if explicit:
+        try:
+            return install.match_profile(profiles, explicit)
+        except ValueError as exc:
+            raise SystemExit(f"error: {exc}")
+    if not profiles:
+        raise SystemExit(
+            "error: no Firefox profiles found. Start Firefox once to create "
+            "one, or pass --profile <path>.")
+    if len(profiles) == 1:
+        return profiles[0]
+    defaults = [p for p in profiles if p["default"]]
+    if len(defaults) == 1:
+        return defaults[0]
+    if not interactive:
+        raise SystemExit(
+            "error: several Firefox profiles and no clear default; pass "
+            "--profile <name-or-path> (--list-profiles shows them)")
+    default = profiles.index(defaults[0]) if defaults else 0
+    print("Several Firefox profiles exist:")
+    for i, profile in enumerate(profiles, 1):
+        marker = "  (Enter)" if i - 1 == default else ""
+        print(f"  {i}. {profile['name']:<24} {profile['path']}{marker}")
+    try:
+        raw = input(f"Which profile [1-{len(profiles)}]: ")
+    except EOFError:
+        raw = ""
+    return profiles[_parse_choice(raw, len(profiles), default)]
+
+
+def _confirm(question, interactive, assume_yes):
+    """Enter means yes; only an explicit n declines. Never asks in CI."""
+    if assume_yes or not interactive:
+        return True
+    try:
+        raw = input(question + " [Y/n] ")
+    except EOFError:
+        raw = ""
+    return not raw.strip().lower().startswith("n")
+
+
+def cmd_install(args):
+    import shutil
+    import tempfile
+    from . import fetch, install
+
+    if args.list_profiles:
+        return _print_profiles()
+    if not args.repo:
+        print("error: give a theme to install — a GitHub owner/name, a URL, "
+              "or a local theme directory (or --list-profiles)",
+              file=sys.stderr)
+        return 2
+
+    interactive = (sys.stdin.isatty() and sys.stdout.isatty()
+                   and not os.environ.get("CI"))
+    workdir = None
+    try:
+        local = Path(args.repo).expanduser()
+        if local.is_dir():
+            repo_root = local.resolve()
+            theme_id = str(repo_root)
+            print(f"\n  installing from {repo_root}")
+        else:
+            try:
+                owner, name = fetch.parse_repo(args.repo)
+            except ValueError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 2
+            if args.ref:
+                ref, why = args.ref, f"ref {args.ref}"
+            else:
+                info = fetch.resolve(owner, name)
+                print()
+                for line in fetch.humanise(info):
+                    print("  " + line)
+                prefer = "commit" if args.commit else "release"
+                ref, why = fetch.choose_ref(info, prefer)
+            workdir = Path(tempfile.mkdtemp(prefix="fxcss-install-"))
+            print(f"\n  fetching {why} …")
+            repo_root = fetch.download(owner, name, ref, workdir / "src")
+            theme_id = f"{owner}/{name}@{ref}"
+
+        theme_root = fetch.find_theme_root(repo_root)
+        if theme_root is None:
+            print("\n  No chrome/userChrome.css anywhere in this theme, so "
+                  "there is\n  nothing for Firefox to load. Is it a "
+                  "userChrome theme?")
+            return 2
+
+        facts = fetch.describe(repo_root, theme_root)
+        chosen = []
+        if args.with_sheets:
+            wanted = {w.strip().lower()
+                      for w in args.with_sheets.split(",") if w.strip()}
+            by_name = {v.stem.lower(): v for v in facts["variants"]}
+            missing = wanted - set(by_name)
+            if missing:
+                print(f"error: no optional sheet named "
+                      f"{', '.join(sorted(missing))}; available: "
+                      f"{', '.join(sorted(by_name)) or 'none'}",
+                      file=sys.stderr)
+                return 2
+            chosen = [by_name[w] for w in sorted(wanted)]
+
+        picked = _choose_profile(args.profile, interactive)
+        print(f"\n  profile: {picked['name']}  ({picked['path']})")
+        if install.firefox_running(picked["path"]):
+            print("  note: Firefox appears to be running — the theme will "
+                  "only show after a restart.")
+        if not _confirm("  Install into this profile?", interactive, args.yes):
+            print("  nothing installed.")
+            return 1
+
+        result = install.install_theme(theme_root, picked["path"], theme_id,
+                                       sheets=chosen)
+        if result["backup"]:
+            print(f"  existing chrome/ saved as {result['backup']}")
+        if result["sheets"]:
+            print(f"  optional sheets: {', '.join(result['sheets'])}")
+        print(f"  installed {len(result['files'])} file(s) into "
+              f"{picked['path'] / 'chrome'}")
+        print("\n  Restart Firefox to see it. `fxcss uninstall` puts "
+              "everything back.")
+        return 0
+    except RuntimeError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    finally:
+        if workdir:
+            shutil.rmtree(workdir, ignore_errors=True)
+
+
+def cmd_uninstall(args):
+    from . import install
+
+    if args.list_profiles:
+        return _print_profiles()
+    interactive = (sys.stdin.isatty() and sys.stdout.isatty()
+                   and not os.environ.get("CI"))
+    picked = _choose_profile(args.profile, interactive)
+    manifest = install.read_manifest(picked["path"])
+    print(f"\n  profile: {picked['name']}  ({picked['path']})")
+    if manifest and manifest.get("theme"):
+        print(f"  installed theme: {manifest['theme']}")
+    if install.firefox_running(picked["path"]):
+        print("  note: Firefox appears to be running — the change will only "
+              "show after a restart.")
+    if not _confirm("  Remove the installed theme from this profile?",
+                    interactive, args.yes):
+        print("  nothing removed.")
+        return 1
+    try:
+        result = install.uninstall_theme(picked["path"])
+    except RuntimeError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if result["removed"]:
+        print(f"  removed {result['removed']} file(s)")
+    if result["restored"]:
+        print(f"  restored your previous chrome/ from {result['restored']}")
+    if result["moved_aside"]:
+        print(f"  moved the current chrome/ to {result['moved_aside']} "
+              "(fxcss could not prove it wrote it, so nothing is deleted)")
+    if result["kept"]:
+        print(f"  left {len(result['kept'])} file(s) fxcss did not write in "
+              "chrome/; the backup stays put alongside them")
+    print("\n  Restart Firefox to see the change.")
+    return 0
 
 
 def cmd_new(args):
@@ -671,32 +871,64 @@ def main(argv=None):
     ap.add_argument("--version", action="version", version=f"fxcss {__version__}")
     sub = ap.add_subparsers(dest="cmd", required=False)
 
-    for verb, helptext in (("try", "download a theme from GitHub and test-drive it"),
-                           ("install", "alias for try")):
-        tr = sub.add_parser(
-            verb, help=helptext,
-            epilog="Looking for themes? Browse firefoxcss-store.github.io or "
-                   "r/FirefoxCSS — anything with a userChrome.css on GitHub works.")
-        tr.add_argument("repo", help="owner/name, or a github.com URL")
-        tr.add_argument("--firefox", default=None,
-                        help="a channel/fork name (e.g. nightly, dev, esr) or a binary path")
-        tr.add_argument("--ref", default=None, help="tag, branch or commit to fetch")
-        tr.add_argument("--commit", action="store_true",
-                        help="use the latest commit rather than the latest release")
-        tr.add_argument("--with", dest="with_sheets", default=None, metavar="NAME[,NAME]",
-                        help="also load named optional stylesheets")
-        tr.add_argument("--dark", action="store_true", help="start in dark mode")
-        tr.add_argument("--shot", type=Path, default=None,
-                        help="capture screenshots instead of opening interactively")
-        tr.add_argument("--keep", type=Path, default=None,
-                        help="keep the downloaded theme at this path")
-        tr.add_argument("--info", action="store_true",
-                        help="report what was found and stop, without launching")
-        tr.add_argument("--toolbar", default=None, metavar="SPEC",
-                        help="rearrange the toolbar, e.g. 'new-tab-button>nav-bar'")
-        tr.add_argument("--no-devtools", action="store_true")
-        _menus(tr)
-        tr.set_defaults(func=cmd_try)
+    tr = sub.add_parser(
+        "try", help="download a theme from GitHub and test-drive it",
+        epilog="Looking for themes? Browse firefoxcss-store.github.io or "
+               "r/FirefoxCSS — anything with a userChrome.css on GitHub works.")
+    tr.add_argument("repo", help="owner/name, or a github.com URL")
+    tr.add_argument("--firefox", default=None,
+                    help="a channel/fork name (e.g. nightly, dev, esr) or a binary path")
+    tr.add_argument("--ref", default=None, help="tag, branch or commit to fetch")
+    tr.add_argument("--commit", action="store_true",
+                    help="use the latest commit rather than the latest release")
+    tr.add_argument("--with", dest="with_sheets", default=None, metavar="NAME[,NAME]",
+                    help="also load named optional stylesheets")
+    tr.add_argument("--dark", action="store_true", help="start in dark mode")
+    tr.add_argument("--shot", type=Path, default=None,
+                    help="capture screenshots instead of opening interactively")
+    tr.add_argument("--keep", type=Path, default=None,
+                    help="keep the downloaded theme at this path")
+    tr.add_argument("--info", action="store_true",
+                    help="report what was found and stop, without launching")
+    tr.add_argument("--toolbar", default=None, metavar="SPEC",
+                    help="rearrange the toolbar, e.g. 'new-tab-button>nav-bar'")
+    tr.add_argument("--no-devtools", action="store_true")
+    _menus(tr)
+    tr.set_defaults(func=cmd_try)
+
+    ins = sub.add_parser(
+        "install", help="install a theme into your real Firefox profile",
+        epilog="The profile's existing chrome/ is backed up first, and a "
+               "manifest records every file written, so `fxcss uninstall` "
+               "puts everything back. Before 0.12, `install` was an alias "
+               "for `try`.")
+    ins.add_argument("repo", nargs="?", default=None,
+                     help="owner/name, a github.com URL, or a local theme directory")
+    ins.add_argument("--ref", default=None, help="tag, branch or commit to fetch")
+    ins.add_argument("--commit", action="store_true",
+                     help="use the latest commit rather than the latest release")
+    ins.add_argument("--with", dest="with_sheets", default=None, metavar="NAME[,NAME]",
+                     help="also install named optional stylesheets")
+    ins.add_argument("--profile", default=None, metavar="NAME-OR-PATH",
+                     help="which Firefox profile (default: the one Firefox itself opens)")
+    ins.add_argument("--list-profiles", action="store_true",
+                     help="list the Firefox profiles found and stop")
+    ins.add_argument("--yes", action="store_true",
+                     help="skip the confirmation prompt")
+    ins.set_defaults(func=cmd_install)
+
+    un = sub.add_parser(
+        "uninstall", help="remove an installed theme, restoring what was there",
+        epilog="Removes exactly the files `fxcss install` recorded in its "
+               "manifest and restores the chrome/ backup. Files fxcss did "
+               "not write are never deleted.")
+    un.add_argument("--profile", default=None, metavar="NAME-OR-PATH",
+                    help="which Firefox profile (default: the one Firefox itself opens)")
+    un.add_argument("--list-profiles", action="store_true",
+                    help="list the Firefox profiles found and stop")
+    un.add_argument("--yes", action="store_true",
+                    help="skip the confirmation prompt")
+    un.set_defaults(func=cmd_uninstall)
 
     nw = sub.add_parser("new", help="start a theme from a small, working scaffold")
     nw.add_argument("directory", type=Path, help="directory to create")
