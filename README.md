@@ -16,7 +16,7 @@ and screenshot-test changes in CI.
 | You are… | Start with |
 | --- | --- |
 | **Building a theme** | `fxcss new my-theme` scaffolds one; `fxcss watch` shows edits live in ~50ms; `fxcss pick` names any element you click. |
-| **Trying someone's theme** | `fxcss try owner/repo` — test-drive it in a throwaway profile; close the window and nothing remains. |
+| **Trying someone's theme** | `fxcss try owner/repo` — test-drive it in a throwaway profile; close the window and nothing remains. Sure about it? `fxcss install owner/repo` puts it in your real profile, with a backup. |
 | **Maintaining a theme repo** | `fxcss init` — before/after screenshots on every pull request, on macOS, Windows and Linux. |
 
 ## Your first ten minutes
@@ -55,7 +55,9 @@ fxcss removes both problems. It installs your theme into a throwaway profile,
 drives Firefox over **Marionette** (Firefox's built-in automation protocol), and
 gives you a live-reload loop, an element picker, and a screenshot differ.
 
-Your real Firefox profile is never touched.
+Your real Firefox profile is never touched — except by the one command whose
+job that is: `fxcss install`, which backs up what it replaces and keeps a
+manifest so `fxcss uninstall` can put everything back.
 
 ![Three saved edits in fxcss watch, each recolouring the chrome](https://raw.githubusercontent.com/AdamXweb/fxcss/main/docs/watch-loop.gif)
 
@@ -122,6 +124,8 @@ at it with `--theme /path/to/theme`.
 | --- | --- |
 | `new` | Start a theme from a small, working scaffold |
 | [`try`](#fxcss-try) | Download a theme from GitHub and test-drive it |
+| [`install`](#fxcss-install) | Install a theme into your real Firefox profile |
+| [`uninstall`](#fxcss-install) | Remove it again, restoring what was there |
 | [`watch`](#fxcss-watch) | Edit CSS and see it live, no restart |
 | [`pick`](#fxcss-pick) | Click any part of the UI to get its CSS selector |
 | [`inspect`](#fxcss-inspect) | Look up a selector you already have |
@@ -190,8 +194,54 @@ requires an autoconfig hook in the *application* directory, which fxcss does not
 create. Archives are size-capped and path-checked on extraction, and symlinks in
 them are skipped.
 
-If you decide you want the theme permanently, follow its own install
-instructions — that part is between you and the theme.
+If you decide you want the theme permanently, `fxcss install` is the same
+resolution and the same file copying — pointed, deliberately, at your real
+profile.
+
+### fxcss install
+
+```bash
+fxcss install owner/theme                      # into your default profile
+fxcss install owner/theme --with compact-tabs  # optional sheets, permanently
+fxcss install ~/src/my-theme                   # a local checkout works too
+fxcss install --list-profiles                  # see what it found first
+fxcss uninstall                                # put everything back
+```
+
+**Put a theme into the Firefox profile you actually use** — the cross-platform
+replacement for each theme's own `install.sh` (and the answer for themes whose
+install script never covered Windows). Resolution is the same as `try`:
+a GitHub `owner/name` or URL with `--ref`/`--commit`, or a local directory.
+As with `try`, the theme's own install script is never executed.
+
+It finds your real profiles by parsing `profiles.ini` in the platform's
+Firefox directory (macOS `~/Library/Application Support/Firefox`, Windows
+`%APPDATA%\Mozilla\Firefox`, Linux `~/.mozilla/firefox` plus the snap and
+flatpak locations) and installs into the profile Firefox itself would open.
+`--profile <name-or-path>` overrides; with several profiles and no clear
+default, interactive runs get a picker and scripts get an error — CI is never
+prompted. Profiles kept somewhere unusual can be added to the search with
+`FXCSS_PROFILE_ROOTS=/path/to/dir`, mirroring `FXCSS_FIREFOX_ROOTS`.
+
+The install is what a theme's install script does, done carefully:
+
+- your existing `chrome/` is moved to a timestamped `chrome.backup-*` sibling
+  first — nothing is overwritten in place;
+- the theme's `chrome/` is copied in, along with any `--with` optional sheets
+  (placed where the theme's own `@import`s expect them);
+- `toolkit.legacyUserProfileCustomizations.stylesheets` is enabled in
+  `user.js` — inside a clearly marked block, so it can be removed cleanly —
+  together with any `configuration/user.js` the theme ships;
+- a manifest (`chrome/fxcss-install.json`) records every file written.
+
+`fxcss uninstall` reads that manifest, removes exactly the files it lists,
+restores the backup, and strips the `user.js` block. Files it cannot prove
+fxcss wrote are never deleted — they are kept, or moved aside, never removed.
+Restart Firefox after either command; it reads `userChrome.css` at startup.
+
+> **Changed in 0.12:** before 0.12, `fxcss install` was an alias for `try`
+> and touched nothing real. The throwaway test-drive lives on, unchanged, as
+> `fxcss try`.
 
 ### fxcss watch
 
