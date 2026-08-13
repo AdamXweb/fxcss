@@ -488,6 +488,11 @@ def uninstall_theme(profile, stamp=None):
                 p.relative_to(profile).as_posix()
                 for p in chrome.rglob("*") if p.is_file())
         recorded = manifest.get("backup")
+        # Untrusted like the rest of the manifest: only a direct
+        # chrome.backup-* child of the profile may be restored.
+        if recorded and (Path(recorded).name != recorded
+                         or not recorded.startswith("chrome.backup-")):
+            recorded = None
         if recorded and (profile / recorded).is_dir() and not chrome.exists():
             shutil.move(str(profile / recorded), str(chrome))
             summary["restored"] = recorded

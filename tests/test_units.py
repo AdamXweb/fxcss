@@ -868,6 +868,24 @@ class UninstallThemeTests(unittest.TestCase):
             user_js = (profile / "user.js").read_text()
             self.assertEqual(user_js, 'user_pref("mine", 1);\n')
 
+    def test_a_doctored_backup_path_is_ignored(self):
+        import json
+        from fxcss.install import uninstall_theme
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            profile = self.installed(root)
+            precious = root / "precious"
+            precious.mkdir()
+            (precious / "keep.txt").write_text("mine\n", encoding="utf-8")
+            manifest = profile / "chrome" / "fxcss-install.json"
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["backup"] = "../precious"
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+            summary = uninstall_theme(profile)
+            # the outside directory stays put, nothing is "restored" from it
+            self.assertTrue((precious / "keep.txt").is_file())
+            self.assertIsNone(summary["restored"])
+
     def test_files_the_user_added_survive_and_block_no_restore(self):
         from fxcss.install import uninstall_theme
         with tempfile.TemporaryDirectory() as td:
