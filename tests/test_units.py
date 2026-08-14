@@ -159,6 +159,52 @@ class SamplePagesTests(unittest.TestCase):
         self.assertEqual(build_pages(), build_pages())
 
 
+class StartupRaceTests(unittest.TestCase):
+    """Only the initial-browser race may be retried; real failures must not.
+
+    The accepted string below is the verbatim error from the Windows runners
+    that motivated the retry (seen twice, at v0.9.0 and v0.12.0). Retrying
+    anything broader would paper over genuine script bugs three times before
+    reporting them.
+    """
+
+    def is_race(self, message):
+        from fxcss.core import MarionetteError, _is_startup_race
+        return _is_startup_race(MarionetteError(message))
+
+    def test_the_observed_ci_error_is_retryable(self):
+        self.assertTrue(self.is_race(
+            "WebDriver:ExecuteScript failed: {'error': 'javascript error', "
+            "'message': 'TypeError: can\\'t access property "
+            "\"maybeCancelContentJSExecution\", "
+            "this._browser.frameLoader.remoteTab is null'}"))
+
+    def test_a_missing_frameloader_is_retryable(self):
+        self.assertTrue(self.is_race("TypeError: browser.frameLoader is null"))
+
+    def test_real_failures_are_not(self):
+        for message in ("WebDriver:ExecuteScript failed: timeout",
+                        "TypeError: gb.addTab is not a function",
+                        "ReferenceError: remoteTab is not defined",
+                        "Marionette connection closed unexpectedly"):
+            with self.subTest(message=message):
+                self.assertFalse(self.is_race(message))
+
+
+class DiffStatsTests(unittest.TestCase):
+    def test_threshold_separates_noise_from_change(self):
+        from PIL import Image
+        from fxcss.compare import diff_stats
+        a = Image.new("RGB", (10, 10), (100, 100, 100))
+        b = a.copy()
+        b.putpixel((5, 5), (100, 100, 110))     # below threshold: noise
+        changed, total, _ = diff_stats(a, b)
+        self.assertEqual((changed, total), (0, 100))
+        b.putpixel((5, 5), (255, 255, 255))     # far above threshold
+        changed, _, _ = diff_stats(a, b)
+        self.assertEqual(changed, 1)
+
+
 class DiffStatsTests(unittest.TestCase):
     def test_threshold_separates_noise_from_change(self):
         from PIL import Image
