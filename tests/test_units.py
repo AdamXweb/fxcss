@@ -6,6 +6,7 @@ parsers. The full pipeline is exercised by the smoke job in CI; this file is
 for the logic that can regress silently inside it.
 """
 
+import json
 import re
 import tempfile
 import unittest
@@ -171,6 +172,48 @@ class DiffStatsTests(unittest.TestCase):
         b.putpixel((5, 5), (255, 255, 255))     # far above threshold
         changed, _, _ = diff_stats(a, b)
         self.assertEqual(changed, 1)
+
+
+class HeadOnlyViewsTests(unittest.TestCase):
+    """A capture with no base-side counterpart must still count as a change.
+
+    A PR that adds a variant stylesheet produces a head-only capture: nothing
+    exists to diff it against, so it can never reach changed_views. If
+    any_change stayed false, the preview comment would say "no visual change"
+    about the one PR whose entire point is a new look.
+    """
+
+    def test_only_in_head_marks_any_change(self):
+        from PIL import Image
+        from fxcss.compare import run
+        with tempfile.TemporaryDirectory() as td:
+            base, head, out = (Path(td) / n for n in ("base", "head", "out"))
+            base.mkdir()
+            head.mkdir()
+            img = Image.new("RGB", (8, 8), (100, 100, 100))
+            img.save(base / "light-01-window.png")
+            img.save(head / "light-01-window.png")
+            img.save(head / "variant-new-look.png")
+            run(base, head, out, "testos")
+            summary = json.loads((out / "summary.json").read_text())
+            self.assertEqual(summary["only_in_head"], ["variant-new-look"])
+            self.assertEqual(summary["changed_views"], [])
+            self.assertTrue(summary["any_change"])
+
+    def test_identical_sides_stay_unchanged(self):
+        from PIL import Image
+        from fxcss.compare import run
+        with tempfile.TemporaryDirectory() as td:
+            base, head, out = (Path(td) / n for n in ("base", "head", "out"))
+            base.mkdir()
+            head.mkdir()
+            img = Image.new("RGB", (8, 8), (100, 100, 100))
+            img.save(base / "light-01-window.png")
+            img.save(head / "light-01-window.png")
+            run(base, head, out, "testos")
+            summary = json.loads((out / "summary.json").read_text())
+            self.assertEqual(summary["only_in_head"], [])
+            self.assertFalse(summary["any_change"])
 
 
 class ImportabilityTests(unittest.TestCase):
@@ -476,6 +519,15 @@ class PublishAllowlistCoverageTests(unittest.TestCase):
                                  f"{name} is captured but the publish allowlist "
                                  f"drops it; add it to NAME in "
                                  f"templates/pr-preview-publish.yml")
+
+    def test_head_only_views_are_surfaced(self):
+        # A head-only capture (a variant the PR adds) has no diff image, so the
+        # comment must pull it from summary.only_in_head -- otherwise the one
+        # PR whose whole point is a new view reads as "no visual change".
+        template = (Path(__file__).parent.parent / "fxcss" / "templates"
+                    / "pr-preview-publish.yml").read_text()
+        self.assertIn("s.only_in_head", template)
+        self.assertIn("new in this PR", template)
 
     def test_every_extra_view_has_a_title(self):
         template = (Path(__file__).parent.parent / "fxcss" / "templates"

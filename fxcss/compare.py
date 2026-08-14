@@ -195,7 +195,9 @@ def run(base_dir: Path, head_dir: Path, out: Path, platform: str):
         normalise(Image.open(path)).save(full_dir / f"{name}.png", optimize=True)
 
     summary["changed_views"] = [v for v in summary["views"] if v["changed_pixels"]]
-    summary["any_change"] = bool(summary["changed_views"])
+    # A view with no base-side counterpart -- a variant this PR adds, say -- is
+    # a visual change too, even though there was nothing to diff it against.
+    summary["any_change"] = bool(summary["changed_views"] or summary["only_in_head"])
 
     src = head_dir / "render-info.json"
     if src.exists():
@@ -203,6 +205,8 @@ def run(base_dir: Path, head_dir: Path, out: Path, platform: str):
 
     (out / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(f"\n{len(summary['changed_views'])} of {len(shared)} views changed on {platform}")
+    if summary["only_in_head"]:
+        print(f"{len(summary['only_in_head'])} more exist only on the head side")
     return 0
 
 
