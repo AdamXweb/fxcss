@@ -900,7 +900,7 @@ def main(argv=None):
         "install", help="install a theme into your real Firefox profile",
         epilog="The profile's existing chrome/ is backed up first, and a "
                "manifest records every file written, so `fxcss uninstall` "
-               "puts everything back. Before 0.12, `install` was an alias "
+               "puts everything back. Before 0.13, `install` was an alias "
                "for `try`.")
     ins.add_argument("repo", nargs="?", default=None,
                      help="owner/name, a github.com URL, or a local theme directory")

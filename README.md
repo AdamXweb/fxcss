@@ -239,7 +239,7 @@ restores the backup, and strips the `user.js` block. Files it cannot prove
 fxcss wrote are never deleted — they are kept, or moved aside, never removed.
 Restart Firefox after either command; it reads `userChrome.css` at startup.
 
-> **Changed in 0.12:** before 0.12, `fxcss install` was an alias for `try`
+> **Changed in 0.13:** before 0.13, `fxcss install` was an alias for `try`
 > and touched nothing real. The throwaway test-drive lives on, unchanged, as
 > `fxcss try`.
 
