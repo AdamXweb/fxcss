@@ -178,7 +178,7 @@ class ImportabilityTests(unittest.TestCase):
         # Doubles as the Python-floor check when CI runs this on 3.9.
         import fxcss.audit, fxcss.catalogue, fxcss.cli   # noqa: F401,E401
         import fxcss.compare, fxcss.core, fxcss.fetch    # noqa: F401,E401
-        import fxcss.probe                               # noqa: F401
+        import fxcss.install, fxcss.probe                # noqa: F401,E401
 
 
 if __name__ == "__main__":
@@ -427,7 +427,7 @@ class PillowFreeCoreTests(unittest.TestCase):
     def test_core_modules_import_without_pillow(self):
         result = self.run_blocked(
             "import fxcss.cli, fxcss.core, fxcss.audit, fxcss.probe, "
-            "fxcss.fetch, fxcss.scaffold; "
+            "fxcss.fetch, fxcss.scaffold, fxcss.install; "
             "from fxcss.audit import css_references; print('ok')")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("ok", result.stdout)
@@ -533,3 +533,409 @@ class ToolbarSpecTests(unittest.TestCase):
         # A longer list overflows the nav bar at the capture window width,
         # which hides the widgets the view exists to show.
         self.assertLessEqual(len(ops), 6, DEFAULT_TOOLBAR)
+
+
+class ProfilesIniTests(unittest.TestCase):
+    """profiles.ini fixtures modelled on real files, one shape per Firefox era.
+
+    A wrong answer here does not crash anything -- it installs a theme into
+    the profile the user does not use, which reads as 'fxcss did nothing'.
+    """
+
+    MODERN = """\
+[Install4F96D1932A9F858E]
+Default=Profiles/abcd1234.default-release
+Locked=1
+
+[Profile1]
+Name=default
+IsRelative=1
+Path=Profiles/oldstyle.default
+Default=1
+
+[Profile0]
+Name=default-release
+IsRelative=1
+Path=Profiles/abcd1234.default-release
+
+[General]
+StartWithLastProfile=1
+Version=2
+"""
+
+    def parse(self, text):
+        from fxcss.install import parse_profiles_ini
+        return parse_profiles_ini(text)
+
+    def pick(self, text):
+        from fxcss.install import pick_default
+        return pick_default(*self.parse(text))
+
+    def test_install_section_beats_old_style_default_flag(self):
+        # Firefox 67+ records the profile each installation opens in an
+        # [Install*] section; the Default=1 flag is the pre-67 mechanism and
+        # frequently points at a stale profile on upgraded machines.
+        picked = self.pick(self.MODERN)
+        self.assertEqual(picked["name"], "default-release")
+
+    def test_locked_install_section_still_parses(self):
+        profiles, install_defaults = self.parse(self.MODERN)
+        self.assertEqual(install_defaults,
+                         ["Profiles/abcd1234.default-release"])
+        self.assertEqual(len(profiles), 2)
+
+    def test_old_style_default_flag(self):
+        picked = self.pick("[Profile0]\nName=a\nIsRelative=1\nPath=Profiles/a\n\n"
+                           "[Profile1]\nName=b\nIsRelative=1\nPath=Profiles/b\n"
+                           "Default=1\n")
+        self.assertEqual(picked["name"], "b")
+
+    def test_single_profile_needs_no_default_marker(self):
+        picked = self.pick("[Profile0]\nName=only\nIsRelative=1\n"
+                           "Path=Profiles/only.default\n")
+        self.assertEqual(picked["name"], "only")
+
+    def test_several_profiles_without_a_default_is_ambiguous(self):
+        self.assertIsNone(
+            self.pick("[Profile0]\nName=a\nIsRelative=1\nPath=Profiles/a\n\n"
+                      "[Profile1]\nName=b\nIsRelative=1\nPath=Profiles/b\n"))
+
+    def test_disagreeing_install_sections_are_ambiguous(self):
+        # Two Firefox installations, two default profiles: guessing silently
+        # would put the theme where the user did not mean it to go.
+        self.assertIsNone(
+            self.pick("[InstallAAA]\nDefault=Profiles/a\n\n"
+                      "[InstallBBB]\nDefault=Profiles/b\n\n"
+                      "[Profile0]\nName=a\nIsRelative=1\nPath=Profiles/a\n\n"
+                      "[Profile1]\nName=b\nIsRelative=1\nPath=Profiles/b\n"))
+
+    def test_absolute_path_profile_is_not_resolved_against_root(self):
+        from fxcss.install import discover_profiles
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "profiles.ini").write_text(
+                "[Profile0]\nName=portable\nIsRelative=0\n"
+                "Path=/somewhere/else/profile\n", encoding="utf-8")
+            (found,) = discover_profiles(roots=[root])
+            self.assertEqual(found["path"], Path("/somewhere/else/profile"))
+            self.assertTrue(found["default"])
+
+    def test_relative_path_resolves_against_its_root(self):
+        from fxcss.install import discover_profiles
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "profiles.ini").write_text(self.MODERN, encoding="utf-8")
+            found = discover_profiles(roots=[root])
+            by_name = {p["name"]: p for p in found}
+            self.assertEqual(by_name["default-release"]["path"],
+                             root / "Profiles" / "abcd1234.default-release")
+            self.assertTrue(by_name["default-release"]["default"])
+            self.assertFalse(by_name["default"]["default"])
+
+    def test_missing_or_junk_ini_yields_no_profiles(self):
+        from fxcss.install import discover_profiles
+        self.assertEqual(self.parse("")[0], [])
+        self.assertEqual(self.parse("; comment only\nnot ini at all\n")[0], [])
+        with tempfile.TemporaryDirectory() as td:
+            self.assertEqual(discover_profiles(roots=[Path(td)]), [])
+
+
+class MatchProfileTests(unittest.TestCase):
+    def profiles(self):
+        return [{"name": "default-release", "path": Path("/r/Profiles/x.default-release"),
+                 "root": Path("/r"), "default": True},
+                {"name": "dev", "path": Path("/r/Profiles/y.dev"),
+                 "root": Path("/r"), "default": False}]
+
+    def test_matches_by_name_and_dir_name(self):
+        from fxcss.install import match_profile
+        self.assertEqual(match_profile(self.profiles(), "dev")["name"], "dev")
+        self.assertEqual(
+            match_profile(self.profiles(), "x.default-release")["name"],
+            "default-release")
+
+    def test_unknown_name_lists_what_exists(self):
+        from fxcss.install import match_profile
+        with self.assertRaises(ValueError) as ctx:
+            match_profile(self.profiles(), "nope")
+        self.assertIn("default-release", str(ctx.exception))
+
+    def test_explicit_path_must_look_like_a_profile(self):
+        # A typo'd --profile path must not become the place a theme lands.
+        from fxcss.install import match_profile
+        with tempfile.TemporaryDirectory() as td:
+            with self.assertRaises(ValueError) as ctx:
+                match_profile([], td)
+            self.assertIn("does not look like a Firefox profile",
+                          str(ctx.exception))
+            (Path(td) / "prefs.js").write_text("", encoding="utf-8")
+            picked = match_profile([], td)
+            self.assertEqual(picked["path"], Path(td))
+
+
+class UserJsBlockTests(unittest.TestCase):
+    def test_block_carries_the_stylesheet_pref(self):
+        from fxcss.install import user_js_with_block, STYLESHEET_PREF
+        text = user_js_with_block("", STYLESHEET_PREF)
+        self.assertIn("toolkit.legacyUserProfileCustomizations.stylesheets",
+                      text)
+        self.assertIn("/* >>> fxcss install >>> */", text)
+
+    def test_reinstall_replaces_rather_than_stacks(self):
+        from fxcss.install import user_js_with_block
+        once = user_js_with_block('user_pref("mine", 1);\n', "a();")
+        twice = user_js_with_block(once, "b();")
+        self.assertEqual(twice.count("/* >>> fxcss install >>> */"), 1)
+        self.assertIn('user_pref("mine", 1);', twice)
+        self.assertIn("b();", twice)
+        self.assertNotIn("a();", twice)
+
+    def test_strip_removes_block_and_keeps_the_rest(self):
+        from fxcss.install import user_js_with_block, strip_user_js_block
+        text = user_js_with_block('user_pref("mine", 1);\n', "theirs();")
+        stripped = strip_user_js_block(text)
+        self.assertEqual(stripped, 'user_pref("mine", 1);\n')
+
+    def test_unclosed_block_is_left_alone(self):
+        # Deleting from a lone BEGIN to EOF could take a user's own lines;
+        # a duplicated pref is harmless where a lost one is not.
+        from fxcss.install import strip_user_js_block
+        text = ('/* >>> fxcss install >>> */\n'
+                'user_pref("theirs", 1);\n'
+                'user_pref("written-after", 1);\n')
+        self.assertEqual(strip_user_js_block(text), text)
+
+
+class VariantDestinationTests(unittest.TestCase):
+    def test_import_site_names_the_spot(self):
+        # WhiteSur's theme.css imports custom/<name>.css and relies on its
+        # installer copying the sheet there; the import of a missing file
+        # failing silently is the whole on/off mechanism.
+        from fxcss.install import variant_destination
+        with tempfile.TemporaryDirectory() as td:
+            chrome = Path(td) / "chrome"
+            (chrome / "WhiteSur").mkdir(parents=True)
+            (chrome / "WhiteSur" / "theme.css").write_text(
+                '@import "custom/compact-tabs.css";\n', encoding="utf-8")
+            self.assertEqual(
+                variant_destination(chrome, "compact-tabs.css"),
+                chrome / "WhiteSur" / "custom" / "compact-tabs.css")
+
+    def test_unreferenced_sheet_has_no_destination(self):
+        from fxcss.install import variant_destination
+        with tempfile.TemporaryDirectory() as td:
+            chrome = Path(td) / "chrome"
+            chrome.mkdir()
+            (chrome / "userChrome.css").write_text("#a { }\n", encoding="utf-8")
+            self.assertIsNone(variant_destination(chrome, "compact-tabs.css"))
+
+    def test_import_may_not_point_a_write_outside_chrome(self):
+        from fxcss.install import variant_destination
+        with tempfile.TemporaryDirectory() as td:
+            chrome = Path(td) / "chrome"
+            chrome.mkdir()
+            (chrome / "userChrome.css").write_text(
+                '@import "../../evil/compact-tabs.css";\n', encoding="utf-8")
+            self.assertIsNone(variant_destination(chrome, "compact-tabs.css"))
+
+
+def _make_theme(root):
+    """A miniature WhiteSur: an @import chain and a custom/ sheet it names."""
+    theme = root / "theme"
+    (theme / "chrome" / "WhiteSur").mkdir(parents=True)
+    (theme / "chrome" / "userChrome.css").write_text(
+        '@import "WhiteSur/theme.css";\n@import "customChrome.css";\n',
+        encoding="utf-8")
+    (theme / "chrome" / "WhiteSur" / "theme.css").write_text(
+        '@import "custom/compact-tabs.css";\n#nav-bar { }\n',
+        encoding="utf-8")
+    (theme / "custom").mkdir()
+    (theme / "custom" / "compact-tabs.css").write_text(
+        ".tab { height: 28px; }\n", encoding="utf-8")
+    (theme / "custom" / "loose-sheet.css").write_text(
+        "#loose { }\n", encoding="utf-8")
+    (theme / "configuration").mkdir()
+    (theme / "configuration" / "user.js").write_text(
+        'user_pref("svg.context-properties.content.enabled", true);\n',
+        encoding="utf-8")
+    return theme
+
+
+def _make_profile(root):
+    profile = root / "profile"
+    (profile / "chrome").mkdir(parents=True)
+    (profile / "chrome" / "userChrome.css").write_text(
+        "/* the user's own */\n", encoding="utf-8")
+    (profile / "prefs.js").write_text("", encoding="utf-8")
+    (profile / "user.js").write_text('user_pref("mine", 1);\n',
+                                     encoding="utf-8")
+    return profile
+
+
+class InstallThemeTests(unittest.TestCase):
+    """Install into a fake profile directory -- pure filesystem, no Firefox."""
+
+    def test_install_backs_up_records_and_enables(self):
+        from fxcss.install import install_theme, read_manifest
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            theme, profile = _make_theme(root), _make_profile(root)
+            result = install_theme(theme, profile, "o/n@v1",
+                                   sheets=[theme / "custom" / "compact-tabs.css"],
+                                   stamp="20260814120000")
+            self.assertEqual(result["backup"], "chrome.backup-20260814120000")
+            self.assertEqual(
+                (profile / result["backup"] / "userChrome.css").read_text(),
+                "/* the user's own */\n")
+            # theme is in place, with the sheet where the @import expects it
+            self.assertIn("WhiteSur/theme.css",
+                          (profile / "chrome" / "userChrome.css").read_text())
+            self.assertTrue((profile / "chrome" / "WhiteSur" / "custom"
+                             / "compact-tabs.css").is_file())
+            # the shipped-nowhere customChrome.css import resolves
+            self.assertTrue((profile / "chrome" / "customChrome.css").is_file())
+            user_js = (profile / "user.js").read_text()
+            self.assertIn('user_pref("mine", 1);', user_js)
+            self.assertIn("legacyUserProfileCustomizations", user_js)
+            self.assertIn("svg.context-properties", user_js)
+            manifest = read_manifest(profile)
+            self.assertEqual(manifest["theme"], "o/n@v1")
+            self.assertEqual(manifest["backup"], result["backup"])
+            self.assertFalse(manifest["user_js_created"])
+            self.assertIn("chrome/WhiteSur/custom/compact-tabs.css",
+                          manifest["files"])
+
+    def test_unreferenced_sheet_falls_back_to_an_import(self):
+        from fxcss.install import install_theme
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            theme, profile = _make_theme(root), _make_profile(root)
+            install_theme(theme, profile, "o/n@v1",
+                          sheets=[theme / "custom" / "loose-sheet.css"])
+            self.assertTrue((profile / "chrome" / "custom"
+                             / "loose-sheet.css").is_file())
+            self.assertIn('@import "custom/loose-sheet.css";',
+                          (profile / "chrome" / "userChrome.css").read_text())
+
+    def test_two_installs_in_one_second_keep_both_backups(self):
+        from fxcss.install import install_theme
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            theme, profile = _make_theme(root), _make_profile(root)
+            first = install_theme(theme, profile, "o/n@v1",
+                                  stamp="20260814120000")
+            second = install_theme(theme, profile, "o/n@v1",
+                                   stamp="20260814120000")
+            self.assertEqual(first["backup"], "chrome.backup-20260814120000")
+            self.assertEqual(second["backup"], "chrome.backup-20260814120000-2")
+            self.assertTrue((profile / first["backup"]).is_dir())
+            self.assertTrue((profile / second["backup"]).is_dir())
+
+    def test_missing_profile_or_theme_refuses(self):
+        from fxcss.install import install_theme
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            theme = _make_theme(root)
+            with self.assertRaises(RuntimeError):
+                install_theme(theme, root / "no-such-profile", "x")
+            profile = _make_profile(root)
+            with self.assertRaises(RuntimeError):
+                install_theme(root / "not-a-theme", profile, "x")
+
+
+class UninstallThemeTests(unittest.TestCase):
+    def installed(self, root):
+        from fxcss.install import install_theme
+        theme = _make_theme(root)
+        profile = _make_profile(root)
+        install_theme(theme, profile, "o/n@v1",
+                      sheets=[theme / "custom" / "compact-tabs.css"],
+                      stamp="20260814120000")
+        return profile
+
+    def test_uninstall_restores_the_backup_exactly(self):
+        from fxcss.install import uninstall_theme
+        with tempfile.TemporaryDirectory() as td:
+            profile = self.installed(Path(td))
+            summary = uninstall_theme(profile)
+            self.assertGreater(summary["removed"], 0)
+            self.assertEqual(summary["restored"],
+                             "chrome.backup-20260814120000")
+            self.assertEqual(
+                (profile / "chrome" / "userChrome.css").read_text(),
+                "/* the user's own */\n")
+            self.assertEqual(list(profile.glob("chrome.backup-*")), [])
+            user_js = (profile / "user.js").read_text()
+            self.assertEqual(user_js, 'user_pref("mine", 1);\n')
+
+    def test_a_doctored_backup_path_is_ignored(self):
+        import json
+        from fxcss.install import uninstall_theme
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            profile = self.installed(root)
+            precious = root / "precious"
+            precious.mkdir()
+            (precious / "keep.txt").write_text("mine\n", encoding="utf-8")
+            manifest = profile / "chrome" / "fxcss-install.json"
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["backup"] = "../precious"
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+            summary = uninstall_theme(profile)
+            # the outside directory stays put, nothing is "restored" from it
+            self.assertTrue((precious / "keep.txt").is_file())
+            self.assertIsNone(summary["restored"])
+
+    def test_files_the_user_added_survive_and_block_no_restore(self):
+        from fxcss.install import uninstall_theme
+        with tempfile.TemporaryDirectory() as td:
+            profile = self.installed(Path(td))
+            added = profile / "chrome" / "my-notes.css"
+            added.write_text("/* added after install */\n", encoding="utf-8")
+            summary = uninstall_theme(profile)
+            self.assertTrue(added.is_file())
+            self.assertEqual(summary["kept"], ["chrome/my-notes.css"])
+            # the backup is not allowed to clobber the survivor
+            self.assertIsNone(summary["restored"])
+            self.assertTrue(
+                (profile / "chrome.backup-20260814120000").is_dir())
+
+    def test_without_manifest_nothing_is_deleted(self):
+        from fxcss.install import uninstall_theme
+        with tempfile.TemporaryDirectory() as td:
+            profile = self.installed(Path(td))
+            (profile / "chrome" / "fxcss-install.json").unlink()
+            summary = uninstall_theme(profile, stamp="20260814130000")
+            self.assertEqual(summary["moved_aside"],
+                             "chrome.removed-20260814130000")
+            self.assertEqual(summary["restored"],
+                             "chrome.backup-20260814120000")
+            self.assertEqual(
+                (profile / "chrome" / "userChrome.css").read_text(),
+                "/* the user's own */\n")
+            self.assertTrue((profile / summary["moved_aside"]).is_dir())
+
+    def test_nothing_installed_is_an_error_not_a_wipe(self):
+        from fxcss.install import uninstall_theme
+        with tempfile.TemporaryDirectory() as td:
+            profile = Path(td)
+            (profile / "chrome").mkdir()
+            (profile / "chrome" / "userChrome.css").write_text(
+                "/* hand-made */\n", encoding="utf-8")
+            with self.assertRaises(RuntimeError):
+                uninstall_theme(profile)
+            self.assertTrue((profile / "chrome" / "userChrome.css").is_file())
+
+    def test_tampered_manifest_cannot_reach_outside_chrome(self):
+        import json
+        from fxcss.install import uninstall_theme
+        with tempfile.TemporaryDirectory() as td:
+            profile = self.installed(Path(td))
+            outside = profile / "prefs.js"
+            manifest = profile / "chrome" / "fxcss-install.json"
+            data = json.loads(manifest.read_text())
+            data["files"] += ["prefs.js", "../outside.txt", "/etc/passwd",
+                              "chrome/../prefs.js"]
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+            uninstall_theme(profile)
+            self.assertTrue(outside.is_file())
