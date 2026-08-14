@@ -486,21 +486,24 @@ class Session:
                     raise
                 print(f"  note: initial browser raced loadURI, retrying "
                       f"({exc})", flush=True)
-                time.sleep(1.0)
+                time.sleep(2.0)
         time.sleep(3.0)
 
-    def _wait_for_initial_browser(self, timeout=30):
+    def _wait_for_initial_browser(self, timeout=10):
         # Marionette answers commands before the first window's browser has
         # attached its remoteTab, and SETUP_TABS' loadURI in that gap fails
         # (intermittent on Windows CI). Poll the attachment point itself
-        # rather than sleeping a guessed amount.
+        # rather than sleeping a guessed amount. Best-effort by design: on
+        # timeout, proceed and let the loadURI retry own whatever state this
+        # is -- a real loadURI error names the problem, where failing here
+        # would only report that a poll gave up.
         deadline = time.time() + timeout
         while time.time() < deadline:
             if self.m.script(BROWSER_READY) is True:
                 return
             time.sleep(0.25)
-        raise MarionetteError(
-            f"initial browser still not ready for loadURI after {timeout}s")
+        print(f"  note: initial browser not visibly ready after {timeout}s; "
+              f"proceeding anyway", flush=True)
 
     def apply_harness_css(self):
         """Hide artifacts of the automation harness in every window.
@@ -578,14 +581,17 @@ const done = arguments[arguments.length - 1];
 """
 
 # A remote browser cannot take a loadURI until its frameLoader has attached a
-# remoteTab (the content-process handle tabbrowser talks to). A non-remote
-# browser never gets one and is ready as soon as it exists.
+# remoteTab (the content-process handle tabbrowser talks to). Only that gap
+# is worth waiting out. A browser with no frameLoader at all is a lazy
+# browser, which stays that way until a load forces the frameLoader into
+# existence -- polling it deadlocks, as a windows-latest run demonstrated
+# (30s of waiting and it never came; the loadURI itself is what creates it).
 BROWSER_READY = """
 const win = Services.wm.getMostRecentWindow("navigator:browser");
 const browser = win && win.gBrowser && win.gBrowser.selectedBrowser;
 if (!browser) { return false; }
-return !browser.isRemoteBrowser ||
-       !!(browser.frameLoader && browser.frameLoader.remoteTab);
+return !browser.isRemoteBrowser || !browser.frameLoader ||
+       !!browser.frameLoader.remoteTab;
 """
 
 SETUP_TABS = """
