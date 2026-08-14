@@ -396,6 +396,21 @@ LAUNCH_FLAGS = [
 ]
 
 
+def _is_startup_race(exc):
+    """Is this Marionette failure the initial browser's not-yet-attached tab?
+
+    Marionette starts answering commands while the first window's browser is
+    still wiring itself up, and a loadURI in that gap throws from deep inside
+    tabbrowser -- seen intermittently on Windows CI runners as `TypeError:
+    can't access property "maybeCancelContentJSExecution",
+    this._browser.frameLoader.remoteTab is null`. That is a timing accident,
+    not a real failure, so it is the one error worth retrying; anything else
+    should surface unchanged.
+    """
+    message = str(exc)
+    return "remoteTab is null" in message or "frameLoader is null" in message
+
+
 class Session:
     """A running Firefox with a themed profile and a Marionette connection."""
 
@@ -457,9 +472,38 @@ class Session:
         result = self.m.async_script(SEED_BOOKMARKS)
         if result is not True:
             print(f"  note: bookmark seeding returned {result!r}", flush=True)
-        self.m.script(SETUP_TABS, [[self.urls["start.html"], self.urls["docs.html"],
-                                    self.urls["issues.html"]], pinned])
+        self._wait_for_initial_browser()
+        args = [[self.urls["start.html"], self.urls["docs.html"],
+                 self.urls["issues.html"]], pinned]
+        # The readiness poll covers the race we have seen; the retry covers
+        # the shape of it we have not. Only the startup race is retried.
+        for attempt in range(3):
+            try:
+                self.m.script(SETUP_TABS, args)
+                break
+            except MarionetteError as exc:
+                if attempt == 2 or not _is_startup_race(exc):
+                    raise
+                print(f"  note: initial browser raced loadURI, retrying "
+                      f"({exc})", flush=True)
+                time.sleep(2.0)
         time.sleep(3.0)
+
+    def _wait_for_initial_browser(self, timeout=10):
+        # Marionette answers commands before the first window's browser has
+        # attached its remoteTab, and SETUP_TABS' loadURI in that gap fails
+        # (intermittent on Windows CI). Poll the attachment point itself
+        # rather than sleeping a guessed amount. Best-effort by design: on
+        # timeout, proceed and let the loadURI retry own whatever state this
+        # is -- a real loadURI error names the problem, where failing here
+        # would only report that a poll gave up.
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self.m.script(BROWSER_READY) is True:
+                return
+            time.sleep(0.25)
+        print(f"  note: initial browser not visibly ready after {timeout}s; "
+              f"proceeding anyway", flush=True)
 
     def apply_harness_css(self):
         """Hide artifacts of the automation harness in every window.
@@ -534,6 +578,20 @@ const done = arguments[arguments.length - 1];
     done(true);
   } catch (e) { done("error: " + e); }
 })();
+"""
+
+# A remote browser cannot take a loadURI until its frameLoader has attached a
+# remoteTab (the content-process handle tabbrowser talks to). Only that gap
+# is worth waiting out. A browser with no frameLoader at all is a lazy
+# browser, which stays that way until a load forces the frameLoader into
+# existence -- polling it deadlocks, as a windows-latest run demonstrated
+# (30s of waiting and it never came; the loadURI itself is what creates it).
+BROWSER_READY = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+const browser = win && win.gBrowser && win.gBrowser.selectedBrowser;
+if (!browser) { return false; }
+return !browser.isRemoteBrowser || !browser.frameLoader ||
+       !!browser.frameLoader.remoteTab;
 """
 
 SETUP_TABS = """
