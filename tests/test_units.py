@@ -192,6 +192,82 @@ class StartupRaceTests(unittest.TestCase):
                 self.assertFalse(self.is_race(message))
 
 
+class StartupRaceRetryTests(unittest.TestCase):
+    """The retry budget must outlast a slow runner without masking real bugs.
+
+    The original budget -- two retries, 2s apart -- was observed being fully
+    spent on a windows-latest run that then failed on the same race, which is
+    why the delays now back off exponentially. These tests pin the contract:
+    only the race is retried, every configured delay is actually slept, and
+    the budget is finite.
+    """
+
+    RACE = ("TypeError: can't access property "
+            '"maybeCancelContentJSExecution", '
+            "this._browser.frameLoader.remoteTab is null")
+
+    def run_retry(self, outcomes):
+        """Drive _retry_startup_race over scripted attempts.
+
+        outcomes holds one entry per allowed attempt: an error message to
+        raise, or None to succeed. Returns (result-or-exception, attempts
+        actually made, delays actually slept).
+        """
+        from fxcss.core import MarionetteError, _retry_startup_race
+        remaining, sleeps, made = iter(outcomes), [], []
+
+        def operation():
+            message = next(remaining)
+            made.append(message)
+            if message is None:
+                return "ok"
+            raise MarionetteError(message)
+
+        try:
+            result = _retry_startup_race(operation, sleep=sleeps.append)
+        except MarionetteError as exc:
+            result = exc
+        return result, len(made), sleeps
+
+    def test_a_slow_runner_is_waited_out(self):
+        # Three consecutive races would have exhausted the old budget.
+        result, attempts, _ = self.run_retry([self.RACE] * 3 + [None])
+        self.assertEqual(result, "ok")
+        self.assertEqual(attempts, 4)
+
+    def test_delays_back_off_and_widen_the_old_budget(self):
+        from fxcss.core import STARTUP_RACE_DELAYS
+        result, _, sleeps = self.run_retry(
+            [self.RACE] * len(STARTUP_RACE_DELAYS) + [None])
+        self.assertEqual(result, "ok")
+        self.assertEqual(sleeps, list(STARTUP_RACE_DELAYS))
+        # The failed run showed ~4s was not enough, so the total wait must be
+        # substantially larger, and each delay should grow so fast runners
+        # pay little while slow ones get real headroom.
+        self.assertGreater(sum(sleeps), 10)
+        self.assertEqual(sleeps, sorted(sleeps))
+
+    def test_the_race_still_fails_once_the_budget_is_spent(self):
+        from fxcss.core import MarionetteError, STARTUP_RACE_DELAYS
+        budget = len(STARTUP_RACE_DELAYS) + 1
+        result, attempts, sleeps = self.run_retry([self.RACE] * budget)
+        self.assertIsInstance(result, MarionetteError)
+        self.assertEqual(attempts, budget)
+        self.assertEqual(len(sleeps), len(STARTUP_RACE_DELAYS))
+
+    def test_real_failures_spend_no_budget(self):
+        from fxcss.core import MarionetteError
+        result, attempts, sleeps = self.run_retry(
+            ["TypeError: gb.addTab is not a function"])
+        self.assertIsInstance(result, MarionetteError)
+        self.assertEqual(attempts, 1)
+        self.assertEqual(sleeps, [])
+
+    def test_success_needs_no_retry(self):
+        result, attempts, sleeps = self.run_retry([None])
+        self.assertEqual((result, attempts, sleeps), ("ok", 1, []))
+
+
 class DiffStatsTests(unittest.TestCase):
     def test_threshold_separates_noise_from_change(self):
         from PIL import Image
