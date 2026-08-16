@@ -137,13 +137,59 @@ def pick_default(profiles, install_defaults):
     return None
 
 
+# Suffixes Firefox itself gives the profile directories it creates. Only ones
+# whose meaning is unambiguous are listed: a label here is shown to someone
+# about to overwrite that profile's chrome/, so a confident-looking guess is
+# worse than saying nothing. Longest match wins ("default-esr" before
+# "default"), which is why this is an ordered tuple and not a dict.
+PROFILE_SUFFIXES = (
+    ("dev-edition-default", "Developer Edition"),
+    ("default-esr", "ESR"),
+    ("default-release", "Release"),
+    ("default-nightly", "Nightly"),
+    ("default", "Release (pre-67 layout)"),
+)
+
+# Where the profile root lives says which packaging of Firefox owns it. Only
+# meaningful on Linux, where the same machine routinely has two or three.
+PROFILE_ROOT_KINDS = (
+    ("/snap/", "snap"),
+    ("/.var/app/", "flatpak"),
+)
+
+
+def profile_kind(name, root=None):
+    """Best-effort label for which Firefox a profile belongs to.
+
+    Firefox names the directories it creates after the channel that made them
+    (`<salt>.dev-edition-default`), so the suffix is the only honest signal
+    available without launching anything. Returns "" when the name says
+    nothing recognisable -- a profile someone named themselves is common, and
+    inventing a channel for it would be a lie in the one place it matters.
+    """
+    label = ""
+    text = str(name or "")
+    for suffix, pretty in PROFILE_SUFFIXES:
+        if text.endswith("." + suffix) or text == suffix:
+            label = pretty
+            break
+    if root:
+        rooted = str(root).replace(os.sep, "/")
+        for fragment, packaging in PROFILE_ROOT_KINDS:
+            if fragment in rooted:
+                label = f"{label}, {packaging}" if label else packaging
+                break
+    return label
+
+
 def discover_profiles(roots=None):
     """Real profiles on this machine, each with an absolute path.
 
-    Returns [{name, path, root, default}, ...]. At most one entry per root is
-    marked default; a machine with several roots (Linux with both a distro and
-    a snap Firefox) can legitimately have several, which the CLI treats as
-    ambiguous rather than picking one.
+    Returns [{name, path, root, default, kind}, ...]. At most one entry per
+    root is marked default; a machine with several roots (Linux with both a
+    distro and a snap Firefox) can legitimately have several, which the CLI
+    treats as ambiguous rather than picking one. `kind` is a best-effort
+    "Developer Edition" / "ESR" / "snap" style label, or "".
     """
     found = []
     for root in (profile_roots() if roots is None else roots):
@@ -163,6 +209,10 @@ def discover_profiles(roots=None):
                 "path": path,
                 "root": root,
                 "default": profile is chosen,
+                # From the directory name, not the display name: Firefox lets
+                # someone rename a profile to anything, but the directory it
+                # created keeps the channel suffix.
+                "kind": profile_kind(Path(profile["path"]).name, root),
             })
     return found
 

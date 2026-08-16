@@ -477,6 +477,137 @@ class ReadmePreviewsTemplateTests(unittest.TestCase):
         self.assertIn("raw.githubusercontent.com", on)
 
 
+class ProfileKindTests(unittest.TestCase):
+    def test_channel_suffixes(self):
+        from fxcss.install import profile_kind
+        self.assertEqual(profile_kind("8f2b1a.default-release"), "Release")
+        self.assertEqual(profile_kind("8f2b1a.dev-edition-default"),
+                         "Developer Edition")
+        self.assertEqual(profile_kind("8f2b1a.default-esr"), "ESR")
+        # longest match wins: default-esr must not be read as default
+        self.assertNotEqual(profile_kind("x.default-esr"),
+                            profile_kind("x.default"))
+
+    def test_unknown_names_say_nothing(self):
+        # A profile someone named themselves gets no label rather than a
+        # guessed one -- this is shown next to "about to overwrite chrome/".
+        from fxcss.install import profile_kind
+        self.assertEqual(profile_kind("work"), "")
+        self.assertEqual(profile_kind(""), "")
+        self.assertEqual(profile_kind(None), "")
+
+    def test_packaging_from_root(self):
+        from fxcss.install import profile_kind
+        self.assertEqual(
+            profile_kind("a.default-release",
+                         "/home/u/snap/firefox/common/.mozilla/firefox"),
+            "Release, snap")
+        self.assertEqual(
+            profile_kind("work", "/home/u/.var/app/org.mozilla.firefox/x"),
+            "flatpak")
+
+
+class RefOptionsTests(unittest.TestCase):
+    RELEASE = {"tag": "v2.0", "date": "2025-01-03T00:00:00Z"}
+
+    def _info(self, release=None, commit=None):
+        return {"default_branch": "master", "release": release,
+                "commit": commit, "owner": "o", "name": "r"}
+
+    def test_commit_is_newer_needs_both_sides(self):
+        from fxcss.fetch import commit_is_newer
+        newer = {"sha": "abc", "date": "2026-08-01T00:00:00Z", "message": "m"}
+        self.assertTrue(commit_is_newer(self._info(self.RELEASE, newer)))
+        older = {"sha": "abc", "date": "2024-01-01T00:00:00Z", "message": "m"}
+        self.assertFalse(commit_is_newer(self._info(self.RELEASE, older)))
+        self.assertFalse(commit_is_newer(self._info(None, newer)))
+        self.assertFalse(commit_is_newer(self._info(self.RELEASE, None)))
+
+    def test_release_is_offered_first(self):
+        from fxcss.fetch import ref_options
+        commit = {"sha": "abc", "date": "2026-08-01T00:00:00Z", "message": "fix"}
+        options = ref_options(self._info(self.RELEASE, commit))
+        self.assertEqual([o["ref"] for o in options], ["v2.0", "master"])
+        self.assertIn("newer than the release", options[1]["note"])
+
+    def test_no_release_still_offers_the_branch(self):
+        from fxcss.fetch import ref_options
+        options = ref_options(self._info(None, None))
+        self.assertEqual([o["ref"] for o in options], ["master"])
+
+
+class SelectionTests(unittest.TestCase):
+    def test_forms_accepted(self):
+        from fxcss.cli import parse_selection
+        self.assertEqual(parse_selection("1,3", 4), [0, 2])
+        self.assertEqual(parse_selection("1 3", 4), [0, 2])
+        self.assertEqual(parse_selection("all", 3), [0, 1, 2])
+        self.assertEqual(parse_selection("", 3), [])
+        self.assertEqual(parse_selection(None, 3), [])
+
+    def test_bad_input_under_selects(self):
+        # Out of range and unreadable tokens are dropped: this writes files
+        # into a real profile, so a typo must never add something.
+        from fxcss.cli import parse_selection
+        self.assertEqual(parse_selection("9", 3), [])
+        self.assertEqual(parse_selection("2,nonsense,99", 3), [1])
+        self.assertEqual(parse_selection("2,2,1", 3), [0, 1])
+
+
+class CompletionTests(unittest.TestCase):
+    def _theme(self, td):
+        theme = Path(td)
+        (theme / "chrome").mkdir()
+        (theme / "custom").mkdir()
+        for name in ("compact-tabs", "theme-nord", "theme-dracula"):
+            (theme / "custom" / f"{name}.css").write_text("x{}")
+        return theme
+
+    def test_subcommands_and_flags(self):
+        from fxcss.complete import candidates, subcommands
+        self.assertIn("install", subcommands())
+        self.assertNotIn("__complete", subcommands())
+        # a prefix shared by two commands offers both, and the shell decides
+        self.assertEqual(candidates(["fxcss", "ins"], 1), ["inspect", "install"])
+        self.assertEqual(candidates(["fxcss", "inst"], 1), ["install"])
+        flags = candidates(["fxcss", "install", "--w"], 2)
+        self.assertEqual(flags, ["--with"])
+
+    def test_sheet_values_come_from_the_theme(self):
+        from fxcss.complete import candidates
+        with tempfile.TemporaryDirectory() as td:
+            theme = self._theme(td)
+            got = candidates(["fxcss", "install", str(theme), "--with", "theme-"], 4)
+            self.assertEqual(got, ["theme-dracula", "theme-nord"])
+
+    def test_sheet_values_are_comma_aware(self):
+        from fxcss.complete import candidates
+        with tempfile.TemporaryDirectory() as td:
+            theme = self._theme(td)
+            got = candidates(
+                ["fxcss", "install", str(theme), "--with", "theme-nord,comp"], 4)
+            # carries the part already typed, and does not re-offer the choice
+            self.assertEqual(got, ["theme-nord,compact-tabs"])
+            got = candidates(
+                ["fxcss", "install", str(theme), "--with", "theme-nord,"], 4)
+            self.assertNotIn("theme-nord,theme-nord", got)
+
+    def test_path_options_defer_to_the_shell(self):
+        from fxcss.complete import candidates
+        self.assertEqual(candidates(["fxcss", "shot", "--out", ""], 3), [])
+
+    def test_never_raises(self):
+        from fxcss.complete import complete_line
+        for words, cword in ((["fxcss"], 99), ([], 0), (["fxcss", "--with"], 1)):
+            self.assertIsInstance(complete_line(words, cword), list)
+
+    def test_every_shell_has_a_script(self):
+        from fxcss.complete import SHELLS, script
+        for shell in SHELLS:
+            self.assertIn("fxcss __complete", script(shell))
+        self.assertIsNone(script("csh"))
+
+
 class ChromaSensitivityTests(unittest.TestCase):
     def test_chroma_only_shift_is_detected(self):
         # A blue-grey to peach tint changes channels by (+19, -4, -30): its

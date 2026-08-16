@@ -223,6 +223,48 @@ default, interactive runs get a picker and scripts get an error — CI is never
 prompted. Profiles kept somewhere unusual can be added to the search with
 `FXCSS_PROFILE_ROOTS=/path/to/dir`, mirroring `FXCSS_FIREFOX_ROOTS`.
 
+The picker and `--list-profiles` say which Firefox each profile belongs to,
+because `default-release` and `dev-edition-default` are one word apart in a
+list of hashed directory names — and installing into the wrong one looks
+exactly like the theme not working:
+
+```
+Several Firefox profiles exist:
+  1. default-release        [Release]              …/Profiles/8f2b1a.default-release  (Enter)
+  2. dev-edition-default    [Developer Edition]    …/Profiles/c41d9e.dev-edition-default
+  3. work                   [unrecognised]         …/Profiles/7ab3.work
+```
+
+The label comes from the directory suffix Firefox itself assigns, so a profile
+you named yourself reads `[unrecognised]` rather than being guessed at.
+
+Run it without `--with` and it offers the theme's optional stylesheets rather
+than leaving you to find them in the repository:
+
+```
+  This theme ships optional stylesheets:
+    1. compact-tabs
+    2. theme-dracula
+    …
+    Numbers separated by commas, `all`, or Enter for none.
+  Include:
+```
+
+When the theme's default branch has moved on since its newest release, that
+choice is put to you as well — a tag can be a year behind a fix you are
+looking for, and equally the branch can be mid-rewrite, so neither is right to
+assume:
+
+```
+  The default branch has moved on since the latest release:
+    1. release v2.0                 2025-01-03  what the author last published  (Enter)
+    2. latest commit on master      2026-08-14  newer than the release — fix tab colours
+  Install [1-2]:
+```
+
+Scripts and CI never see any of these prompts: without a terminal the release
+wins, as before, with a one-line note that `--commit` exists.
+
 The install is what a theme's install script does, done carefully:
 
 - your existing `chrome/` is moved to a timestamped `chrome.backup-*` sibling
@@ -242,6 +284,30 @@ Restart Firefox after either command; it reads `userChrome.css` at startup.
 > **Changed in 0.13:** before 0.13, `fxcss install` was an alias for `try`
 > and touched nothing real. The throwaway test-drive lives on, unchanged, as
 > `fxcss try`.
+
+### fxcss completions
+
+```bash
+eval "$(fxcss completions bash)"     # add to ~/.bashrc
+eval "$(fxcss completions zsh)"      # add to ~/.zshrc
+fxcss completions fish | source      # add to config.fish
+```
+
+Tab-completes subcommands, the flags each one takes, `--firefox` channel names
+— and, reading the theme in front of it, the names of its optional stylesheets:
+
+```console
+$ fxcss install ~/src/whitesur --with theme-mat<TAB>
+theme-material-ocean  theme-material-palenight
+```
+
+Comma-separated lists complete element by element, and values already chosen
+are not offered twice. The candidates are read off the real argument parser, so
+a command or flag becomes completable the moment it exists rather than when
+someone remembers to update a shell script. Completion never touches the
+network: sheet names for a remote `owner/repo` are not known locally, and a Tab
+that pauses to talk to GitHub would be worse than no completion at all — the
+picker during `install` covers that case instead.
 
 ### fxcss watch
 

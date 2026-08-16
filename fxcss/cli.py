@@ -16,6 +16,7 @@
     fxcss catalogue    build a directory of themeable UI parts
     fxcss shot         capture a set of screenshots
     fxcss compare      diff two sets into before/after/diff images
+    fxcss completions  print a shell completion script
     fxcss doctor       report what this Firefox supports
 
 Run `fxcss <command> --help` for the options of each.
@@ -197,7 +198,9 @@ def cmd_try(args):
         for line in fetch.humanise(info):
             print("  " + line)
         prefer = "commit" if args.commit else "release"
-        ref, why = fetch.choose_ref(info, prefer)
+        interactive = (sys.stdin.isatty() and sys.stdout.isatty()
+                       and not os.environ.get("CI"))
+        ref, why = _choose_ref(info, prefer, interactive)
 
     workdir = Path(tempfile.mkdtemp(prefix="fxcss-try-"))
     keep = args.keep.resolve() if args.keep else None
@@ -279,6 +282,51 @@ def cmd_try(args):
         shutil.rmtree(workdir, ignore_errors=True)
 
 
+def _profile_line(profile, number=None, marker=""):
+    """One profile as a line: which Firefox it belongs to, then where it is.
+
+    The kind is the point of this: `default-release` and `dev-edition-default`
+    are a letter apart in a list of hashed directory names, and installing a
+    theme into the wrong one looks exactly like the theme not working.
+    """
+    lead = f"  {number}. " if number is not None else "  "
+    kind = f"[{profile['kind']}]" if profile.get("kind") else "[unrecognised]"
+    return f"{lead}{profile['name']:<22} {kind:<26} {profile['path']}{marker}"
+
+
+def complete_module():
+    from . import complete
+    return complete
+
+
+def cmd_completions(args):
+    shell = args.shell or Path(os.environ.get("SHELL", "")).name
+    text = complete_module().script(shell)
+    if text is None:
+        supported = ", ".join(complete_module().SHELLS)
+        print(f"error: no completion script for {shell or 'this shell'} "
+              f"(supported: {supported})", file=sys.stderr)
+        return 2
+    print(text)
+    return 0
+
+
+def _complete_entry(rest):
+    """`fxcss __complete <cword> <word>...`, called by the shell scripts.
+
+    Handled before argparse sees anything: the words being completed are a
+    half-typed command line, so feeding them to a parser would mean an error
+    message printed over someone's prompt on a stray Tab.
+    """
+    try:
+        cword = int(rest[0]) if rest else 0
+    except (ValueError, IndexError):
+        return 0
+    for line in complete_module().complete_line(rest[1:], cword):
+        print(line)
+    return 0
+
+
 def _print_profiles():
     from . import install
     profiles = install.discover_profiles()
@@ -288,8 +336,12 @@ def _print_profiles():
         return 2
     print("Firefox profiles:")
     for profile in profiles:
-        marker = "  (default)" if profile["default"] else ""
-        print(f"  {profile['name']:<24} {profile['path']}{marker}")
+        print(_profile_line(profile,
+                            marker="  (default)" if profile["default"] else ""))
+    if any(not p.get("kind") for p in profiles):
+        print("\n  [unrecognised] means the directory name does not carry one "
+              "of Firefox's\n  channel suffixes — usually a profile someone "
+              "named themselves.")
     return 0
 
 
@@ -325,12 +377,93 @@ def _choose_profile(explicit, interactive):
     print("Several Firefox profiles exist:")
     for i, profile in enumerate(profiles, 1):
         marker = "  (Enter)" if i - 1 == default else ""
-        print(f"  {i}. {profile['name']:<24} {profile['path']}{marker}")
+        print(_profile_line(profile, number=i, marker=marker))
     try:
         raw = input(f"Which profile [1-{len(profiles)}]: ")
     except EOFError:
         raw = ""
     return profiles[_parse_choice(raw, len(profiles), default)]
+
+
+def parse_selection(raw, count):
+    """Menu input -> zero-based indices, for a multiple-choice list.
+
+    Accepts "1,3", "1 3", "all", and empty for none. Anything out of range or
+    unreadable is dropped rather than guessed at: this picks stylesheets that
+    get written into someone's profile, so a typo should under-select, never
+    over-select. Order is the list's, not the order typed, and repeats collapse.
+    """
+    text = (raw or "").strip().lower()
+    if not text:
+        return []
+    if text in ("all", "*", "a"):
+        return list(range(count))
+    picked = set()
+    for token in text.replace(",", " ").split():
+        try:
+            index = int(token) - 1
+        except ValueError:
+            continue
+        if 0 <= index < count:
+            picked.add(index)
+    return sorted(picked)
+
+
+def _choose_sheets(variants, interactive):
+    """Offer a theme's optional stylesheets, when there is a human to ask.
+
+    Only reachable when --with was not given: an explicit flag is an answer
+    and asking again would be rude. Silence (no terminal, or CI) means none,
+    which is what installing without --with has always done.
+    """
+    if not interactive or not variants:
+        return []
+    print("\n  This theme ships optional stylesheets:")
+    for i, sheet in enumerate(variants, 1):
+        print(f"    {i}. {sheet.stem}")
+    print("    Numbers separated by commas, `all`, or Enter for none.")
+    try:
+        raw = input("  Include: ")
+    except EOFError:
+        raw = ""
+    chosen = [variants[i] for i in parse_selection(raw, len(variants))]
+    if chosen:
+        print(f"  including: {', '.join(s.stem for s in chosen)}")
+    return chosen
+
+
+def _choose_ref(info, prefer, interactive):
+    """Which ref to install: the blessed release, or what the branch has now.
+
+    Only asks when the answer is genuinely open -- both exist and the branch
+    has moved on since the release. A release with nothing newer behind it is
+    not a question, and neither is an explicit --commit or --ref.
+    """
+    from . import fetch
+    options = fetch.ref_options(info)
+    if prefer == "commit" or len(options) < 2 or not fetch.commit_is_newer(info):
+        ref, why = fetch.choose_ref(info, prefer)
+        if not interactive and len(options) > 1 and fetch.commit_is_newer(info):
+            print("  note: the default branch has newer commits; --commit "
+                  "installs those instead")
+        return ref, why
+    if not interactive:
+        ref, why = fetch.choose_ref(info, prefer)
+        print("  note: the default branch has newer commits than this "
+              "release; --commit installs those instead")
+        return ref, why
+
+    print("\n  The default branch has moved on since the latest release:")
+    for i, option in enumerate(options, 1):
+        marker = "  (Enter)" if i == 1 else ""
+        note = f"  {option['note']}" if option["note"] else ""
+        print(f"    {i}. {option['label']:<28} {option['date']}{note}{marker}")
+    try:
+        raw = input(f"  Install [1-{len(options)}]: ")
+    except EOFError:
+        raw = ""
+    picked = options[_parse_choice(raw, len(options), 0)]
+    return picked["ref"], picked["why"]
 
 
 def _confirm(question, interactive, assume_yes):
@@ -380,7 +513,7 @@ def cmd_install(args):
                 for line in fetch.humanise(info):
                     print("  " + line)
                 prefer = "commit" if args.commit else "release"
-                ref, why = fetch.choose_ref(info, prefer)
+                ref, why = _choose_ref(info, prefer, interactive)
             workdir = Path(tempfile.mkdtemp(prefix="fxcss-install-"))
             print(f"\n  fetching {why} …")
             repo_root = fetch.download(owner, name, ref, workdir / "src")
@@ -407,6 +540,8 @@ def cmd_install(args):
                       file=sys.stderr)
                 return 2
             chosen = [by_name[w] for w in sorted(wanted)]
+        else:
+            chosen = _choose_sheets(facts["variants"], interactive)
 
         picked = _choose_profile(args.profile, interactive)
         print(f"\n  profile: {picked['name']}  ({picked['path']})")
@@ -866,7 +1001,14 @@ def _menus(p):
                    help="false makes right-click menus XUL, so a theme can style them")
 
 
-def main(argv=None):
+def build_parser():
+    """The full argument parser.
+
+    Split out from main() so shell completion can read the real
+    subcommands and options straight off it. Anything added below is
+    completable the moment it exists -- a hand-kept list of flags in a
+    shell script would start drifting on the next commit.
+    """
     ap = argparse.ArgumentParser(
         prog="fxcss", description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -1063,10 +1205,28 @@ def main(argv=None):
     sn.add_argument("--out", type=Path, required=True)
     sn.set_defaults(func=cmd_snapshot)
 
+    cp = sub.add_parser(
+        "completions", help="print a shell completion script",
+        epilog="bash:  eval \"$(fxcss completions bash)\"   (add to ~/.bashrc)\n"
+               "zsh:   eval \"$(fxcss completions zsh)\"    (add to ~/.zshrc)\n"
+               "fish:  fxcss completions fish | source     (add to config.fish)",
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    cp.add_argument("shell", nargs="?", choices=complete_module().SHELLS,
+                    help="which shell (default: guess from $SHELL)")
+    cp.set_defaults(func=cmd_completions)
+
     d = sub.add_parser("doctor", help="report what this Firefox supports")
     _common(d)
     d.set_defaults(func=cmd_doctor)
 
+    return ap
+
+
+def main(argv=None):
+    raw = list(sys.argv[1:] if argv is None else argv)
+    if raw and raw[0] == "__complete":
+        return _complete_entry(raw[1:])
+    ap = build_parser()
     args = ap.parse_args(argv)
     if args.cmd is None:
         # Bare `fxcss` used to be an argparse error. Greet by task instead:
