@@ -21,6 +21,7 @@ the profile, copy the optional sheets that were asked for, and make sure
 supported place for a value that must survive).
 """
 
+import hashlib
 import json
 import os
 import re
@@ -30,6 +31,15 @@ import time
 from pathlib import Path
 
 MANIFEST_NAME = "fxcss-install.json"
+
+# Bumped when the manifest's shape changes. Old manifests are still read --
+# `read_manifest` normalises them -- but they are never silently rewritten:
+# whatever wrote a manifest is the thing that gets to own its contents.
+#
+# 1: {theme, installed, backup, user_js_created, sheets, files}
+# 2: adds `schema`, `fxcss`, `source` (the theme_id string taken apart so an
+#    upgrade can act on it), `origin_backup` and `digests`.
+MANIFEST_SCHEMA = 2
 
 BLOCK_BEGIN = "/* >>> fxcss install >>> */"
 BLOCK_END = "/* <<< fxcss install <<< */"
@@ -369,10 +379,111 @@ def variant_destination(chrome_dir, filename):
     return None
 
 
+# --- describing what got installed ------------------------------------------
+
+THEME_ID_RE = re.compile(r"^([\w.-]+)/([\w.-]+)@(.+)$")
+
+
+def parse_theme_id(theme_id):
+    """Take a `theme` string apart into a source dict.
+
+    Schema-1 manifests recorded only ``owner/name@ref`` (or a local directory
+    path), which is enough to *show* someone what they installed but not
+    enough to act on: re-fetching needs to know whether ``main`` was a branch
+    being tracked or a tag that happens to be named that. Everything that
+    cannot be recovered from the string is reported as "unknown" rather than
+    assumed -- an upgrade that guesses wrong here re-points someone's install
+    at a different ref.
+
+    Returns {kind, owner, name, ref, ref_kind, resolved, path}.
+    """
+    blank = {"kind": "unknown", "owner": None, "name": None, "ref": None,
+             "ref_kind": "unknown", "resolved": None, "path": None}
+    text = str(theme_id or "").strip()
+    if not text:
+        return blank
+    match = THEME_ID_RE.match(text)
+    if match:
+        owner, name, ref = match.groups()
+        return {"kind": "github", "owner": owner, "name": name, "ref": ref,
+                "ref_kind": "unknown", "resolved": ref, "path": None}
+    if os.path.isabs(text) or text.startswith((".", "~")):
+        return dict(blank, kind="local", path=text)
+    return blank
+
+
+def _digest(path):
+    """sha256 of one file, or None when it cannot be read.
+
+    Unreadable is not an error worth failing an install over: the digest is
+    there to answer "has this changed since?", and a file that cannot be read
+    now simply has no answer.
+    """
+    try:
+        hasher = hashlib.sha256()
+        with open(path, "rb") as handle:
+            for block in iter(lambda: handle.read(131072), b""):
+                hasher.update(block)
+        return hasher.hexdigest()
+    except OSError:
+        return None
+
+
+def drift(profile, manifest=None):
+    """What has changed in chrome/ since the install recorded in the manifest.
+
+    Returns {modified, missing, extra, checked}. `extra` is every file in
+    chrome/ the manifest does not list -- which is how a hand-added sheet
+    shows up, and why `uninstall` never deletes by wildcard.
+
+    A schema-1 manifest carries no digests, so nothing can be said about
+    modification; `checked` is 0 in that case and `modified` is empty. That is
+    a real "don't know", and callers must not render it as "unchanged".
+    """
+    profile = Path(profile)
+    manifest = read_manifest(profile) if manifest is None else manifest
+    result = {"modified": [], "missing": [], "extra": [], "checked": 0}
+    if not manifest:
+        return result
+
+    digests = manifest.get("digests")
+    digests = digests if isinstance(digests, dict) else {}
+    recorded = set()
+    for path in _manifest_paths(profile, manifest):
+        relative = path.relative_to(profile).as_posix()
+        recorded.add(relative)
+        if not path.is_file():
+            result["missing"].append(relative)
+            continue
+        expected = digests.get(relative)
+        if not isinstance(expected, str):
+            continue
+        result["checked"] += 1
+        if _digest(path) != expected:
+            result["modified"].append(relative)
+
+    chrome = profile / "chrome"
+    if chrome.is_dir():
+        for path in chrome.rglob("*"):
+            if not path.is_file():
+                continue
+            relative = path.relative_to(profile).as_posix()
+            if relative not in recorded and path.name != MANIFEST_NAME:
+                result["extra"].append(relative)
+    for key in ("modified", "missing", "extra"):
+        result[key].sort()
+    return result
+
+
 # --- install ----------------------------------------------------------------
 
 def _timestamp():
     return time.strftime("%Y%m%d%H%M%S")
+
+
+# `None` is a real answer for origin_backup -- a profile with no chrome/ at
+# all when fxcss first arrived -- so "not passed" needs its own value.
+_UNSET = object()
 
 
 def _spare_name(profile, base):
@@ -385,16 +496,30 @@ def _spare_name(profile, base):
     return candidate
 
 
-def install_theme(theme_root, profile, theme_id, sheets=(), stamp=None):
+def install_theme(theme_root, profile, theme_id, sheets=(), stamp=None,
+                  source=None, origin_backup=_UNSET):
     """Copy a theme into a real profile. Returns a summary dict.
 
     Pure filesystem, no prompts: the caller has already decided which profile
     and confirmed with the user. `sheets` are paths to optional stylesheets
     (the theme's custom/*.css) to install alongside.
+
+    `source` is what the caller knows about where the theme came from; it is
+    recorded verbatim because the caller resolved it and this module would
+    only be guessing. Omitted, it is recovered from `theme_id` as best it can
+    be.
+
+    `origin_backup` names the chrome/ that was there before fxcss first
+    touched this profile. It exists for upgrades: each one moves the previous
+    install aside into a fresh ``chrome.backup-*``, so after three upgrades
+    the newest backup holds *the theme*, not what the user had to begin with.
+    Passing the old manifest's value through keeps `uninstall` able to mean
+    what it says. Left out, this install is the first one and its own backup
+    is the origin.
     """
     theme_root, profile = Path(theme_root), Path(profile)
-    source = theme_root / "chrome"
-    if not (source / "userChrome.css").is_file():
+    tree = theme_root / "chrome"
+    if not (tree / "userChrome.css").is_file():
         raise RuntimeError(f"no chrome/userChrome.css under {theme_root}")
     if not profile.is_dir():
         raise RuntimeError(f"profile directory does not exist: {profile}")
@@ -408,7 +533,7 @@ def install_theme(theme_root, profile, theme_id, sheets=(), stamp=None):
         shutil.move(str(chrome), str(backup))
         backup = backup.name
 
-    shutil.copytree(source, chrome)
+    shutil.copytree(tree, chrome)
     files = sorted(p.relative_to(profile).as_posix()
                    for p in chrome.rglob("*") if p.is_file())
 
@@ -448,13 +573,28 @@ def install_theme(theme_root, profile, theme_id, sheets=(), stamp=None):
     user_js.write_text(user_js_with_block(existing, user_js_body(theme_root)),
                        encoding="utf-8")
 
+    from . import __version__
+
+    files = sorted(files)
     manifest = {
+        "schema": MANIFEST_SCHEMA,
+        "fxcss": __version__,
+        # Kept as it always was: it is the one field a human reads straight
+        # out of the file, and anything older than schema 2 only has this.
         "theme": str(theme_id),
+        "source": dict(source) if source else parse_theme_id(theme_id),
         "installed": time.strftime("%Y-%m-%d %H:%M:%S"),
         "backup": backup,
+        "origin_backup": backup if origin_backup is _UNSET else origin_backup,
         "user_js_created": user_js_created,
         "sheets": installed_sheets,
-        "files": sorted(files),
+        "files": files,
+        # sha256 per file, so a later upgrade can tell "the theme as installed"
+        # from "the theme as the user has since edited it" and refuse to
+        # quietly overwrite the difference.
+        "digests": {name: digest for name, digest in
+                    ((name, _digest(profile / name)) for name in files)
+                    if digest},
     }
     (chrome / MANIFEST_NAME).write_text(
         json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
@@ -464,7 +604,17 @@ def install_theme(theme_root, profile, theme_id, sheets=(), stamp=None):
 # --- uninstall --------------------------------------------------------------
 
 def read_manifest(profile):
-    """The manifest a previous install left, or None."""
+    """The manifest a previous install left, normalised to the current shape.
+
+    Returns None when there is none to read. A manifest written by an older
+    fxcss is filled out here rather than on disk, so every caller sees one
+    shape and nothing rewrites a file it did not author.
+
+    Untrusted input throughout -- it sits in a directory anything can edit --
+    so each field is only accepted when it has the right type. A manifest
+    someone has mangled degrades to "fxcss cannot say", never to a confident
+    wrong answer.
+    """
     path = Path(profile) / "chrome" / MANIFEST_NAME
     if not path.is_file():
         return None
@@ -472,7 +622,22 @@ def read_manifest(profile):
         data = json.loads(path.read_text(encoding="utf-8"))
     except (ValueError, OSError):
         return None
-    return data if isinstance(data, dict) else None
+    if not isinstance(data, dict):
+        return None
+
+    schema = data.get("schema")
+    data["schema"] = schema if isinstance(schema, int) else 1
+    source = data.get("source")
+    if not isinstance(source, dict) or not source.get("kind"):
+        data["source"] = parse_theme_id(data.get("theme"))
+    if "origin_backup" not in data:
+        # Nothing before schema 2 upgraded in place, so the only backup there
+        # has ever been is the one this install made.
+        data["origin_backup"] = data.get("backup")
+    for key, kind in (("sheets", list), ("files", list), ("digests", dict)):
+        if not isinstance(data.get(key), kind):
+            data[key] = kind()
+    return data
 
 
 def _manifest_paths(profile, data):
@@ -492,6 +657,22 @@ def _manifest_paths(profile, data):
     return safe
 
 
+def safe_backup_name(recorded):
+    """A manifest's backup name, or None if it is not one fxcss may restore.
+
+    Untrusted like the rest of the manifest: a backup name is turned into a
+    path that gets moved over chrome/, so only a direct ``chrome.backup-*``
+    child of the profile is ever honoured -- never a traversal, never an
+    absolute path, never a sibling directory with an interesting name.
+    """
+    if not recorded or not isinstance(recorded, str):
+        return None
+    if Path(recorded).name != recorded or not recorded.startswith(
+            "chrome.backup-"):
+        return None
+    return recorded
+
+
 def _prune_empty_dirs(chrome):
     for directory in sorted((p for p in chrome.rglob("*") if p.is_dir()),
                             key=lambda p: len(p.parts), reverse=True):
@@ -509,7 +690,11 @@ def uninstall_theme(profile, stamp=None):
     """Undo an install. Returns a summary dict.
 
     With a manifest: delete exactly the files it lists, then put the recorded
-    backup back if the way is clear. Without one: never delete -- the current
+    backup back if the way is clear. The backup restored is `origin_backup` --
+    what was in the profile before fxcss first arrived -- so that a profile
+    upgraded several times still comes back to where it started rather than to
+    an intermediate version of the theme. On a profile installed once the two
+    are the same name. Without one: never delete -- the current
     chrome/ (which fxcss cannot prove it wrote) is moved aside, and the newest
     chrome.backup-* is restored. No manifest and no backup means there is
     nothing fxcss can safely claim, and that is an error.
@@ -537,12 +722,8 @@ def uninstall_theme(profile, stamp=None):
             summary["kept"] = sorted(
                 p.relative_to(profile).as_posix()
                 for p in chrome.rglob("*") if p.is_file())
-        recorded = manifest.get("backup")
-        # Untrusted like the rest of the manifest: only a direct
-        # chrome.backup-* child of the profile may be restored.
-        if recorded and (Path(recorded).name != recorded
-                         or not recorded.startswith("chrome.backup-")):
-            recorded = None
+        recorded = safe_backup_name(
+            manifest.get("origin_backup") or manifest.get("backup"))
         if recorded and (profile / recorded).is_dir() and not chrome.exists():
             shutil.move(str(profile / recorded), str(chrome))
             summary["restored"] = recorded
