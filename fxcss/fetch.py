@@ -171,6 +171,65 @@ def ref_options(info):
     return out
 
 
+def update_state(source, info):
+    """Is what a profile has installed still what upstream offers?
+
+    `source` is a manifest's source dict, `info` what `resolve()` reports now.
+    Returns {state, ref, label, detail}, where state is one of:
+
+      current      installed ref is upstream's newest of the kind tracked
+      available    something newer exists; `ref` is what to move to
+      pinned       an explicit --ref was asked for, so newer is not "behind"
+      unknown      the manifest predates recording how the ref was chosen
+      unsupported  a local directory install: there is no upstream to ask
+
+    Kept separate from any fetching so it can be tested without a network, and
+    stated as five outcomes rather than a boolean because "fxcss cannot tell"
+    has to be renderable -- an install whose ref_kind was never recorded is
+    not the same as one that is up to date, and showing it as up to date
+    would be a lie a user would act on.
+    """
+    source = source or {}
+    kind = source.get("kind")
+    if kind == "local":
+        return {"state": "unsupported", "ref": None, "label": "local install",
+                "detail": source.get("path") or ""}
+    if kind != "github":
+        return {"state": "unknown", "ref": None, "label": "unknown source",
+                "detail": "nothing recorded about where this came from"}
+
+    ref_kind = source.get("ref_kind")
+    if ref_kind == "explicit":
+        return {"state": "pinned", "ref": None,
+                "label": f"pinned to {source.get('ref')}",
+                "detail": "installed with --ref, so nothing is checked"}
+    if ref_kind == "release":
+        latest = (info.get("release") or {}).get("tag")
+        if not latest:
+            return {"state": "unknown", "ref": None,
+                    "label": "no releases upstream",
+                    "detail": "the theme published none to compare against"}
+        if latest == source.get("ref"):
+            return {"state": "current", "ref": latest, "label": latest,
+                    "detail": ""}
+        return {"state": "available", "ref": latest, "label": latest,
+                "detail": (info.get("release") or {}).get("date", "")[:10]}
+    if ref_kind == "branch":
+        commit = info.get("commit") or {}
+        sha = commit.get("sha")
+        if not sha:
+            return {"state": "unknown", "ref": None,
+                    "label": "branch tip unreadable", "detail": ""}
+        if sha == source.get("resolved"):
+            return {"state": "current", "ref": source.get("ref"),
+                    "label": f"{source.get('ref')} @ {sha}", "detail": ""}
+        return {"state": "available", "ref": source.get("ref"),
+                "label": f"{source.get('ref')} @ {sha}",
+                "detail": commit.get("message", "")[:52]}
+    return {"state": "unknown", "ref": None, "label": "ref kind not recorded",
+            "detail": "installed before fxcss recorded this; reinstall to fix"}
+
+
 def _safe_members(archive, destination: Path):
     """Yield members that stay inside the destination, refusing anything else."""
     total = 0

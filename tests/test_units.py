@@ -1274,12 +1274,38 @@ class UninstallThemeTests(unittest.TestCase):
             (precious / "keep.txt").write_text("mine\n", encoding="utf-8")
             manifest = profile / "chrome" / "fxcss-install.json"
             data = json.loads(manifest.read_text(encoding="utf-8"))
+            # Both fields name a directory uninstall may move over chrome/,
+            # so both have to be refused.
             data["backup"] = "../precious"
+            data["origin_backup"] = "../precious"
             manifest.write_text(json.dumps(data), encoding="utf-8")
             summary = uninstall_theme(profile)
             # the outside directory stays put, nothing is "restored" from it
             self.assertTrue((precious / "keep.txt").is_file())
             self.assertIsNone(summary["restored"])
+
+    def test_a_doctored_backup_cannot_displace_a_sound_origin(self):
+        """Tampering with one field does not get to veto the other.
+
+        `origin_backup` is what uninstall restores; a `backup` edited to point
+        somewhere else must be ignored rather than allowed to abort the
+        restore and strand the user's own chrome/ in a backup directory.
+        """
+        import json
+        from fxcss.install import uninstall_theme
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            profile = self.installed(root)
+            manifest = profile / "chrome" / "fxcss-install.json"
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["backup"] = "/etc"
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+            summary = uninstall_theme(profile)
+            self.assertEqual(summary["restored"],
+                             "chrome.backup-20260814120000")
+            self.assertEqual(
+                (profile / "chrome" / "userChrome.css").read_text(),
+                "/* the user's own */\n")
 
     def test_files_the_user_added_survive_and_block_no_restore(self):
         from fxcss.install import uninstall_theme
@@ -1334,3 +1360,291 @@ class UninstallThemeTests(unittest.TestCase):
             manifest.write_text(json.dumps(data), encoding="utf-8")
             uninstall_theme(profile)
             self.assertTrue(outside.is_file())
+
+
+class ParseThemeIdTests(unittest.TestCase):
+    """A schema-1 manifest's only record of the theme is one string.
+
+    Taking it apart is what lets an old install still be described, so the
+    shapes it can hold are pinned here. What the string cannot say -- whether
+    the ref was a tag or a branch -- must come back as "unknown" rather than
+    as a plausible default.
+    """
+
+    def test_owner_name_ref(self):
+        from fxcss.install import parse_theme_id
+        got = parse_theme_id("AdamXweb/WhiteSurFirefoxThemeMacOS@v2.0.0")
+        self.assertEqual(got["kind"], "github")
+        self.assertEqual(got["owner"], "AdamXweb")
+        self.assertEqual(got["name"], "WhiteSurFirefoxThemeMacOS")
+        self.assertEqual(got["ref"], "v2.0.0")
+        self.assertEqual(got["ref_kind"], "unknown")
+
+    def test_a_ref_may_hold_slashes(self):
+        from fxcss.install import parse_theme_id
+        got = parse_theme_id("o/n@release/2026-08")
+        self.assertEqual((got["kind"], got["ref"]), ("github", "release/2026-08"))
+
+    def test_absolute_path_is_a_local_install(self):
+        from fxcss.install import parse_theme_id
+        got = parse_theme_id("/Users/me/themes/WhiteSur")
+        self.assertEqual(got["kind"], "local")
+        self.assertEqual(got["path"], "/Users/me/themes/WhiteSur")
+
+    def test_unreadable_stays_unknown(self):
+        from fxcss.install import parse_theme_id
+        for text in ("", None, "just-a-name", "o/n"):
+            self.assertEqual(parse_theme_id(text)["kind"], "unknown", text)
+
+
+class ManifestNormalisationTests(unittest.TestCase):
+    """Old and tampered manifests both have to come back in one shape."""
+
+    def _write(self, profile, data):
+        (profile / "chrome").mkdir(parents=True, exist_ok=True)
+        (profile / "chrome" / "fxcss-install.json").write_text(
+            json.dumps(data), encoding="utf-8")
+
+    def test_schema_1_is_filled_out_in_memory(self):
+        from fxcss.install import read_manifest
+        with tempfile.TemporaryDirectory() as td:
+            profile = Path(td)
+            raw = {"theme": "o/n@v1", "installed": "2026-01-01 00:00:00",
+                   "backup": "chrome.backup-1", "user_js_created": False,
+                   "sheets": ["compact-tabs"], "files": ["chrome/a.css"]}
+            self._write(profile, raw)
+            got = read_manifest(profile)
+            self.assertEqual(got["schema"], 1)
+            self.assertEqual(got["source"]["owner"], "o")
+            self.assertEqual(got["origin_backup"], "chrome.backup-1")
+            self.assertEqual(got["digests"], {})
+            # and the file itself is left exactly as it was found
+            on_disk = json.loads(
+                (profile / "chrome" / "fxcss-install.json").read_text())
+            self.assertEqual(on_disk, raw)
+
+    def test_wrong_types_degrade_rather_than_crash(self):
+        from fxcss.install import read_manifest
+        with tempfile.TemporaryDirectory() as td:
+            profile = Path(td)
+            self._write(profile, {"theme": "o/n@v1", "schema": "two",
+                                  "source": "not-a-dict", "files": "nope",
+                                  "sheets": 7, "digests": ["no"]})
+            got = read_manifest(profile)
+            self.assertEqual(got["schema"], 1)
+            self.assertEqual(got["source"]["kind"], "github")
+            self.assertEqual((got["files"], got["sheets"], got["digests"]),
+                             ([], [], {}))
+
+    def test_a_list_at_the_top_level_is_not_a_manifest(self):
+        from fxcss.install import read_manifest
+        with tempfile.TemporaryDirectory() as td:
+            profile = Path(td)
+            (profile / "chrome").mkdir()
+            (profile / "chrome" / "fxcss-install.json").write_text(
+                "[1, 2, 3]", encoding="utf-8")
+            self.assertIsNone(read_manifest(profile))
+
+
+class DriftTests(unittest.TestCase):
+    """What changed in chrome/ after the install that recorded it."""
+
+    def installed(self, root):
+        from fxcss.install import install_theme
+        theme = _make_theme(root)
+        profile = _make_profile(root)
+        install_theme(theme, profile, "o/n@v1", stamp="20260814120000")
+        return profile
+
+    def test_a_clean_install_has_not_drifted(self):
+        from fxcss.install import drift
+        with tempfile.TemporaryDirectory() as td:
+            got = drift(self.installed(Path(td)))
+            self.assertEqual((got["modified"], got["missing"], got["extra"]),
+                             ([], [], []))
+            self.assertGreater(got["checked"], 0)
+
+    def test_edits_additions_and_deletions_are_each_named(self):
+        from fxcss.install import drift
+        with tempfile.TemporaryDirectory() as td:
+            profile = self.installed(Path(td))
+            (profile / "chrome" / "userChrome.css").write_text(
+                "/* edited by hand */\n", encoding="utf-8")
+            (profile / "chrome" / "mine.css").write_text("#a{}\n",
+                                                         encoding="utf-8")
+            (profile / "chrome" / "customChrome.css").unlink()
+            got = drift(profile)
+            self.assertEqual(got["modified"], ["chrome/userChrome.css"])
+            self.assertEqual(got["missing"], ["chrome/customChrome.css"])
+            self.assertEqual(got["extra"], ["chrome/mine.css"])
+
+    def test_the_manifest_itself_is_not_an_addition(self):
+        from fxcss.install import drift
+        with tempfile.TemporaryDirectory() as td:
+            self.assertEqual(drift(self.installed(Path(td)))["extra"], [])
+
+    def test_without_digests_nothing_is_claimed(self):
+        """Schema 1 recorded no hashes, so "unchanged" is not knowable.
+
+        The danger is the opposite answer: reporting a hand-edited profile as
+        clean would let an upgrade overwrite work without warning.
+        """
+        from fxcss.install import drift
+        with tempfile.TemporaryDirectory() as td:
+            profile = self.installed(Path(td))
+            path = profile / "chrome" / "fxcss-install.json"
+            data = json.loads(path.read_text())
+            del data["digests"]
+            path.write_text(json.dumps(data), encoding="utf-8")
+            (profile / "chrome" / "userChrome.css").write_text(
+                "/* edited */\n", encoding="utf-8")
+            got = drift(profile)
+            self.assertEqual(got["checked"], 0)
+            self.assertEqual(got["modified"], [])
+
+    def test_no_manifest_means_no_answer(self):
+        from fxcss.install import drift
+        with tempfile.TemporaryDirectory() as td:
+            self.assertEqual(drift(Path(td))["checked"], 0)
+
+
+class SafeBackupNameTests(unittest.TestCase):
+    """The manifest names a directory that gets moved over chrome/."""
+
+    def test_a_plain_backup_name_is_allowed(self):
+        from fxcss.install import safe_backup_name
+        self.assertEqual(safe_backup_name("chrome.backup-20260814120000"),
+                         "chrome.backup-20260814120000")
+
+    def test_traversal_absolute_and_lookalikes_are_refused(self):
+        from fxcss.install import safe_backup_name
+        for bad in ("../chrome.backup-1", "/tmp/chrome.backup-1",
+                    "chrome.backup-1/../..", "prefs.js", "chrome", "", None,
+                    12, "chrome.removed-1"):
+            self.assertIsNone(safe_backup_name(bad), bad)
+
+
+class OriginBackupTests(unittest.TestCase):
+    """After an upgrade, `uninstall` must still reach the *original* chrome/.
+
+    Upgrades move each previous install aside, so the newest chrome.backup-*
+    holds the last version of the theme rather than what the user had before
+    fxcss arrived. Restoring the newest would hand someone an old copy of the
+    theme and call it their own files back.
+    """
+
+    def test_uninstall_restores_the_origin_not_the_newest(self):
+        from fxcss.install import install_theme, uninstall_theme
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            theme = _make_theme(root)
+            profile = _make_profile(root)
+            first = install_theme(theme, profile, "o/n@v1",
+                                  stamp="20260814120000")
+            origin = first["backup"]
+            # what an upgrade does: keep the origin, back the theme up again
+            install_theme(theme, profile, "o/n@v2", stamp="20260815120000",
+                          origin_backup=origin)
+            summary = uninstall_theme(profile)
+            self.assertEqual(summary["restored"], origin)
+            self.assertEqual(
+                (profile / "chrome" / "userChrome.css").read_text(),
+                "/* the user's own */\n")
+
+    def test_a_first_install_is_its_own_origin(self):
+        from fxcss.install import install_theme
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            result = install_theme(_make_theme(root), _make_profile(root),
+                                   "o/n@v1", stamp="20260814120000")
+            self.assertEqual(result["origin_backup"], result["backup"])
+
+    def test_a_profile_with_no_chrome_has_no_origin(self):
+        from fxcss.install import install_theme
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            profile = root / "clean"
+            profile.mkdir()
+            (profile / "prefs.js").write_text("", encoding="utf-8")
+            result = install_theme(_make_theme(root), profile, "o/n@v1")
+            self.assertIsNone(result["origin_backup"])
+
+
+class UpdateStateTests(unittest.TestCase):
+    """Five outcomes, because "cannot tell" is not "up to date"."""
+
+    RELEASED = {"release": {"tag": "v2.0.0", "date": "2026-08-16"},
+                "default_branch": "main",
+                "commit": {"sha": "abc1234", "message": "tweak the tabs"}}
+
+    def test_a_tracked_release_that_moved_on(self):
+        from fxcss.fetch import update_state
+        got = update_state({"kind": "github", "ref_kind": "release",
+                            "ref": "v1.0.0"}, self.RELEASED)
+        self.assertEqual((got["state"], got["ref"]), ("available", "v2.0.0"))
+
+    def test_a_tracked_release_at_the_newest_tag(self):
+        from fxcss.fetch import update_state
+        got = update_state({"kind": "github", "ref_kind": "release",
+                            "ref": "v2.0.0"}, self.RELEASED)
+        self.assertEqual(got["state"], "current")
+
+    def test_a_branch_compares_the_commit_not_the_name(self):
+        from fxcss.fetch import update_state
+        source = {"kind": "github", "ref_kind": "branch", "ref": "main",
+                  "resolved": "abc1234"}
+        self.assertEqual(update_state(source, self.RELEASED)["state"],
+                         "current")
+        moved = dict(source, resolved="0000000")
+        self.assertEqual(update_state(moved, self.RELEASED)["state"],
+                         "available")
+
+    def test_an_explicit_ref_is_pinned_not_behind(self):
+        from fxcss.fetch import update_state
+        got = update_state({"kind": "github", "ref_kind": "explicit",
+                            "ref": "v1.0.0"}, self.RELEASED)
+        self.assertEqual(got["state"], "pinned")
+
+    def test_an_unrecorded_ref_kind_is_not_reported_as_current(self):
+        from fxcss.fetch import update_state
+        got = update_state({"kind": "github", "ref_kind": "unknown",
+                            "ref": "v2.0.0"}, self.RELEASED)
+        self.assertEqual(got["state"], "unknown")
+
+    def test_local_and_missing_sources(self):
+        from fxcss.fetch import update_state
+        self.assertEqual(
+            update_state({"kind": "local", "path": "/x"}, {})["state"],
+            "unsupported")
+        self.assertEqual(update_state({}, {})["state"], "unknown")
+        self.assertEqual(update_state(None, {})["state"], "unknown")
+
+    def test_a_theme_with_no_releases_is_not_current(self):
+        from fxcss.fetch import update_state
+        got = update_state({"kind": "github", "ref_kind": "release",
+                            "ref": "v1.0.0"}, {"release": None})
+        self.assertEqual(got["state"], "unknown")
+
+
+class InstallSourceTests(unittest.TestCase):
+    """`ref_kind` is settled where it is known, and never inferred later."""
+
+    INFO = {"release": {"tag": "v2.0.0"}, "default_branch": "main",
+            "commit": {"sha": "abc1234"}}
+
+    def test_a_release_tag_is_recorded_as_a_release(self):
+        from fxcss.cli import _install_source
+        got = _install_source("o", "n", "v2.0.0", self.INFO, explicit=False)
+        self.assertEqual(got["ref_kind"], "release")
+        self.assertEqual(got["resolved"], "v2.0.0")
+
+    def test_a_branch_resolves_to_the_commit_it_pointed_at(self):
+        from fxcss.cli import _install_source
+        got = _install_source("o", "n", "main", self.INFO, explicit=False)
+        self.assertEqual(got["ref_kind"], "branch")
+        self.assertEqual(got["resolved"], "abc1234")
+
+    def test_an_explicit_ref_says_so_without_a_lookup(self):
+        from fxcss.cli import _install_source
+        got = _install_source("o", "n", "v1.0.0", None, explicit=True)
+        self.assertEqual(got["ref_kind"], "explicit")

@@ -4,6 +4,7 @@
     fxcss try          download a theme from GitHub and test-drive it
     fxcss install      install a theme into your real Firefox profile
     fxcss uninstall    remove it again, restoring what was there before
+    fxcss profiles     list every Firefox profile and what is themed in it
     fxcss new          start a theme from a small, working scaffold
     fxcss init         add PR previews and CI checks to your theme repo
     fxcss tweaks       screenshot every install option, into a committable doc
@@ -46,6 +47,8 @@ LANDING = """fxcss - a testing toolkit for Firefox userChrome.css themes
                                     r/FirefoxCSS)
     fxcss install owner/repo       keep it: install into your real profile,
                                    with a backup; uninstall restores it
+    fxcss profiles --check         what is themed in each profile, and
+                                   whether anything newer has been released
 
   Maintaining a theme repository?
     fxcss init                     add before/after PR previews and CI checks
@@ -345,6 +348,180 @@ def _print_profiles():
     return 0
 
 
+def survey_profiles():
+    """Every profile on this machine, with whatever is themed in it.
+
+    Read-only, and deliberately says "I don't know" in three distinguishable
+    ways: no chrome/ at all, a chrome/ fxcss did not write (someone installed
+    a theme by hand -- worth reporting, since `install` would move it aside),
+    and a chrome/ with a manifest fxcss can speak for.
+    """
+    from . import install
+
+    rows = []
+    for profile in install.discover_profiles():
+        chrome = Path(profile["path"]) / "chrome"
+        manifest = install.read_manifest(profile["path"])
+        row = dict(profile, manifest=manifest, state="empty", drift=None,
+                   running=install.firefox_running(profile["path"]))
+        if manifest:
+            row["state"] = "managed"
+            row["drift"] = install.drift(profile["path"], manifest)
+        elif chrome.is_dir() and any(chrome.rglob("*.css")):
+            row["state"] = "unmanaged"
+            row["files"] = sum(1 for p in chrome.rglob("*") if p.is_file())
+        rows.append(row)
+    return rows
+
+
+def _theme_label(manifest):
+    """`owner/name @ ref`, or the raw theme string when that is all there is."""
+    source = manifest.get("source") or {}
+    if source.get("kind") == "github" and source.get("owner"):
+        return f"{source['owner']}/{source['name']} @ {source.get('ref')}"
+    if source.get("kind") == "local":
+        return source.get("path") or "a local directory"
+    return manifest.get("theme") or "unknown"
+
+
+def _drift_note(row):
+    """One phrase for how far chrome/ has moved since it was installed."""
+    drift, manifest = row["drift"], row["manifest"]
+    total = len(manifest.get("files") or [])
+    if drift is None:
+        return f"{total} file(s)"
+    bits = [f"{total} file(s)"]
+    if not drift["checked"] and total:
+        # Schema-1: the files are listed but were never hashed, so whether
+        # they still match is genuinely unknown and must not read as "clean".
+        bits.append("not checked for edits (installed by an older fxcss)")
+    elif drift["modified"]:
+        bits.append(f"{len(drift['modified'])} edited since install")
+    if drift["missing"]:
+        bits.append(f"{len(drift['missing'])} missing")
+    if drift["extra"]:
+        bits.append(f"{len(drift['extra'])} added by hand")
+    return ", ".join(bits)
+
+
+def cmd_profiles(args):
+    from . import fetch, install
+
+    rows = survey_profiles()
+    if not rows:
+        print("No Firefox profiles found (no profiles.ini in the usual "
+              "places).", file=sys.stderr)
+        return 2
+
+    # One lookup per distinct theme, not per profile: the same theme in three
+    # profiles is one question for GitHub.
+    updates = {}
+    if args.check:
+        for row in rows:
+            source = (row["manifest"] or {}).get("source") or {}
+            key = (source.get("owner"), source.get("name"))
+            if source.get("kind") != "github" or key in updates:
+                continue
+            try:
+                updates[key] = fetch.update_state(
+                    source, fetch.resolve(source["owner"], source["name"]))
+            except RuntimeError as exc:
+                updates[key] = {"state": "unknown", "ref": None,
+                                "label": "could not ask GitHub",
+                                "detail": str(exc)[:60]}
+
+    if args.json:
+        import json
+        payload = []
+        for row in rows:
+            source = (row["manifest"] or {}).get("source") or {}
+            payload.append({
+                "name": row["name"], "path": str(row["path"]),
+                "kind": row["kind"], "default": row["default"],
+                "state": row["state"], "running": row["running"],
+                "theme": (row["manifest"] or {}).get("theme"),
+                "source": source or None,
+                "sheets": (row["manifest"] or {}).get("sheets") or [],
+                "drift": row["drift"],
+                "update": updates.get((source.get("owner"),
+                                       source.get("name"))),
+            })
+        print(json.dumps(payload, indent=1))
+        return 0
+
+    print("\n  Firefox profiles on this machine\n")
+    for row in rows:
+        mark = "●" if row["default"] else " "
+        kind = f"[{row['kind']}]" if row.get("kind") else "[unrecognised]"
+        print(f"  {mark} {row['name']:<24} {kind}")
+        print(f"    {row['path']}")
+        if row["state"] == "managed":
+            manifest = row["manifest"]
+            source = manifest.get("source") or {}
+            print(f"    theme    {_theme_label(manifest)}")
+            # ref_kind only means something for a repo: "unknown" against a
+            # local directory would read as a gap rather than as N/A.
+            tracking = (f"  (tracking the {source['ref_kind']})"
+                        if source.get("kind") == "github"
+                        and source.get("ref_kind") in ("release", "branch")
+                        else "")
+            print(f"             installed {manifest.get('installed', '?')}"
+                  f"{tracking}")
+            if manifest.get("sheets"):
+                print(f"    sheets   {', '.join(manifest['sheets'])}")
+            print(f"    files    {_drift_note(row)}")
+            update = updates.get((source.get("owner"), source.get("name")))
+            if update and update["state"] == "available":
+                detail = f"  — {update['detail']}" if update["detail"] else ""
+                print(f"    update   {update['label']} available{detail}")
+            elif update and update["state"] == "current":
+                print("    update   up to date")
+            elif update:
+                print(f"    update   {update['label']}")
+        elif row["state"] == "unmanaged":
+            print(f"    chrome/  {row['files']} file(s), not installed by "
+                  "fxcss")
+            print("             `fxcss install` here would back this up first")
+        else:
+            print("    chrome/  none — no userChrome theme in this profile")
+        if row["running"]:
+            print("    note     Firefox is using this profile right now")
+        print()
+
+    if any(r["default"] for r in rows):
+        print("  ● the profile Firefox opens by default")
+    checkable = any(((r["manifest"] or {}).get("source") or {}).get("kind")
+                    == "github" for r in rows)
+    if not args.check and checkable:
+        print("  Pass --check to ask GitHub whether anything newer exists.")
+    return 0
+
+
+def _install_source(owner, name, ref, info, explicit):
+    """Record where a theme came from, precisely enough to fetch it again.
+
+    The distinction that matters later is `ref_kind`: re-fetching a release
+    means looking for a newer tag, while re-fetching a branch means looking at
+    what that branch points at now. The string "main" cannot tell those apart,
+    so it is settled here, where the answer is actually known, and written
+    down. Nothing infers it afterwards.
+    """
+    source = {"kind": "github", "owner": owner, "name": name, "ref": ref,
+              "ref_kind": "explicit" if explicit else "unknown",
+              "resolved": ref, "path": None}
+    if not info:
+        return source
+    release = (info.get("release") or {}).get("tag")
+    if ref == release:
+        source["ref_kind"] = "release"
+    elif ref == info.get("default_branch"):
+        source["ref_kind"] = "branch"
+        # A branch has no version, so the commit it pointed at is the only
+        # thing a later run can compare against to see it has moved.
+        source["resolved"] = (info.get("commit") or {}).get("sha") or ref
+    return source
+
+
 def _choose_profile(explicit, interactive):
     """Which real profile to touch, asking only when that is a real question.
 
@@ -498,6 +675,9 @@ def cmd_install(args):
         if local.is_dir():
             repo_root = local.resolve()
             theme_id = str(repo_root)
+            source = {"kind": "local", "owner": None, "name": None,
+                      "ref": None, "ref_kind": "unknown", "resolved": None,
+                      "path": str(repo_root)}
             print(f"\n  installing from {repo_root}")
         else:
             try:
@@ -505,6 +685,7 @@ def cmd_install(args):
             except ValueError as exc:
                 print(f"error: {exc}", file=sys.stderr)
                 return 2
+            info = None
             if args.ref:
                 ref, why = args.ref, f"ref {args.ref}"
             else:
@@ -518,6 +699,8 @@ def cmd_install(args):
             print(f"\n  fetching {why} …")
             repo_root = fetch.download(owner, name, ref, workdir / "src")
             theme_id = f"{owner}/{name}@{ref}"
+            source = _install_source(owner, name, ref, info,
+                                     explicit=bool(args.ref))
 
         theme_root = fetch.find_theme_root(repo_root)
         if theme_root is None:
@@ -553,7 +736,7 @@ def cmd_install(args):
             return 1
 
         result = install.install_theme(theme_root, picked["path"], theme_id,
-                                       sheets=chosen)
+                                       sheets=chosen, source=source)
         if result["backup"]:
             print(f"  existing chrome/ saved as {result['backup']}")
         if result["sheets"]:
@@ -1073,6 +1256,17 @@ def build_parser():
     un.add_argument("--yes", action="store_true",
                     help="skip the confirmation prompt")
     un.set_defaults(func=cmd_uninstall)
+
+    pr = sub.add_parser(
+        "profiles", help="list every Firefox profile and what is themed in it",
+        epilog="Read-only. Reports what `fxcss install` recorded in each "
+               "profile, and says so plainly when a profile has a chrome/ "
+               "folder fxcss did not write.")
+    pr.add_argument("--check", action="store_true",
+                    help="ask GitHub whether a newer release or commit exists")
+    pr.add_argument("--json", action="store_true",
+                    help="machine-readable output")
+    pr.set_defaults(func=cmd_profiles)
 
     nw = sub.add_parser("new", help="start a theme from a small, working scaffold")
     nw.add_argument("directory", type=Path, help="directory to create")

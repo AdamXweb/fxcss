@@ -126,6 +126,7 @@ at it with `--theme /path/to/theme`.
 | [`try`](#fxcss-try) | Download a theme from GitHub and test-drive it |
 | [`install`](#fxcss-install) | Install a theme into your real Firefox profile |
 | [`uninstall`](#fxcss-install) | Remove it again, restoring what was there |
+| [`profiles`](#fxcss-profiles) | List every Firefox profile and what is themed in it |
 | [`watch`](#fxcss-watch) | Edit CSS and see it live, no restart |
 | [`pick`](#fxcss-pick) | Click any part of the UI to get its CSS selector |
 | [`inspect`](#fxcss-inspect) | Look up a selector you already have |
@@ -274,7 +275,9 @@ The install is what a theme's install script does, done carefully:
 - `toolkit.legacyUserProfileCustomizations.stylesheets` is enabled in
   `user.js` — inside a clearly marked block, so it can be removed cleanly —
   together with any `configuration/user.js` the theme ships;
-- a manifest (`chrome/fxcss-install.json`) records every file written.
+- a manifest (`chrome/fxcss-install.json`) records every file written, its
+  sha256, and where the theme came from — which repo, which ref, and whether
+  that ref was a release or a branch.
 
 `fxcss uninstall` reads that manifest, removes exactly the files it lists,
 restores the backup, and strips the `user.js` block. Files it cannot prove
@@ -284,6 +287,56 @@ Restart Firefox after either command; it reads `userChrome.css` at startup.
 > **Changed in 0.13:** before 0.13, `fxcss install` was an alias for `try`
 > and touched nothing real. The throwaway test-drive lives on, unchanged, as
 > `fxcss try`.
+
+### fxcss profiles
+
+```bash
+fxcss profiles                       # what is themed where
+fxcss profiles --check               # …and whether anything newer exists
+fxcss profiles --json                # machine-readable
+```
+
+Read-only. Firefox keeps its profiles in directories named after a hash, so
+"which profile has the theme in it" is a genuinely hard question to answer by
+looking:
+
+```console
+$ fxcss profiles --check
+
+  Firefox profiles on this machine
+
+  ● default-release          [Release]
+    ~/Library/Application Support/Firefox/Profiles/8f2h1kqp.default-release
+    theme    AdamXweb/WhiteSurFirefoxThemeMacOS @ v1.0.0
+             installed 2026-08-14 09:12:44  (tracking the release)
+    sheets   theme-nord
+    files    137 file(s), 1 edited since install, 1 added by hand
+    update   v2.0.0 available  — 2026-08-16
+
+    dev-edition-default      [Developer Edition]
+    ~/Library/Application Support/Firefox/Profiles/p93kd0zx.dev-edition-default
+    chrome/  41 file(s), not installed by fxcss
+             `fxcss install` here would back this up first
+
+  ● the profile Firefox opens by default
+```
+
+Three states, kept distinct on purpose: a profile fxcss installed into and can
+speak for, a profile with a `chrome/` folder someone put there by hand, and a
+profile with no theme at all. Only the first can be described in detail; for
+the second, all fxcss honestly knows is that files are there and that
+installing would move them aside.
+
+`--check` asks GitHub once per theme, not once per profile, and compares like
+for like: an install tracking releases is measured against the newest tag, one
+tracking a branch against the commit that branch points at now. An install
+pinned with `--ref` reports as pinned rather than as behind. Where the
+manifest predates fxcss recording which of those applied, it says so instead
+of guessing — "up to date" is never printed unless it was actually checked.
+
+The same reservation covers local edits: installs from before 0.16 recorded no
+file hashes, so `fxcss profiles` reports them as *not checked for edits*
+rather than as unmodified. Reinstalling records them.
 
 ### fxcss completions
 
