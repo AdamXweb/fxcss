@@ -326,6 +326,23 @@ def describe(repo_root: Path, theme_root: Path):
     }
 
 
+def sheet_continuity(wanted, variants):
+    """Do the optional sheets someone installed still exist upstream?
+
+    Returns {kept: [Path], missing: [str]}, matching on the stem the manifest
+    records. A sheet that has been renamed or dropped between versions is the
+    quiet way an upgrade takes away a setting: the @import simply stops
+    resolving and the option turns itself off. Naming the loss is the whole
+    job here -- the caller decides whether that stops the upgrade.
+    """
+    by_stem = {sheet.stem.lower(): sheet for sheet in variants}
+    kept, missing = [], []
+    for name in wanted or []:
+        sheet = by_stem.get(str(name).lower())
+        (kept.append(sheet) if sheet else missing.append(str(name)))
+    return {"kept": kept, "missing": missing}
+
+
 def apply_variants(profile: Path, chosen):
     """Layer optional stylesheets on top, by import rather than by copying.
 
