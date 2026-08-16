@@ -123,6 +123,54 @@ def choose_ref(info, prefer):
     return info["default_branch"], f"latest commit on {info['default_branch']}"
 
 
+def commit_is_newer(info):
+    """Has the default branch moved on since the latest release?
+
+    The dates come from the API as ISO-8601 in UTC, so comparing the strings
+    compares the instants. False when either side is missing: with nothing to
+    contrast there is no choice worth putting to anyone.
+    """
+    release = (info.get("release") or {}).get("date")
+    commit = (info.get("commit") or {}).get("date")
+    return bool(release and commit and commit > release)
+
+
+def ref_options(info):
+    """The refs worth offering, the author's blessed one first.
+
+    Themes are the kind of project where the newest tag can be a year behind a
+    branch that has quietly fixed the bug you are hitting -- and equally where
+    the branch is mid-rewrite. Neither is the safe default in general, so both
+    are describable and the caller decides how to ask.
+
+    Returns [{ref, label, why, date, note}], possibly empty.
+    """
+    out = []
+    release = info.get("release") or {}
+    if release.get("tag"):
+        out.append({
+            "ref": release["tag"],
+            "label": f"release {release['tag']}",
+            "why": f"release {release['tag']}",
+            "date": (release.get("date") or "")[:10],
+            "note": "what the author last published",
+        })
+    branch = info.get("default_branch")
+    if branch:
+        commit = info.get("commit") or {}
+        note = commit.get("message") or ""
+        if release.get("tag") and commit_is_newer(info):
+            note = f"newer than the release — {note}" if note else "newer than the release"
+        out.append({
+            "ref": branch,
+            "label": f"latest commit on {branch}",
+            "why": f"latest commit on {branch}",
+            "date": (commit.get("date") or "")[:10],
+            "note": note,
+        })
+    return out
+
+
 def _safe_members(archive, destination: Path):
     """Yield members that stay inside the destination, refusing anything else."""
     total = 0
