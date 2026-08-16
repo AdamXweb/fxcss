@@ -428,6 +428,15 @@ renders the answer instead: the base theme, every optional stylesheet, and any
 combination you bless with `--combo`, each with a labelled **before/after crop
 of the region it actually changes** and how much of the chrome it touches.
 
+The crop is built from the changed pixels, so it needs no per-option
+configuration and cannot drift when Firefox moves something. It centres on the
+busiest *cluster* of changes rather than the bounding box of all of them,
+which is what makes the common cases readable: swapping the tab close button
+changes every tab, and a crop of all of them is the tab strip again, shrunk
+until nothing is visible. One tab, magnified, shows the option. Panels scale up
+as well as down for the same reason — a correctly cropped 16px button is still
+a 16px button.
+
 The output is a folder of PNGs plus `TWEAKS.md`, written to be committed:
 relative links, and a `<details>` accordion per option so a long list stays
 scannable on GitHub. If your README documents installer flags, they are parsed

@@ -29,6 +29,18 @@ FULL_WIDTH = 1280       # committed full-window shots, repo-friendly
 CROP_PAD = 30           # logical px of context around a diff region
 MIN_CROP = 120          # a sliver of a crop is unreadable; grow to at least this
 
+# Cropping to the bounding box of *every* changed pixel works for an option
+# that moves one button, and fails for the ones that matter most: swap the tab
+# close button and it moves on every tab, so the union spans the whole strip
+# and the "crop" is the window again, shrunk until the thing that moved is a
+# few pixels across. So the crop is built around one representative cluster of
+# changes instead -- one tab, big enough to see -- with these bounds.
+CELL = 8                # grid the diff is clustered on, in logical px
+FOCUS_MIN = (340, 132)  # grow a tight crop out to at least this, for context
+FOCUS_MAX = 0.62        # and never past this fraction of the window
+PANEL_TARGET = 560      # each panel is scaled towards this width...
+PANEL_MAX_SCALE = 3.0   # ...but never magnified past this, which only blurs
+
 
 def _capture(session, outdir: Path, name: str):
     core._shot(session.m, outdir, name)
@@ -40,6 +52,109 @@ def _shrink(image, width):
         return image
     return image.resize((width, round(image.height * width / image.width)),
                         Image.LANCZOS)
+
+
+def _fit(image, width, max_scale=PANEL_MAX_SCALE):
+    """Scale a panel towards `width`, up as well as down.
+
+    The old code only ever shrank, so a tight crop of a 16px button arrived in
+    a README at 16px: correctly cropped and still unreadable. Magnification is
+    capped because past about 3x a chrome screenshot is just blur.
+    """
+    if image.width == 0:
+        return image
+    scale = min(width / image.width, max_scale)
+    if abs(scale - 1.0) < 0.01:
+        return image
+    return image.resize((max(1, round(image.width * scale)),
+                         max(1, round(image.height * scale))), Image.LANCZOS)
+
+
+def _clusters(mask, cell=CELL):
+    """Group changed pixels into clusters, as [(bbox, changed_pixel_count)].
+
+    Connected components on a coarse grid rather than per pixel: the grid is
+    ~1/64th the work, and neighbouring parts of one widget land in the same
+    cell anyway. Pure Python on purpose -- a clustering dependency for this
+    would be absurd, and the mask is small.
+    """
+    width, height = mask.size
+    cols, rows = (width + cell - 1) // cell, (height + cell - 1) // cell
+    counts = [0] * (cols * rows)
+    data = mask.getdata()
+    for index, value in enumerate(data):
+        if value:
+            counts[(index // width) // cell * cols + (index % width) // cell] += 1
+
+    seen = [False] * (cols * rows)
+    out = []
+    for start in range(cols * rows):
+        if not counts[start] or seen[start]:
+            continue
+        seen[start] = True
+        stack, cells, total = [start], [], 0
+        while stack:
+            current = stack.pop()
+            cells.append(current)
+            total += counts[current]
+            cy, cx = divmod(current, cols)
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    ny, nx = cy + dy, cx + dx
+                    if 0 <= ny < rows and 0 <= nx < cols:
+                        neighbour = ny * cols + nx
+                        if counts[neighbour] and not seen[neighbour]:
+                            seen[neighbour] = True
+                            stack.append(neighbour)
+        xs = [c % cols for c in cells]
+        ys = [c // cols for c in cells]
+        out.append(((min(xs) * cell, min(ys) * cell,
+                     min(width, (max(xs) + 1) * cell),
+                     min(height, (max(ys) + 1) * cell)), total))
+    return out
+
+
+def _grow(box, size, minimum):
+    """Expand a box about its centre to at least `minimum`, inside `size`."""
+    left, top, right, bottom = box
+    for axis, least in enumerate(minimum):
+        low, high = (left, right) if axis == 0 else (top, bottom)
+        if high - low < least:
+            centre = (low + high) // 2
+            low, high = centre - least // 2, centre + least // 2
+            if low < 0:
+                low, high = 0, min(size[axis], least)
+            if high > size[axis]:
+                low, high = max(0, size[axis] - least), size[axis]
+        if axis == 0:
+            left, right = low, high
+        else:
+            top, bottom = low, high
+    return (max(0, left), max(0, top), min(size[0], right), min(size[1], bottom))
+
+
+def focus_box(mask, size):
+    """The region to crop to, given a diff mask. None when nothing changed.
+
+    Takes the busiest cluster of changes rather than the union of all of them,
+    then grows it for context and pulls in any other cluster that lands inside
+    -- so a change repeated across every tab shows one tab, legibly, instead of
+    the whole strip shrunk to nothing.
+    """
+    clusters = _clusters(mask)
+    if not clusters:
+        return None
+    box, _ = max(clusters, key=lambda item: item[1])
+    box = _grow(box, size, FOCUS_MIN)
+    for other, _ in clusters:
+        if (other[0] < box[2] and other[2] > box[0]
+                and other[1] < box[3] and other[3] > box[1]):
+            box = (min(box[0], other[0]), min(box[1], other[1]),
+                   max(box[2], other[2]), max(box[3], other[3]))
+    box = _grow(box, size, FOCUS_MIN)
+    return _grow(box, size, (1, 1))[:2] + (
+        min(size[0], box[0] + min(box[2] - box[0], round(size[0] * FOCUS_MAX))),
+        min(size[1], box[1] + min(box[3] - box[1], round(size[1] * FOCUS_MAX))))
 
 
 def _crop_box(bbox, size, pad, minimum):
@@ -54,13 +169,13 @@ def _crop_box(bbox, size, pad, minimum):
             min(size[0], right + pad), min(size[1], bottom + pad))
 
 
-def _before_after(base, after, bbox, out_path: Path):
-    """A labelled side-by-side crop of just the region that changed."""
-    box = _crop_box(bbox, base.size, CROP_PAD * 2, MIN_CROP * 2)
-    left = base.crop(box)
-    right = after.crop(box)
-    left = _shrink(left, 620)
-    right = _shrink(right, 620)
+def _before_after(base, after, mask, out_path: Path):
+    """A labelled side-by-side crop of the region that changed, made legible."""
+    box = focus_box(mask, base.size)
+    if box is None:
+        box = _crop_box(mask.getbbox(), base.size, CROP_PAD * 2, MIN_CROP * 2)
+    left = _fit(base.crop(box), PANEL_TARGET)
+    right = _fit(after.crop(box), PANEL_TARGET)
 
     label_h = 26
     gutter = 12
@@ -97,7 +212,7 @@ def build(session, theme: Path, outdir: Path, variants, flags):
         pct = 100.0 * changed / total if total else 0.0
         entry = {"slug": slug, "sheets": sheets, "percent": pct, "image": None}
         if changed:
-            _before_after(base, after, mask.getbbox(), outdir / f"{slug}-diff.png")
+            _before_after(base, after, mask, outdir / f"{slug}-diff.png")
             entry["image"] = f"{slug}-diff.png"
             _shrink(after, FULL_WIDTH).save(outdir / f"{slug}.png", optimize=True)
         else:

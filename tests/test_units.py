@@ -608,6 +608,70 @@ class CompletionTests(unittest.TestCase):
         self.assertIsNone(script("csh"))
 
 
+class FocusCropTests(unittest.TestCase):
+    """Crops must show what an option did, not the window it did it in."""
+
+    def _mask(self, size, boxes):
+        from PIL import Image, ImageDraw
+        mask = Image.new("L", size, 0)
+        draw = ImageDraw.Draw(mask)
+        for box in boxes:
+            draw.rectangle(box, fill=255)
+        return mask
+
+    def test_clusters_split_on_distance_and_merge_when_adjacent(self):
+        from fxcss.tweaks import _clusters
+        far = self._mask((400, 200), [(10, 10, 20, 20), (300, 150, 310, 160)])
+        self.assertEqual(len(_clusters(far)), 2)
+        touching = self._mask((400, 200), [(10, 10, 20, 20), (21, 10, 30, 20)])
+        self.assertEqual(len(_clusters(touching)), 1)
+
+    def test_repeated_change_crops_to_one_instance(self):
+        # The tab-close-swap case: the same change on every tab. Cropping to
+        # the union is the whole strip, which is what made these previews
+        # useless -- the crop has to be a fraction of it.
+        from fxcss.tweaks import focus_box
+        size = (960, 360)
+        boxes = [(x, 70, x + 10, 80) for x in range(120, 900, 150)]
+        mask = self._mask(size, boxes)
+        union = mask.getbbox()
+        box = focus_box(mask, size)
+        union_width = union[2] - union[0]
+        crop_width = box[2] - box[0]
+        self.assertLess(crop_width, union_width / 2)
+        self.assertLessEqual(crop_width, size[0] * 0.62 + 1)
+
+    def test_tight_change_is_padded_out_for_context(self):
+        from fxcss.tweaks import FOCUS_MIN, focus_box
+        size = (960, 360)
+        box = focus_box(self._mask(size, [(500, 100, 516, 116)]), size)
+        self.assertGreaterEqual(box[2] - box[0], FOCUS_MIN[0])
+        self.assertGreaterEqual(box[3] - box[1], FOCUS_MIN[1])
+
+    def test_box_stays_inside_the_image(self):
+        from fxcss.tweaks import focus_box
+        size = (960, 360)
+        for spot in ((0, 0, 8, 8), (952, 352, 960, 360)):
+            box = focus_box(self._mask(size, [spot]), size)
+            self.assertGreaterEqual(box[0], 0)
+            self.assertGreaterEqual(box[1], 0)
+            self.assertLessEqual(box[2], size[0])
+            self.assertLessEqual(box[3], size[1])
+
+    def test_no_change_has_no_focus(self):
+        from fxcss.tweaks import focus_box
+        self.assertIsNone(focus_box(self._mask((100, 100), []), (100, 100)))
+
+    def test_panels_scale_up_as_well_as_down(self):
+        # The old code only shrank, so a correctly cropped 16px button still
+        # reached the README at 16px.
+        from PIL import Image
+        from fxcss.tweaks import _fit
+        self.assertEqual(_fit(Image.new("RGB", (100, 50)), 400).width, 300)
+        self.assertEqual(_fit(Image.new("RGB", (900, 100)), 400).width, 400)
+        self.assertEqual(_fit(Image.new("RGB", (400, 100)), 400).width, 400)
+
+
 class ChromaSensitivityTests(unittest.TestCase):
     def test_chroma_only_shift_is_detected(self):
         # A blue-grey to peach tint changes channels by (+19, -4, -30): its
