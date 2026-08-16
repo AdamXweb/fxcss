@@ -411,6 +411,33 @@ def _is_startup_race(exc):
     return "remoteTab is null" in message or "frameLoader is null" in message
 
 
+# Seconds to wait before each retry of the startup race, one entry per retry.
+# The original budget -- two retries, 2s apart -- was not enough: a
+# windows-latest run burned both and failed on the same race, so a slow
+# runner can need well over 4s to attach the initial browser's remoteTab.
+# Backing off exponentially keeps the first retry cheap for runners that only
+# need a nudge while giving the slowest ones ~30s before we give up.
+STARTUP_RACE_DELAYS = (2.0, 4.0, 8.0, 16.0)
+
+
+def _retry_startup_race(operation, delays=STARTUP_RACE_DELAYS, sleep=time.sleep):
+    """Run operation, waiting out the initial browser's loadURI race.
+
+    Only the failure _is_startup_race recognises is retried; anything else
+    surfaces unchanged, and so does the race itself once the delays run out.
+    """
+    for delay in delays:
+        try:
+            return operation()
+        except MarionetteError as exc:
+            if not _is_startup_race(exc):
+                raise
+            print(f"  note: initial browser raced loadURI, retrying in "
+                  f"{delay:.0f}s ({exc})", flush=True)
+            sleep(delay)
+    return operation()
+
+
 class Session:
     """A running Firefox with a themed profile and a Marionette connection."""
 
@@ -477,16 +504,7 @@ class Session:
                  self.urls["issues.html"]], pinned]
         # The readiness poll covers the race we have seen; the retry covers
         # the shape of it we have not. Only the startup race is retried.
-        for attempt in range(3):
-            try:
-                self.m.script(SETUP_TABS, args)
-                break
-            except MarionetteError as exc:
-                if attempt == 2 or not _is_startup_race(exc):
-                    raise
-                print(f"  note: initial browser raced loadURI, retrying "
-                      f"({exc})", flush=True)
-                time.sleep(2.0)
+        _retry_startup_race(lambda: self.m.script(SETUP_TABS, args))
         time.sleep(3.0)
 
     def _wait_for_initial_browser(self, timeout=10):
