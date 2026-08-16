@@ -282,20 +282,6 @@ class DiffStatsTests(unittest.TestCase):
         self.assertEqual(changed, 1)
 
 
-class DiffStatsTests(unittest.TestCase):
-    def test_threshold_separates_noise_from_change(self):
-        from PIL import Image
-        from fxcss.compare import diff_stats
-        a = Image.new("RGB", (10, 10), (100, 100, 100))
-        b = a.copy()
-        b.putpixel((5, 5), (100, 100, 110))     # below threshold: noise
-        changed, total, _ = diff_stats(a, b)
-        self.assertEqual((changed, total), (0, 100))
-        b.putpixel((5, 5), (255, 255, 255))     # far above threshold
-        changed, _, _ = diff_stats(a, b)
-        self.assertEqual(changed, 1)
-
-
 class HeadOnlyViewsTests(unittest.TestCase):
     """A capture with no base-side counterpart must still count as a change.
 
