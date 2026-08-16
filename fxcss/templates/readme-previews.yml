@@ -1,18 +1,24 @@
 name: README previews
 
-# Renders the theme -- the standard views and one capture per optional
-# stylesheet -- and publishes the images to a `previews` branch, so a README
-# can embed stable raw URLs that refresh themselves whenever the theme
-# changes. Hand-taken screenshots go stale silently; these cannot.
+# Renders the theme -- the standard views, one capture per optional stylesheet,
+# and a before/after crop of what each stylesheet actually changes -- and
+# publishes the images to a `previews` branch, so a README can embed stable raw
+# URLs that refresh themselves whenever the theme changes. Hand-taken
+# screenshots go stale silently; these cannot.
 #
 # Embed them like this (the branch holds the files flat, at the root):
 #
 #   <details>
-#   <summary>Compact tabs</summary>
+#   <summary>Tab close button on the left</summary>
 #
-#   <img src="https://raw.githubusercontent.com/OWNER/REPO/previews/variant-compact-tabs.png" width="830">
+#   <img src="https://raw.githubusercontent.com/OWNER/REPO/previews/tabs-swapclose-diff.png" width="830">
 #
 #   </details>
+#
+# Prefer the `-diff.png` crop over the full `variant-*.png` window: a whole
+# browser window does not show that a 16px close button moved. The crop is
+# built from the pixels that actually changed, so it needs no per-option
+# configuration and cannot drift when Firefox moves something.
 #
 # These are for looking at, not for testing -- the pass/fail check is
 # pr-preview.yml.
@@ -63,7 +69,12 @@ jobs:
           echo "FIREFOX_BIN=$RUNNER_TEMP/Firefox.app/Contents/MacOS/firefox" >> "$GITHUB_ENV"
 
       - name: Render
-        run: fxcss shot --theme . --out shots --variants all
+        run: |
+          set -euo pipefail
+          fxcss shot --theme . --out shots --variants all
+          # Also the before/after crops: same captures, cropped to the region
+          # each stylesheet changes, which is what makes an option legible.
+          fxcss tweaks --theme . --out crops
 
       - name: Publish to previews branch
         run: |
@@ -71,7 +82,7 @@ jobs:
           # `shot` writes its captures FLAT into --out. (The full/ subdirectory
           # in the PR-preview artifacts is written by `compare`, from the head
           # captures it normalises -- a different command, different shape.)
-          count=$(find shots -maxdepth 1 -name '*.png' | wc -l | tr -d ' ')
+          count=$(find shots crops -maxdepth 1 -name '*.png' 2>/dev/null | wc -l | tr -d ' ')
           if [ "$count" -eq 0 ]; then
             echo "::error::no captures in shots/ -- fxcss shot wrote nothing"
             exit 1
@@ -96,7 +107,10 @@ jobs:
             '' \
             'This branch carries no history by design -- each run replaces it.' > README.md
           cp shots/*.png .
-          rm -rf shots
+          # Crops alongside the full windows; TWEAKS.md is for committing into
+          # a repo, which is not what this branch is for.
+          cp crops/*-diff.png . 2>/dev/null || echo "no crops (no optional stylesheets?)"
+          rm -rf shots crops
           git add -A
           git commit -q -m "previews: ${GITHUB_SHA}"
           git push --force origin previews
