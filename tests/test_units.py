@@ -437,6 +437,46 @@ class ScaffoldTests(unittest.TestCase):
             self.assertEqual(len(skipped2), 3)
 
 
+class ReadmePreviewsTemplateTests(unittest.TestCase):
+    """The previews workflow is opt-in, and must read `shot`'s output shape."""
+
+    def _write(self, **kwargs):
+        from fxcss.scaffold import write_workflows
+        td = tempfile.mkdtemp()
+        theme = Path(td)
+        (theme / "chrome").mkdir()
+        written, _ = write_workflows(theme, [], version="9.9.9", **kwargs)
+        return theme, written
+
+    def test_opt_in_only(self):
+        theme, written = self._write()
+        self.assertNotIn(Path(".github/workflows/readme-previews.yml"), written)
+        theme, written = self._write(previews=True)
+        self.assertIn(Path(".github/workflows/readme-previews.yml"), written)
+
+    def test_reads_shot_output_not_compare_output(self):
+        # The bug this guards: `shot` writes captures FLAT into --out, while
+        # the full/ subdirectory belongs to `compare`. Copying from
+        # shots/full/ published nothing and failed the job outright.
+        theme, _ = self._write(previews=True)
+        wf = (theme / ".github" / "workflows" / "readme-previews.yml").read_text()
+        self.assertIn("cp shots/*.png .", wf)
+        self.assertNotIn("shots/full/", wf)
+        self.assertNotIn("__FXCSS_", wf)
+        self.assertIn("FXCSS_VERSION: 9.9.9", wf)
+
+    def test_next_steps_explains_previews_only_when_asked(self):
+        # "previews" alone is no signal here: the default text already talks
+        # about the ci-previews branch and carries a "theme previews" badge.
+        from fxcss.scaffold import next_steps
+        off = next_steps([], [], [], False, False)
+        self.assertNotIn("readme-previews", off)
+        self.assertNotIn("raw.githubusercontent.com", off)
+        on = next_steps([], [], [], False, False, True)
+        self.assertIn("readme-previews", on)
+        self.assertIn("raw.githubusercontent.com", on)
+
+
 class ChromaSensitivityTests(unittest.TestCase):
     def test_chroma_only_shift_is_detected(self):
         # A blue-grey to peach tint changes channels by (+19, -4, -30): its

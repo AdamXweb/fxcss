@@ -540,8 +540,10 @@ def cmd_init(args):
         return 2
     slugs = sorted(core.find_variant_sheets(theme))
     written, skipped = scaffold.write_workflows(
-        theme, slugs, watch=args.watch, showcase=args.showcase, force=args.force)
-    print(scaffold.next_steps(written, skipped, slugs, args.watch, args.showcase))
+        theme, slugs, watch=args.watch, showcase=args.showcase,
+        previews=args.previews, force=args.force)
+    print(scaffold.next_steps(written, skipped, slugs, args.watch, args.showcase,
+                              args.previews))
     return 0
 
 
@@ -955,6 +957,9 @@ def main(argv=None):
                      help="also add the weekly Firefox release/beta/nightly audit")
     ini.add_argument("--showcase", action="store_true",
                      help="also add the on-release showcase screenshot workflow")
+    ini.add_argument("--previews", action="store_true",
+                     help="also add the workflow that keeps README screenshots "
+                          "of every view and variant up to date")
     ini.add_argument("--force", action="store_true",
                      help="replace workflow files that already exist")
     ini.set_defaults(func=cmd_init)
@@ -1009,7 +1014,12 @@ def main(argv=None):
 
     s = sub.add_parser("shot", help="capture the standard screenshot set")
     _common(s)
-    s.add_argument("--out", type=Path, required=True)
+    s.add_argument("--out", type=Path, required=True,
+                   help="directory for the captures, written FLAT as "
+                        "<out>/<view>.png (--url captures go to <out>/live/). "
+                        "Note `fxcss compare` writes a different shape: "
+                        "comparisons at its own --out, plus a normalised copy "
+                        "of every head capture under <out>/full/")
     s.add_argument("--url", action="append", default=[], metavar="URL",
                    help="also capture the theme against a live site, light and "
                         "dark; repeatable. Written to <out>/live/ and never "
@@ -1026,9 +1036,17 @@ def main(argv=None):
 
     c = sub.add_parser("compare", help="diff two screenshot sets")
     _common(c, theme=False)
-    c.add_argument("--base", type=Path, required=True)
-    c.add_argument("--head", type=Path, required=True)
-    c.add_argument("--out", type=Path, required=True)
+    c.add_argument("--base", type=Path, required=True,
+                   help="a directory of captures from `fxcss shot`")
+    c.add_argument("--head", type=Path, required=True,
+                   help="the directory to compare against --base")
+    c.add_argument("--out", type=Path, required=True,
+                   help="directory for the results: one stacked "
+                        "before/after/diff image per CHANGED view, a "
+                        "summary.json, and <out>/full/ holding a normalised "
+                        "copy of every head capture (changed or not). To "
+                        "publish plain screenshots, read <out>/full/ here or "
+                        "`fxcss shot`'s --out directly")
     c.add_argument("--platform", default="local")
     c.set_defaults(func=cmd_compare)
 

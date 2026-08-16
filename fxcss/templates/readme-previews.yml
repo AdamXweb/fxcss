@@ -1,0 +1,102 @@
+name: README previews
+
+# Renders the theme -- the standard views and one capture per optional
+# stylesheet -- and publishes the images to a `previews` branch, so a README
+# can embed stable raw URLs that refresh themselves whenever the theme
+# changes. Hand-taken screenshots go stale silently; these cannot.
+#
+# Embed them like this (the branch holds the files flat, at the root):
+#
+#   <details>
+#   <summary>Compact tabs</summary>
+#
+#   <img src="https://raw.githubusercontent.com/OWNER/REPO/previews/variant-compact-tabs.png" width="830">
+#
+#   </details>
+#
+# These are for looking at, not for testing -- the pass/fail check is
+# pr-preview.yml.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master, main]
+    paths:
+      - 'chrome/**'
+      - 'custom/**'
+      - '.github/workflows/readme-previews.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: readme-previews
+  cancel-in-progress: true
+
+env:
+  FXCSS_VERSION: __FXCSS_VERSION__
+
+jobs:
+  render:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install fxcss
+        run: >-
+          python -m pip install --disable-pip-version-check
+          "fxcss[images]==${{ env.FXCSS_VERSION }}"
+
+      - name: Install Firefox
+        run: |
+          set -euo pipefail
+          curl -sSL -o firefox.dmg \
+            "https://download.mozilla.org/?product=firefox-latest-ssl&os=osx&lang=en-US"
+          hdiutil attach -nobrowse -quiet -mountpoint /Volumes/ffprev firefox.dmg
+          cp -R /Volumes/ffprev/Firefox.app "$RUNNER_TEMP/Firefox.app"
+          hdiutil detach /Volumes/ffprev -quiet
+          echo "FIREFOX_BIN=$RUNNER_TEMP/Firefox.app/Contents/MacOS/firefox" >> "$GITHUB_ENV"
+
+      - name: Render
+        run: fxcss shot --theme . --out shots --variants all
+
+      - name: Publish to previews branch
+        run: |
+          set -euo pipefail
+          # `shot` writes its captures FLAT into --out. (The full/ subdirectory
+          # in the PR-preview artifacts is written by `compare`, from the head
+          # captures it normalises -- a different command, different shape.)
+          count=$(find shots -maxdepth 1 -name '*.png' | wc -l | tr -d ' ')
+          if [ "$count" -eq 0 ]; then
+            echo "::error::no captures in shots/ -- fxcss shot wrote nothing"
+            exit 1
+          fi
+          echo "publishing ${count} captures"
+
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          # Always a fresh orphan, force-pushed: this branch is a snapshot of
+          # the theme as it is now, never a history. Keeping history would add
+          # a megabyte of PNG blobs to the repository on every theme change,
+          # forever, and leave deleted stylesheets behind as stale images.
+          git checkout --orphan previews
+          git rm -rf --cached . >/dev/null 2>&1 || true
+          find . -maxdepth 1 -mindepth 1 \
+            ! -name .git ! -name shots -exec rm -rf {} +
+          printf '%s\n' \
+            '# Preview images' '' \
+            'Rendered by the README previews workflow from the theme on the' \
+            'default branch. Safe to delete; regenerated on the next change.' \
+            '' \
+            'This branch carries no history by design -- each run replaces it.' > README.md
+          cp shots/*.png .
+          rm -rf shots
+          git add -A
+          git commit -q -m "previews: ${GITHUB_SHA}"
+          git push --force origin previews
