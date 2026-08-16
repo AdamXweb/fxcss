@@ -1216,15 +1216,27 @@ def capture_views(session: Session, outdir: Path, modes=("light", "dark"),
     # Optional stylesheets, one capture per variant. Loaded live as a user
     # sheet by file URI -- relative url()s inside the sheet keep resolving --
     # then removed, so variants never contaminate each other.
-    for slug, sheets in sorted((variants or {}).items()):
-        # A value may be one sheet or several: a combo loads them together, the
-        # way a user stacking install options would run them.
-        for sheet in ([sheets] if isinstance(sheets, Path) else sheets):
-            m.script(LOAD_VARIANT_SHEET, [sheet.resolve().as_uri()])
-        time.sleep(1.5)
-        _shot(m, outdir, "variant-" + slug)
-        m.script(UNLOAD_VARIANT_SHEETS)
-        time.sleep(0.8)
+    #
+    # In its own session, like the other contaminating states above: by this
+    # point the shared window is 18 tabs deep with a container tab selected,
+    # and every variant capture inherited that. Measured on a real run, a
+    # variant image sat 0.63% from the many-tabs view and 3.69% from a clean
+    # window -- so what a reader saw was mostly Firefox's overflowed strip and
+    # a container identity stripe, with the stylesheet's effect somewhere
+    # underneath. These captures are the ones a theme's README shows off, so
+    # they get a clean window.
+    if variants:
+        with Session(session.repo, session.firefox) as vr:
+            vr.setup_window()
+            for slug, sheets in sorted(variants.items()):
+                # A value may be one sheet or several: a combo loads them
+                # together, the way a user stacking install options would.
+                for sheet in ([sheets] if isinstance(sheets, Path) else sheets):
+                    vr.m.script(LOAD_VARIANT_SHEET, [sheet.resolve().as_uri()])
+                time.sleep(1.5)
+                _shot(vr.m, outdir, "variant-" + slug)
+                vr.m.script(UNLOAD_VARIANT_SHEETS)
+                time.sleep(0.8)
 
     (outdir / "render-info.json").write_text(json.dumps(info, indent=2), encoding="utf-8")
     return info

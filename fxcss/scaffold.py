@@ -24,6 +24,7 @@ from . import __version__
 PREVIEW_FILES = ("pr-preview.yml", "pr-preview-publish.yml", "pr-preview-cleanup.yml")
 WATCH_FILE = "firefox-watch.yml"
 SHOWCASE_FILE = "showcase.yml"
+PREVIEWS_FILE = "readme-previews.yml"
 
 
 def variant_alternation(slugs):
@@ -76,7 +77,7 @@ def _template(name):
 
 
 def write_workflows(theme: Path, variant_slugs, watch=False, showcase=False,
-                    force=False, version=None):
+                    previews=False, force=False, version=None):
     """Write the chosen workflows into <theme>/.github/workflows.
 
     Returns (written, skipped) lists of paths relative to the theme. Existing
@@ -93,6 +94,8 @@ def write_workflows(theme: Path, variant_slugs, watch=False, showcase=False,
         wanted.append(WATCH_FILE)
     if showcase:
         wanted.append(SHOWCASE_FILE)
+    if previews:
+        wanted.append(PREVIEWS_FILE)
 
     outdir = theme / ".github" / "workflows"
     outdir.mkdir(parents=True, exist_ok=True)
@@ -137,7 +140,7 @@ BADGE = ("[![theme previews by fxcss]"
          "(https://github.com/AdamXweb/fxcss)")
 
 
-def next_steps(written, skipped, variant_slugs, watch, showcase):
+def next_steps(written, skipped, variant_slugs, watch, showcase, previews=False):
     """Human instructions for what was generated. Returned, not printed, so it
     is unit-testable and the CLI owns all output."""
     lines = []
@@ -167,6 +170,13 @@ def next_steps(written, skipped, variant_slugs, watch, showcase):
         lines.append("  - firefox-watch runs Mondays and needs no further setup.")
     if showcase:
         lines.append("  - showcase publishes to a `showcase` branch on each release.")
+    if previews:
+        lines += [
+            "  - readme-previews renders every view and variant on each change to",
+            "    your default branch and force-pushes them to a `previews` branch,",
+            "    for a README that keeps its own screenshots current. Embed them as",
+            "    https://raw.githubusercontent.com/<owner>/<repo>/previews/<view>.png",
+        ]
     lines += [
         "",
         "If you would like to say so in your README:",

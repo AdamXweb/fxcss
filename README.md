@@ -325,6 +325,9 @@ rendered unstyled. One command found it; the fix was `.urlbar-background`.
 fxcss init                       # before/after previews on every PR
 fxcss init --watch --showcase    # plus the weekly Firefox audit and
                                  # release screenshots
+fxcss init --previews            # plus README screenshots that keep themselves
+                                 # current: every view and variant, re-rendered
+                                 # on each change and pushed to a previews branch
 ```
 
 **Turn any theme repository into one with CI.** Run it from your theme's root
@@ -521,6 +524,10 @@ and find bar in light and dark, then a tab playing audio, the same tab muted,
 container tabs, an overflowing tab strip, a private window, compact density, the
 sidebar, right-to-left chrome, and customize mode.
 
+The captures land **flat** in `--out`, one file per view (`shots/before/light-01-window.png`);
+`--url` captures go to `<out>/live/`. This is the directory to publish from if
+you want plain screenshots — `fxcss compare` writes a different shape, below.
+
 ```bash
 fxcss shot --out shots --variants all
 ```
@@ -558,6 +565,12 @@ fxcss compare --base shots/before --head shots/after --out diff/
 Diffs two sets and writes one stacked **before / after / changed-pixels** image
 per view that differs. Views that render identically are reported rather than
 pictured, so you only look at what actually changed.
+
+`--out` therefore holds comparison images for changed views only, plus a
+`summary.json` and a `full/` directory carrying a normalised copy of *every*
+head capture, changed or not. So `<out>/full/` is what a preview comment shows
+when nothing differs — and `shot`'s own `--out` (flat, no `full/`) is what to
+read when you just want the screenshots.
 
 ![Before, after and changed-pixels panels for a one-line accent colour change](https://raw.githubusercontent.com/AdamXweb/fxcss/main/docs/compare.png)
 
