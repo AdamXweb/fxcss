@@ -247,6 +247,10 @@ def cmd_try(args):
                       file=sys.stderr)
                 return 2
             chosen = [by_name[w] for w in sorted(wanted)]
+            # A test drive is throwaway, so this says what will happen and
+            # goes ahead: seeing two colour themes cancel out is a perfectly
+            # good way to learn that they do.
+            _sheet_conflicts(chosen)
 
         if args.info:
             return 0
@@ -590,6 +594,26 @@ def parse_selection(raw, count):
     return sorted(picked)
 
 
+def _sheet_conflicts(chosen, indent="  "):
+    """Report optional sheets that cannot all take effect. Returns the pairs.
+
+    Printed the same way wherever sheets are picked, so `try`, `install` and
+    `tweaks` describe the same situation in the same words -- only what they
+    do about it differs. An empty list means nothing measurable was found,
+    which is not the same as proof that a combination works: see fxcss.sheets.
+    """
+    from . import sheets as sheets_mod
+
+    found = sheets_mod.conflicts(chosen)
+    for report in found:
+        print(f"\n{indent}{sheets_mod.describe(report)}")
+        for example in report["examples"][:2]:
+            print(f"{indent}  {example['selector']} {{ "
+                  f"{example['property']}: {example['a']} }}  vs  "
+                  f"{{ …: {example['b']} }}")
+    return found
+
+
 def _choose_sheets(variants, interactive):
     """Offer a theme's optional stylesheets, when there is a human to ask.
 
@@ -603,11 +627,20 @@ def _choose_sheets(variants, interactive):
     for i, sheet in enumerate(variants, 1):
         print(f"    {i}. {sheet.stem}")
     print("    Numbers separated by commas, `all`, or Enter for none.")
-    try:
-        raw = input("  Include: ")
-    except EOFError:
-        raw = ""
-    chosen = [variants[i] for i in parse_selection(raw, len(variants))]
+    # `all` is offered above and is right for most themes, but wrong for one
+    # with a family of alternatives in it -- so a picked set is checked and
+    # the question asked again, rather than the answer being refused.
+    for attempt in range(3):
+        try:
+            raw = input("  Include: ")
+        except EOFError:
+            raw = ""
+        chosen = [variants[i] for i in parse_selection(raw, len(variants))]
+        clashing = [r for r in _sheet_conflicts(chosen, indent="    ")
+                    if r["conflicting"]]
+        if not clashing or attempt == 2:
+            break
+        print("\n    Pick one of each pair — the rest would have no effect.")
     if chosen:
         print(f"  including: {', '.join(s.stem for s in chosen)}")
     return chosen
@@ -727,6 +760,15 @@ def cmd_install(args):
                       file=sys.stderr)
                 return 2
             chosen = [by_name[w] for w in sorted(wanted)]
+            blocking = [r for r in _sheet_conflicts(chosen)
+                        if r["conflicting"]]
+            if blocking and not args.force:
+                print("\n  Refusing to install stylesheets that cancel each "
+                      "other out — only one\n  of them would have any effect, "
+                      "and which one is decided by import\n  order rather "
+                      "than by you. Pick one, or pass --force.",
+                      file=sys.stderr)
+                return 2
         else:
             chosen = _choose_sheets(facts["variants"], interactive)
 
@@ -932,6 +974,17 @@ def cmd_upgrade(args):
         if continuity["kept"]:
             print(f"  keeping optional sheets: "
                   f"{', '.join(s.stem for s in continuity['kept'])}")
+            # Checked against the *new* version's sheets, not the old ones: a
+            # release that splits one option into two, or merges two into one,
+            # can turn a combination that used to work into a pair that
+            # cancels out, without anyone changing what they asked for.
+            clashing = [r for r in _sheet_conflicts(continuity["kept"])
+                        if r["conflicting"]]
+            if clashing and not args.force:
+                print("\n  Refusing to carry these over — in this version "
+                      "they cancel each\n  other out. Choose with --with, or "
+                      "pass --force.", file=sys.stderr)
+                return 2
 
         if args.audit:
             from . import audit as audit_mod
@@ -1103,6 +1156,15 @@ def cmd_tweaks(args):
         except ValueError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
+
+    # A --combo that cannot take effect would be screenshotted and written
+    # into TWEAKS.md as though it were an option someone could choose. Say so
+    # before spending a browser session on it; the author decides whether the
+    # combination was the point.
+    for slug, sheets_in_combo in variants.items():
+        if len(sheets_in_combo) > 1 and _sheet_conflicts(sheets_in_combo):
+            print(f"    …that is `{slug}`, which TWEAKS.md would show as one "
+                  "option.\n")
 
     firefox = choose_firefox(args.firefox)
     out = args.out.resolve()
@@ -1509,6 +1571,9 @@ def build_parser():
                      help="which Firefox profile (default: the one Firefox itself opens)")
     ins.add_argument("--list-profiles", action="store_true",
                      help="list the Firefox profiles found and stop")
+    ins.add_argument("--force", action="store_true",
+                     help="install optional sheets even when they cancel "
+                          "each other out")
     ins.add_argument("--yes", action="store_true",
                      help="skip the confirmation prompt")
     ins.set_defaults(func=cmd_install)

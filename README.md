@@ -253,6 +253,47 @@ than leaving you to find them in the repository:
   Include:
 ```
 
+#### Options that cancel each other out
+
+Some of a theme's optional sheets are alternatives rather than additions.
+Installing two colour themes is two `@import`s, and nothing about that warns
+you — the later one silently wins outright, leaving a browser that looks like
+neither the one you picked nor the one before it. `install` measures for this
+and stops:
+
+```console
+$ fxcss install AdamXweb/WhiteSurFirefoxThemeMacOS --with theme-nord,theme-dracula
+
+  theme-dracula and theme-nord are alternatives, not additions: both set the
+  same 122 declaration(s), so whichever loads last replaces the other entirely
+    :root { --gnome-browser-before-load-background: #282a36 }  vs  { …: #2e3440 }
+
+  Refusing to install stylesheets that cancel each other out — only one
+  of them would have any effect, and which one is decided by import
+  order rather than by you. Pick one, or pass --force.
+```
+
+It is a measurement, not a guess about names. Two sheets are alternatives when
+they set **the same properties on the same selectors** — provable from their
+text, and true whatever they are called. Matching on a `theme-` prefix would
+be a convention rather than a fact: it would tell a theme shipping `theme-blue`
+and `theme-compact` that those clash when they compose perfectly well, and
+miss a pair named `dark.css` and `nord.css`. Sheets that agree exactly are not
+in conflict, because two options setting the same border radius the same way
+compete for nothing.
+
+`try` reports the same thing and continues — a throwaway profile is a fine
+place to watch two colour themes cancel out — and `tweaks` says so before
+screenshotting a `--combo` that cannot take effect.
+
+> **What this does not see.** It compares declarations, so it catches sheets
+> fighting over the same property. Two sheets that rearrange the same area
+> through *different* selectors — WhiteSur's `tabs-swapclose` and
+> `windows-swapclose` both move a close button and share no declarations at
+> all — are invisible to it. `fxcss tweaks --combo a+b` is what proves those:
+> if `a+b` renders identically to `b` alone, `a` was overridden. Silence here
+> is "nothing measurable", never "verified compatible".
+
 When the theme's default branch has moved on since its newest release, that
 choice is put to you as well — a tag can be a year behind a fix you are
 looking for, and equally the branch can be mid-rewrite, so neither is right to
