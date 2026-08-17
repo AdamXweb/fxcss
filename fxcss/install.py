@@ -429,6 +429,31 @@ def _digest(path):
         return None
 
 
+def local_changes(profile, manifest=None):
+    """Every file that differs from the version the manifest names.
+
+    Two ways a file can get there. It was edited after fxcss installed it --
+    which `drift` sees, by comparing against the digests recorded then. Or it
+    already differed when `fxcss adopt` found the theme, which no digest can
+    show, because adoption records the files as they were rather than as the
+    release has them; that comparison is recorded at adopt time instead.
+
+    Both mean the same thing to an upgrade -- work here that overwriting
+    would destroy -- so they are answered together.
+    """
+    profile = Path(profile)
+    manifest = read_manifest(profile) if manifest is None else manifest
+    moved = drift(profile, manifest)
+    changed = set(moved["modified"])
+    adopted = (manifest or {}).get("adopted")
+    if isinstance(adopted, dict):
+        for relative in adopted.get("differing") or []:
+            path = Path("chrome") / str(relative)
+            if (profile / path).is_file():
+                changed.add(path.as_posix())
+    return sorted(changed)
+
+
 def drift(profile, manifest=None):
     """What has changed in chrome/ since the install recorded in the manifest.
 
@@ -494,6 +519,57 @@ def _spare_name(profile, base):
         candidate = profile / f"{base}-{counter}"
         counter += 1
     return candidate
+
+
+def adopt_theme(profile, theme_id, source, match, stamp=None):
+    """Record a theme someone else installed, so fxcss can act on it.
+
+    Nothing is installed and nothing is replaced: the chrome/ already there
+    is *copied* to a backup and then described in a manifest, so that
+    `uninstall` and `rollback` have somewhere to put things back to. The copy
+    is why this is safe to run on a profile someone cares about.
+
+    user.js is deliberately left alone. The pref that turns userChrome.css on
+    is evidently already set -- the theme is working -- and writing an fxcss
+    block to say so again would edit a file for no gain. The next upgrade
+    writes one properly, from the theme it fetches.
+    """
+    from . import __version__
+
+    profile = Path(profile)
+    chrome = profile / "chrome"
+    if not (chrome / "userChrome.css").is_file():
+        raise RuntimeError(f"no chrome/userChrome.css in {profile}")
+    if (chrome / MANIFEST_NAME).exists():
+        raise RuntimeError("fxcss already manages this profile")
+
+    backup = _spare_name(profile, f"chrome.backup-{stamp or _timestamp()}")
+    shutil.copytree(chrome, backup)
+
+    files = sorted(p.relative_to(profile).as_posix()
+                   for p in chrome.rglob("*")
+                   if p.is_file() and ".git" not in p.relative_to(chrome).parts)
+    manifest = {
+        "schema": MANIFEST_SCHEMA,
+        "fxcss": __version__,
+        "theme": str(theme_id),
+        "source": dict(source),
+        "installed": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "adopted": dict(match),
+        "backup": backup.name,
+        "origin_backup": backup.name,
+        "user_js_created": False,
+        "sheets": [],
+        "files": files,
+        # The files as they are now, so anything changed from here shows as
+        # drift. How far they already were from the release is in `adopted`.
+        "digests": {name: digest for name, digest in
+                    ((name, _digest(profile / name)) for name in files)
+                    if digest},
+    }
+    (chrome / MANIFEST_NAME).write_text(
+        json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
+    return manifest
 
 
 def install_theme(theme_root, profile, theme_id, sheets=(), stamp=None,

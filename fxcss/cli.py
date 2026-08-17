@@ -4,6 +4,7 @@
     fxcss try          download a theme from GitHub and test-drive it
     fxcss install      install a theme into your real Firefox profile
     fxcss uninstall    remove it again, restoring what was there before
+    fxcss adopt        take over a theme you installed some other way
     fxcss upgrade      fetch a newer version of the theme you installed
     fxcss rollback     put the previous version back
     fxcss profiles     list every Firefox profile and what is themed in it
@@ -53,6 +54,8 @@ LANDING = """fxcss - a testing toolkit for Firefox userChrome.css themes
                                    whether anything newer has been released
     fxcss upgrade                  take that newer version, keeping a way back
     fxcss rollback                 …and that is the way back
+    fxcss adopt owner/theme        already installed one by hand? identify
+                                   it by its files, then manage it too
 
   Maintaining a theme repository?
     fxcss init                     add before/after PR previews and CI checks
@@ -478,6 +481,18 @@ def cmd_profiles(args):
             if manifest.get("sheets"):
                 print(f"    sheets   {', '.join(manifest['sheets'])}")
             print(f"    files    {_drift_note(row)}")
+            adopted = manifest.get("adopted")
+            if isinstance(adopted, dict):
+                # Adopted rather than installed: say how sure the
+                # identification was, since it is a match rather than a
+                # record of something fxcss did itself.
+                note = (f"identified by its files — "
+                        f"{adopted.get('matched', 0)}/"
+                        f"{adopted.get('files', 0)} matched")
+                if adopted.get("differing"):
+                    note += (f", {len(adopted['differing'])} already differed "
+                             "from that version")
+                print(f"    adopted  {note}")
             update = updates.get((source.get("owner"), source.get("name")))
             if update and update["state"] == "available":
                 detail = f"  — {update['detail']}" if update["detail"] else ""
@@ -489,7 +504,9 @@ def cmd_profiles(args):
         elif row["state"] == "unmanaged":
             print(f"    chrome/  {row['files']} file(s), not installed by "
                   "fxcss")
-            print("             `fxcss install` here would back this up first")
+            print("             `fxcss adopt` identifies it and takes it "
+                  "over; `fxcss install`\n             would replace it, "
+                  "backing this up first")
         else:
             print("    chrome/  none — no userChrome theme in this profile")
         if row["running"]:
@@ -907,8 +924,11 @@ def cmd_upgrade(args):
               "`fxcss install <theme>`.", file=sys.stderr)
         return 2
 
-    # Has the user edited what is installed?
+    # Has the user edited what is installed? For an adopted theme this also
+    # covers files that already differed from the release when fxcss found
+    # it -- an upgrade would overwrite those just the same.
     moved = install.drift(picked["path"], manifest)
+    moved["modified"] = install.local_changes(picked["path"], manifest)
     if moved["modified"] or moved["missing"]:
         print()
         _report_drift(moved, indent="  ")
@@ -1044,6 +1064,132 @@ def cmd_upgrade(args):
     finally:
         if workdir:
             shutil.rmtree(workdir, ignore_errors=True)
+
+
+def cmd_adopt(args):
+    from . import adopt, fetch, install
+
+    if args.list_profiles:
+        return _print_profiles()
+    interactive = (sys.stdin.isatty() and sys.stdout.isatty()
+                   and not os.environ.get("CI"))
+    picked = _choose_profile(args.profile, interactive)
+    chrome = Path(picked["path"]) / "chrome"
+    print(f"\n  profile: {picked['name']}  ({picked['path']})")
+
+    if not (chrome / "userChrome.css").is_file():
+        print("\n  No chrome/userChrome.css here, so there is no theme to "
+              "adopt.\n  `fxcss install <theme>` puts one in.",
+              file=sys.stderr)
+        return 2
+    if install.read_manifest(picked["path"]):
+        print("\n  fxcss already manages this profile — `fxcss upgrade` "
+              "updates it,\n  `fxcss profiles` shows what is there.",
+              file=sys.stderr)
+        return 2
+
+    # Which repository is this?
+    if args.repo:
+        try:
+            owner, name = fetch.parse_repo(args.repo)
+        except ValueError as exc:
+            print(f"\n  error: {exc}", file=sys.stderr)
+            return 2
+    else:
+        found = adopt.candidates(chrome)
+        if not found:
+            print("\n  Nothing in this chrome/ says where it came from — no "
+                  "git remote, and\n  no GitHub URL in its files. Plenty of "
+                  "themes leave no trace once\n  installed, so this is "
+                  "normal rather than a problem.\n\n  Name the repository "
+                  "and fxcss will check the files against it:\n"
+                  "    fxcss adopt owner/theme", file=sys.stderr)
+            return 2
+        owner, name = fetch.parse_repo(found[0]["repo"])
+        print(f"  looks like {found[0]['repo']} — {found[0]['why']}")
+        if not found[0]["certain"] and not _confirm(
+                "  Check the files against it?", interactive, args.yes):
+            print("  nothing changed. Pass the repository instead: "
+                  "fxcss adopt owner/theme")
+            return 1
+
+    # Which version?
+    try:
+        if args.ref:
+            refs = [{"ref": args.ref, "kind": "explicit"}]
+        else:
+            refs = fetch.known_refs(owner, name, limit=args.depth)
+    except RuntimeError as exc:
+        print(f"\n  error: {exc}", file=sys.stderr)
+        return 2
+    if not refs:
+        print(f"\n  error: {owner}/{name} has no releases, tags or branches "
+              "to compare against", file=sys.stderr)
+        return 2
+
+    print(f"\n  comparing {sum(1 for _ in chrome.rglob('*'))} file(s) against "
+          f"{owner}/{name} …")
+    best, checked = None, 0
+    for entry in refs:
+        try:
+            listing = fetch.tree(owner, name, entry["ref"])
+        except RuntimeError as exc:
+            print(f"  {exc}", file=sys.stderr)
+            break
+        if not listing:
+            continue
+        result = adopt.compare(chrome, listing)
+        result["ref"], result["kind"] = entry["ref"], entry["kind"]
+        checked += 1
+        print(f"    {adopt.describe(result)}")
+        if adopt.better(result, best):
+            best = result
+        if adopt.exact(result):
+            break
+
+    if best is None or not best["files"]:
+        print(f"\n  Could not read a chrome/ folder out of {owner}/{name} at "
+              "any of the\n  versions checked, so there is nothing to compare "
+              "with. Is that the\n  right repository?", file=sys.stderr)
+        return 2
+    if not best["matched"]:
+        print(f"\n  None of {checked} version(s) of {owner}/{name} share a "
+              "single file with\n  this profile. That is a different theme.",
+              file=sys.stderr)
+        return 2
+
+    print(f"\n  best match: {adopt.describe(best)}")
+    if not adopt.exact(best):
+        print("  Recorded as that version plus local differences, so an "
+              "upgrade knows\n  not to overwrite them without being told.")
+    if install.firefox_running(picked["path"]):
+        print("  note: Firefox appears to be running — nothing here needs a "
+              "restart.")
+    if not _confirm(f"\n  Record this profile as {owner}/{name}@{best['ref']}?",
+                    interactive, args.yes):
+        print("  nothing changed.")
+        return 1
+
+    kind = {"release": "release", "tag": "release",
+            "branch": "branch"}.get(best["kind"], "explicit")
+    source = {"kind": "github", "owner": owner, "name": name,
+              "ref": best["ref"], "ref_kind": kind, "resolved": best["ref"],
+              "path": None}
+    try:
+        manifest = install.adopt_theme(
+            picked["path"], f"{owner}/{name}@{best['ref']}", source,
+            {key: best[key] for key in ("ref", "matched", "files", "score",
+                                        "differing", "missing", "extra",
+                                        "eol")})
+    except RuntimeError as exc:
+        print(f"  error: {exc}", file=sys.stderr)
+        return 2
+    print(f"\n  recorded {len(manifest['files'])} file(s) as "
+          f"{manifest['theme']}")
+    print(f"  the theme as it is now is kept as {manifest['backup']}")
+    print("\n  `fxcss upgrade` can now update it, and `fxcss uninstall` puts "
+          "this back.")
+    return 0
 
 
 def cmd_rollback(args):
@@ -1625,6 +1771,28 @@ def build_parser():
     up.add_argument("--yes", action="store_true",
                     help="skip the confirmation prompt")
     up.set_defaults(func=cmd_upgrade)
+
+    ad = sub.add_parser(
+        "adopt", help="record a theme someone else installed, so fxcss can "
+                      "manage it",
+        epilog="Identifies the theme by comparing every file against the "
+               "repository's own tree, so the answer is the same bytes "
+               "rather than a guess. Nothing is installed or replaced: the "
+               "chrome/ already there is copied to a backup and described.")
+    ad.add_argument("repo", nargs="?", default=None,
+                    help="owner/name or a github.com URL (default: work it "
+                         "out from chrome/, when it says)")
+    ad.add_argument("--profile", default=None, metavar="NAME-OR-PATH",
+                    help="which Firefox profile (default: the one Firefox itself opens)")
+    ad.add_argument("--ref", default=None,
+                    help="check against this tag or branch only")
+    ad.add_argument("--depth", type=int, default=10, metavar="N",
+                    help="how many versions to check, newest first (default 10)")
+    ad.add_argument("--list-profiles", action="store_true",
+                    help="list the Firefox profiles found and stop")
+    ad.add_argument("--yes", action="store_true",
+                    help="skip the confirmation prompt")
+    ad.set_defaults(func=cmd_adopt)
 
     rb = sub.add_parser(
         "rollback", help="put the previous version of the theme back",
