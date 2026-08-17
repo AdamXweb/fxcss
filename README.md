@@ -126,6 +126,8 @@ at it with `--theme /path/to/theme`.
 | [`try`](#fxcss-try) | Download a theme from GitHub and test-drive it |
 | [`install`](#fxcss-install) | Install a theme into your real Firefox profile |
 | [`uninstall`](#fxcss-install) | Remove it again, restoring what was there |
+| [`upgrade`](#fxcss-upgrade) | Fetch a newer version of the theme you installed |
+| [`rollback`](#fxcss-upgrade) | Put the previous version back |
 | [`profiles`](#fxcss-profiles) | List every Firefox profile and what is themed in it |
 | [`watch`](#fxcss-watch) | Edit CSS and see it live, no restart |
 | [`pick`](#fxcss-pick) | Click any part of the UI to get its CSS selector |
@@ -287,6 +289,87 @@ Restart Firefox after either command; it reads `userChrome.css` at startup.
 > **Changed in 0.13:** before 0.13, `fxcss install` was an alias for `try`
 > and touched nothing real. The throwaway test-drive lives on, unchanged, as
 > `fxcss try`.
+
+### fxcss upgrade
+
+```bash
+fxcss upgrade                        # take the newest version of what you have
+fxcss upgrade --check                # report only; exit code says what it found
+fxcss upgrade --audit                # check the new version against your Firefox first
+fxcss upgrade --ref v2.1.0           # somewhere specific
+fxcss rollback                       # …and back again
+```
+
+`upgrade` re-installs the theme the profile already has, at whatever is newest
+*of the kind it tracks*: an install that took a release moves to the newest
+tag, one that followed a branch moves to that branch's current commit, and one
+pinned with `--ref` does not move at all unless you say so.
+
+It stops rather than surprise you, in three places:
+
+- **Files you edited yourself.** Every install records a sha256 per file, so
+  an upgrade knows which ones you have since changed and refuses to write over
+  them until `--force`. Files you *added* are never touched either way.
+- **Options that vanished.** If you installed `--with theme-nord` and the new
+  version renamed or dropped that sheet, the `@import` would simply stop
+  resolving and the option would turn itself off. `upgrade` names the loss and
+  makes you choose instead.
+- **Selectors the new version needs and your Firefox lacks** — with `--audit`,
+  which runs the same check as [`fxcss audit`](#fxcss-audit) against the
+  fetched copy *before* anything is installed.
+
+`--check` changes nothing and answers with its exit code, for cron, launchd or
+CI: **0** up to date, **1** an upgrade is available, **2** it cannot be told
+(no install here, an unreachable repo, or a manifest too old to say what it
+tracked). fxcss deliberately ships no scheduler of its own — this is the piece
+you point yours at.
+
+```console
+$ fxcss upgrade
+
+  profile: default-release  (~/Library/…/8f2h1kqp.default-release)
+  installed: AdamXweb/WhiteSurFirefoxThemeMacOS @ v1.6.3
+  upstream:  v2.0.0  — 2026-08-16
+
+  fetching v2.0.0 …
+  keeping optional sheets: theme-nord
+
+  Upgrade to v2.0.0? [Y/n]
+
+  upgraded to v2.0.0
+  the previous version is kept as chrome.backup-20260817014202
+
+  Restart Firefox to see it. `fxcss rollback` puts the previous version back.
+```
+
+#### Going back
+
+Every install and every upgrade leaves a `chrome.backup-*` behind, and the
+manifest travels inside `chrome/` — so each backup can say what it holds:
+
+```console
+$ fxcss rollback --list
+
+  Backups, newest first:
+
+    chrome.backup-20260817014202
+      AdamXweb/WhiteSurFirefoxThemeMacOS@v1.6.3
+    chrome.backup-20260817014143  (the original)
+      your own chrome/, from before fxcss
+```
+
+`fxcss rollback` restores the most recent, or `--to <name>` any of them.
+What was installed becomes a backup in its turn, so a rollback can itself be
+rolled back, and `user.js` follows: each version records the prefs it asked
+for, and rolling back to the original — the one backup with no manifest in it,
+because it is *your* chrome folder from before any of this — takes the fxcss
+pref block out with it.
+
+That original is the reason upgrades chain rather than stack blindly. After
+five upgrades the newest backup holds *the theme*, not your files, so the
+manifest carries the original's name forward and `fxcss uninstall` still
+restores what you had before you ever ran fxcss. `--keep N` (default 3) prunes
+older backups; the original is never one of them.
 
 ### fxcss profiles
 

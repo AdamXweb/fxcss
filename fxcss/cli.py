@@ -4,6 +4,8 @@
     fxcss try          download a theme from GitHub and test-drive it
     fxcss install      install a theme into your real Firefox profile
     fxcss uninstall    remove it again, restoring what was there before
+    fxcss upgrade      fetch a newer version of the theme you installed
+    fxcss rollback     put the previous version back
     fxcss profiles     list every Firefox profile and what is themed in it
     fxcss new          start a theme from a small, working scaffold
     fxcss init         add PR previews and CI checks to your theme repo
@@ -49,6 +51,8 @@ LANDING = """fxcss - a testing toolkit for Firefox userChrome.css themes
                                    with a backup; uninstall restores it
     fxcss profiles --check         what is themed in each profile, and
                                    whether anything newer has been released
+    fxcss upgrade                  take that newer version, keeping a way back
+    fxcss rollback                 …and that is the way back
 
   Maintaining a theme repository?
     fxcss init                     add before/after PR previews and CI checks
@@ -792,6 +796,271 @@ def cmd_uninstall(args):
     return 0
 
 
+def _report_drift(moved, indent="  "):
+    """Say what has changed under chrome/ since the install, if anything."""
+    if moved["modified"]:
+        print(f"{indent}{len(moved['modified'])} file(s) edited since install:")
+        for name in moved["modified"][:6]:
+            print(f"{indent}  {name}")
+        if len(moved["modified"]) > 6:
+            print(f"{indent}  … and {len(moved['modified']) - 6} more")
+    if moved["missing"]:
+        print(f"{indent}{len(moved['missing'])} file(s) deleted since install")
+    if moved["extra"]:
+        print(f"{indent}{len(moved['extra'])} file(s) added by hand "
+              "(these are left alone)")
+
+
+def cmd_upgrade(args):
+    import shutil
+    import tempfile
+    from . import fetch, install
+
+    interactive = (sys.stdin.isatty() and sys.stdout.isatty()
+                   and not os.environ.get("CI"))
+    picked = _choose_profile(args.profile, interactive)
+    manifest = install.read_manifest(picked["path"])
+    print(f"\n  profile: {picked['name']}  ({picked['path']})")
+    if not manifest:
+        print("\n  Nothing fxcss installed in this profile, so there is "
+              "nothing to\n  upgrade. `fxcss install <theme>` puts one here; "
+              "`fxcss profiles`\n  shows what is where.", file=sys.stderr)
+        return 2
+
+    source = manifest.get("source") or {}
+    print(f"  installed: {_theme_label(manifest)}")
+
+    # What is there to move to?
+    info = None
+    if source.get("kind") == "local":
+        local_root = Path(source.get("path") or "")
+        if not (local_root / "chrome").is_dir():
+            print(f"\n  error: the directory this was installed from is gone "
+                  f"({local_root})", file=sys.stderr)
+            return 2
+        target_ref, why = None, f"the current contents of {local_root}"
+        state = {"state": "unsupported"}
+    elif source.get("kind") == "github":
+        try:
+            info = fetch.resolve(source["owner"], source["name"])
+        except RuntimeError as exc:
+            print(f"\n  error: {exc}", file=sys.stderr)
+            return 2
+        state = fetch.update_state(source, info)
+        if args.ref:
+            target_ref, why = args.ref, f"ref {args.ref}"
+        elif args.commit:
+            target_ref = info["default_branch"]
+            why = f"latest commit on {info['default_branch']}"
+        elif state["state"] == "available":
+            target_ref, why = state["ref"], state["label"]
+        else:
+            target_ref, why = state.get("ref") or source.get("ref"), \
+                state.get("label") or "what is installed"
+        print(f"  upstream:  {state['label']}"
+              + (f"  — {state['detail']}" if state.get("detail") else ""))
+    else:
+        print("\n  error: this install has no record of where it came from, "
+              "so fxcss\n  cannot fetch a newer copy. Reinstall it with "
+              "`fxcss install <theme>`.", file=sys.stderr)
+        return 2
+
+    # Has the user edited what is installed?
+    moved = install.drift(picked["path"], manifest)
+    if moved["modified"] or moved["missing"]:
+        print()
+        _report_drift(moved, indent="  ")
+    elif not moved["checked"] and manifest.get("files"):
+        print("\n  note: this was installed before fxcss recorded file "
+              "hashes, so\n  whether it has been edited since cannot be "
+              "checked.")
+
+    nothing_to_do = (state["state"] == "current" and not args.ref
+                     and not args.commit and source.get("kind") == "github")
+    if args.check:
+        if nothing_to_do:
+            print("\n  Up to date.")
+            return 0
+        if state["state"] in ("pinned", "unknown"):
+            print(f"\n  {state['detail'] or state['label']}")
+            return 2 if state["state"] == "unknown" else 0
+        print(f"\n  An upgrade is available: {why}")
+        print("  Run `fxcss upgrade` to take it.")
+        return 1
+    if nothing_to_do:
+        print("\n  Already up to date. Pass --ref to move somewhere else "
+              "anyway.")
+        return 0
+
+    if (moved["modified"] or moved["missing"]) and not args.force:
+        print("\n  Refusing to upgrade over edits fxcss did not make — the "
+              "new version\n  would overwrite them. Save what you want, then "
+              "pass --force.\n  (Files you *added* are never touched; only "
+              "the ones above.)", file=sys.stderr)
+        return 2
+
+    workdir = None
+    try:
+        if source.get("kind") == "local":
+            repo_root = local_root
+        else:
+            workdir = Path(tempfile.mkdtemp(prefix="fxcss-upgrade-"))
+            print(f"\n  fetching {why} …")
+            repo_root = fetch.download(source["owner"], source["name"],
+                                       target_ref, workdir / "src")
+
+        theme_root = fetch.find_theme_root(repo_root)
+        if theme_root is None:
+            print("\n  error: no chrome/userChrome.css in that version",
+                  file=sys.stderr)
+            return 2
+
+        facts = fetch.describe(repo_root, theme_root)
+        wanted = (args.with_sheets.split(",") if args.with_sheets is not None
+                  else manifest.get("sheets") or [])
+        wanted = [w.strip() for w in wanted if w.strip()]
+        continuity = fetch.sheet_continuity(wanted, facts["variants"])
+        if continuity["missing"]:
+            print(f"\n  error: the new version has no optional sheet named "
+                  f"{', '.join(continuity['missing'])}.\n  It was renamed or "
+                  "dropped; upgrading would turn that option off silently.\n"
+                  "  Available now: "
+                  f"{', '.join(sorted(v.stem for v in facts['variants'])) or 'none'}\n"
+                  "  Re-run with --with to choose from those, or --with '' "
+                  "for none.", file=sys.stderr)
+            return 2
+        if continuity["kept"]:
+            print(f"  keeping optional sheets: "
+                  f"{', '.join(s.stem for s in continuity['kept'])}")
+
+        if args.audit:
+            from . import audit as audit_mod
+            firefox = choose_firefox(args.firefox)
+            print(f"\n  auditing the new version against {firefox} …")
+            with core.Session(theme_root, firefox) as session:
+                result = audit_mod.audit(session, theme_root)
+            audit_mod.report(result, colour=not args.no_colour)
+            actionable = [f for f in result["findings"]
+                          if f["confidence"] != "unresolved"]
+            if actionable and not args.force:
+                print(f"  {len(actionable)} selector(s) in the new version "
+                      "match nothing in this Firefox.\n  Pass --force to "
+                      "upgrade anyway.", file=sys.stderr)
+                return 1
+
+        if install.firefox_running(picked["path"]):
+            print("\n  note: Firefox appears to be running — the change will "
+                  "only show after a restart.")
+        if not _confirm(f"\n  Upgrade to {why}?", interactive, args.yes):
+            print("  nothing changed.")
+            return 1
+
+        theme_id = (str(repo_root) if source.get("kind") == "local"
+                    else f"{source['owner']}/{source['name']}@{target_ref}")
+        new_source = (dict(source) if source.get("kind") == "local"
+                      else _install_source(source["owner"], source["name"],
+                                           target_ref, info,
+                                           explicit=bool(args.ref)))
+        result = install.install_theme(
+            theme_root, picked["path"], theme_id,
+            sheets=continuity["kept"], source=new_source,
+            # The chrome/ from before fxcss ever ran here, carried forward so
+            # `uninstall` still reaches it however many upgrades happen.
+            origin_backup=manifest.get("origin_backup"))
+        print(f"\n  upgraded to {why}")
+        print(f"  the previous version is kept as {result['backup']}")
+        keep = args.keep
+        if keep is not None and keep < 1:
+            # This command has just promised a way back; honouring --keep 0
+            # literally would delete the backup named one line above it.
+            print("  note: --keep 0 would remove the backup this upgrade just "
+                  "made, so\n  one is kept — the original chrome/ is never "
+                  "pruned either way.")
+            keep = 1
+        removed = install.prune_backups(
+            picked["path"], keep, protect=[manifest.get("origin_backup")])
+        if removed:
+            print(f"  pruned {len(removed)} older backup(s), keeping the "
+                  f"newest {keep}")
+        print("\n  Restart Firefox to see it. `fxcss rollback` puts the "
+              "previous version back.")
+        return 0
+    except RuntimeError as exc:
+        print(f"\n  error: {exc}", file=sys.stderr)
+        return 2
+    finally:
+        if workdir:
+            shutil.rmtree(workdir, ignore_errors=True)
+
+
+def cmd_rollback(args):
+    from . import install
+
+    interactive = (sys.stdin.isatty() and sys.stdout.isatty()
+                   and not os.environ.get("CI"))
+    picked = _choose_profile(args.profile, interactive)
+    backups = install.list_backups(picked["path"])
+    manifest = install.read_manifest(picked["path"])
+    print(f"\n  profile: {picked['name']}  ({picked['path']})")
+    if manifest:
+        print(f"  installed: {_theme_label(manifest)}")
+
+    if not backups:
+        print("\n  No backups here to roll back to. `fxcss install` and "
+              "`fxcss upgrade`\n  both leave one behind; nothing else does.",
+              file=sys.stderr)
+        return 2
+
+    origin = (manifest or {}).get("origin_backup")
+    if args.list:
+        print("\n  Backups, newest first:\n")
+        for backup in backups:
+            what = backup["theme"] or "your own chrome/, from before fxcss"
+            tag = "  (the original)" if backup["name"] == origin else ""
+            print(f"    {backup['name']}{tag}")
+            print(f"      {what}")
+        print("\n  `fxcss rollback --to <name>` restores one of these.")
+        return 0
+
+    target = args.to or backups[0]["name"]
+    chosen = next((b for b in backups if b["name"] == target), None)
+    if chosen is None:
+        print(f"\n  error: no backup named {target} here; --list shows them",
+              file=sys.stderr)
+        return 2
+
+    what = chosen["theme"] or "your own chrome/, from before fxcss ran here"
+    print(f"\n  rolling back to {chosen['name']}\n    {what}")
+    if chosen["manifest"] is None:
+        print("  that has no fxcss theme in it, so the user.js block goes "
+              "too")
+    if install.firefox_running(picked["path"]):
+        print("  note: Firefox appears to be running — the change will only "
+              "show after a restart.")
+    if not _confirm("  Roll back to this?", interactive, args.yes):
+        print("  nothing changed.")
+        return 1
+
+    try:
+        summary = install.rollback_to(picked["path"], chosen["name"])
+    except RuntimeError as exc:
+        print(f"  error: {exc}", file=sys.stderr)
+        return 2
+    print(f"\n  restored {summary['restored']}")
+    if summary["moved_aside"]:
+        print(f"  what was installed is kept as {summary['moved_aside']}, so "
+              "this is undoable")
+    if summary["user_js"] == "restored":
+        print("  user.js: put that version's prefs back")
+    elif summary["user_js"] == "removed":
+        print("  user.js: removed the fxcss block")
+    elif summary["user_js"] == "unknown":
+        print("  user.js: left as it is — that version did not record its "
+              "prefs")
+    print("\n  Restart Firefox to see the change.")
+    return 0
+
+
 def cmd_new(args):
     from . import scaffold
     target = args.directory.resolve()
@@ -1256,6 +1525,56 @@ def build_parser():
     un.add_argument("--yes", action="store_true",
                     help="skip the confirmation prompt")
     un.set_defaults(func=cmd_uninstall)
+
+    up = sub.add_parser(
+        "upgrade", help="fetch a newer version of the installed theme",
+        epilog="Re-installs the theme this profile already has, at whatever "
+               "is newest of the kind it tracks. The version being replaced "
+               "is kept as a chrome.backup-*, so `fxcss rollback` undoes it. "
+               "Refuses to overwrite files you have edited yourself unless "
+               "--force says to.")
+    _common(up, theme=False)      # --firefox, for --audit
+    up.add_argument("--profile", default=None, metavar="NAME-OR-PATH",
+                    help="which Firefox profile (default: the one Firefox itself opens)")
+    up.add_argument("--check", action="store_true",
+                    help="report only, changing nothing. Exit 0 when up to "
+                         "date, 1 when an upgrade is available, 2 when it "
+                         "cannot be told — for cron and CI")
+    up.add_argument("--audit", action="store_true",
+                    help="before installing, check the new version's "
+                         "selectors against a real Firefox")
+    up.add_argument("--ref", default=None,
+                    help="upgrade to this tag, branch or commit instead")
+    up.add_argument("--commit", action="store_true",
+                    help="take the latest commit rather than the latest release")
+    up.add_argument("--with", dest="with_sheets", default=None,
+                    metavar="NAME[,NAME]",
+                    help="optional sheets to install (default: the ones "
+                         "already installed)")
+    up.add_argument("--keep", type=int, default=3, metavar="N",
+                    help="how many backups to keep (default 3; the original "
+                         "chrome/ is never pruned)")
+    up.add_argument("--force", action="store_true",
+                    help="upgrade despite local edits or audit findings")
+    up.add_argument("--no-colour", action="store_true", help="plain output")
+    up.add_argument("--yes", action="store_true",
+                    help="skip the confirmation prompt")
+    up.set_defaults(func=cmd_upgrade)
+
+    rb = sub.add_parser(
+        "rollback", help="put the previous version of the theme back",
+        epilog="Restores a chrome.backup-* left by an install or an upgrade. "
+               "What is currently installed becomes a backup in its turn, so "
+               "a rollback can itself be rolled back.")
+    rb.add_argument("--profile", default=None, metavar="NAME-OR-PATH",
+                    help="which Firefox profile (default: the one Firefox itself opens)")
+    rb.add_argument("--to", default=None, metavar="NAME",
+                    help="which backup (default: the most recent)")
+    rb.add_argument("--list", action="store_true",
+                    help="list the backups and stop")
+    rb.add_argument("--yes", action="store_true",
+                    help="skip the confirmation prompt")
+    rb.set_defaults(func=cmd_rollback)
 
     pr = sub.add_parser(
         "profiles", help="list every Firefox profile and what is themed in it",

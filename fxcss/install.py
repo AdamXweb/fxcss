@@ -38,7 +38,7 @@ MANIFEST_NAME = "fxcss-install.json"
 #
 # 1: {theme, installed, backup, user_js_created, sheets, files}
 # 2: adds `schema`, `fxcss`, `source` (the theme_id string taken apart so an
-#    upgrade can act on it), `origin_backup` and `digests`.
+#    upgrade can act on it), `origin_backup`, `digests` and `user_js_block`.
 MANIFEST_SCHEMA = 2
 
 BLOCK_BEGIN = "/* >>> fxcss install >>> */"
@@ -570,8 +570,8 @@ def install_theme(theme_root, profile, theme_id, sheets=(), stamp=None,
     user_js_created = not user_js.exists()
     existing = "" if user_js_created else user_js.read_text(encoding="utf-8",
                                                             errors="replace")
-    user_js.write_text(user_js_with_block(existing, user_js_body(theme_root)),
-                       encoding="utf-8")
+    block = user_js_body(theme_root)
+    user_js.write_text(user_js_with_block(existing, block), encoding="utf-8")
 
     from . import __version__
 
@@ -587,6 +587,9 @@ def install_theme(theme_root, profile, theme_id, sheets=(), stamp=None,
         "backup": backup,
         "origin_backup": backup if origin_backup is _UNSET else origin_backup,
         "user_js_created": user_js_created,
+        # The prefs this version asked for, kept verbatim so a rollback can
+        # put them back: the theme tree they came from is gone by then.
+        "user_js_block": block,
         "sheets": installed_sheets,
         "files": files,
         # sha256 per file, so a later upgrade can tell "the theme as installed"
@@ -671,6 +674,141 @@ def safe_backup_name(recorded):
             "chrome.backup-"):
         return None
     return recorded
+
+
+def _backup_key(name):
+    """Sort key for a chrome.backup-* name: (stamp, spare-copy counter).
+
+    `_spare_name` appends -2, -3 … when two runs land in the same second, and
+    those sort wrongly as text once there are ten of them. Ordering decides
+    which backup "the last one" means, so it is worth getting right.
+    """
+    rest = name[len("chrome.backup-"):]
+    stamp, _, counter = rest.partition("-")
+    return (stamp, int(counter) if counter.isdigit() else 1)
+
+
+def list_backups(profile):
+    """Every chrome.backup-* in this profile, newest first.
+
+    Each entry carries the manifest found inside it, when there is one: the
+    manifest lives in chrome/, so a backup taken by an upgrade holds the
+    manifest of the version inside it and can say what it is. The one that
+    never has a manifest is the oldest -- the user's own chrome/ from before
+    fxcss ever ran here -- and naming that one correctly is the point.
+
+    Returns [{name, path, key, manifest, theme}], newest first.
+    """
+    profile = Path(profile)
+    found = []
+    for path in profile.glob("chrome.backup-*"):
+        if not path.is_dir() or not safe_backup_name(path.name):
+            continue
+        manifest = None
+        candidate = path / MANIFEST_NAME
+        if candidate.is_file():
+            try:
+                loaded = json.loads(candidate.read_text(encoding="utf-8"))
+                manifest = loaded if isinstance(loaded, dict) else None
+            except (ValueError, OSError):
+                manifest = None
+        found.append({
+            "name": path.name,
+            "path": path,
+            "key": _backup_key(path.name),
+            "manifest": manifest,
+            "theme": (manifest or {}).get("theme"),
+        })
+    return sorted(found, key=lambda b: b["key"], reverse=True)
+
+
+def rollback_to(profile, backup, stamp=None):
+    """Put a backup back, keeping what is there now as a backup of its own.
+
+    The reverse of an upgrade, and symmetrical with it: nothing is deleted,
+    the outgoing chrome/ becomes the newest ``chrome.backup-*`` so the move
+    can itself be undone, and user.js follows whatever the restored version
+    recorded.
+
+    Rolling back to a directory with no manifest means arriving at the user's
+    own pre-fxcss chrome/, so the user.js block goes away entirely -- there is
+    no fxcss theme installed at that point and leaving its prefs behind would
+    be wrong.
+    """
+    profile = Path(profile)
+    name = safe_backup_name(backup)
+    if not name:
+        raise RuntimeError(f"{backup!r} is not a backup name fxcss will "
+                           "restore; it must be a chrome.backup-* directory "
+                           "in the profile itself")
+    target = profile / name
+    if not target.is_dir():
+        raise RuntimeError(f"no such backup in {profile}: {name}")
+
+    chrome = profile / "chrome"
+    outgoing = read_manifest(profile)
+    stamp = stamp or _timestamp()
+    summary = {"restored": name, "moved_aside": None, "theme": None,
+               "user_js": "untouched",
+               "was": (outgoing or {}).get("theme")}
+
+    if chrome.exists():
+        moved = _spare_name(profile, f"chrome.backup-{stamp}")
+        shutil.move(str(chrome), str(moved))
+        summary["moved_aside"] = moved.name
+    shutil.move(str(target), str(chrome))
+
+    restored = read_manifest(profile)
+    summary["theme"] = (restored or {}).get("theme")
+
+    user_js = profile / "user.js"
+    block = (restored or {}).get("user_js_block")
+    if restored is None:
+        # Back to the user's own chrome/: take the prefs out with the theme.
+        if user_js.is_file():
+            text = user_js.read_text(encoding="utf-8", errors="replace")
+            stripped = strip_user_js_block(text)
+            if stripped != text:
+                if not stripped.strip() and (outgoing or {}).get(
+                        "user_js_created"):
+                    user_js.unlink()
+                else:
+                    user_js.write_text(stripped, encoding="utf-8")
+                summary["user_js"] = "removed"
+    elif isinstance(block, str):
+        existing = user_js.read_text(encoding="utf-8", errors="replace") \
+            if user_js.is_file() else ""
+        user_js.write_text(user_js_with_block(existing, block),
+                           encoding="utf-8")
+        summary["user_js"] = "restored"
+    else:
+        # A manifest from before user_js_block was recorded. Rewriting the
+        # block from nothing would be inventing prefs; leaving it is the
+        # smaller error, and it gets reported rather than passed over.
+        summary["user_js"] = "unknown"
+    return summary
+
+
+def prune_backups(profile, keep, protect=()):
+    """Delete all but the newest `keep` backups. Returns the names removed.
+
+    Backups are whole copies of a theme, so a profile upgraded weekly grows
+    without this. Names in `protect` are neither pruned nor counted towards
+    `keep` -- that is how the origin backup survives any number of upgrades
+    without using up the allowance the caller asked for. `keep=None` prunes
+    nothing at all.
+    """
+    if keep is None:
+        return []
+    protected = {name for name in protect if name}
+    candidates = [b for b in list_backups(profile)
+                  if b["name"] not in protected]
+    removed = []
+    for backup in candidates[max(keep, 0):]:
+        shutil.rmtree(backup["path"], ignore_errors=True)
+        if not backup["path"].exists():
+            removed.append(backup["name"])
+    return removed
 
 
 def _prune_empty_dirs(chrome):

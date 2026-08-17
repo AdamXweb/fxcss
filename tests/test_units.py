@@ -1648,3 +1648,203 @@ class InstallSourceTests(unittest.TestCase):
         from fxcss.cli import _install_source
         got = _install_source("o", "n", "v1.0.0", None, explicit=True)
         self.assertEqual(got["ref_kind"], "explicit")
+
+
+class BackupOrderTests(unittest.TestCase):
+    """Which backup "the newest" means decides what a rollback restores."""
+
+    def test_spare_copies_sort_numerically_not_as_text(self):
+        from fxcss.install import _backup_key
+        names = ["chrome.backup-20260814120000",
+                 "chrome.backup-20260814120000-2",
+                 "chrome.backup-20260814120000-10",
+                 "chrome.backup-20260813120000"]
+        self.assertEqual(sorted(names, key=_backup_key), [
+            "chrome.backup-20260813120000",
+            "chrome.backup-20260814120000",
+            "chrome.backup-20260814120000-2",
+            "chrome.backup-20260814120000-10",
+        ])
+
+
+class ListBackupsTests(unittest.TestCase):
+    """A backup can say what it holds, because the manifest travels with it."""
+
+    def test_backups_describe_themselves_and_the_original_does_not(self):
+        from fxcss.install import install_theme, list_backups
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            theme = _make_theme(root)
+            profile = _make_profile(root)
+            first = install_theme(theme, profile, "o/n@v1",
+                                  stamp="20260814120000")
+            install_theme(theme, profile, "o/n@v2", stamp="20260815120000",
+                          origin_backup=first["backup"])
+            backups = list_backups(profile)
+            self.assertEqual([b["theme"] for b in backups], ["o/n@v1", None])
+            self.assertEqual(backups[-1]["name"], first["backup"])
+
+    def test_stray_directories_are_not_offered_as_backups(self):
+        from fxcss.install import list_backups
+        with tempfile.TemporaryDirectory() as td:
+            profile = Path(td)
+            (profile / "chrome.backup-20260814120000").mkdir()
+            (profile / "chrome.removed-20260814120000").mkdir()
+            (profile / "chrome.backup-notes.txt").write_text("x")
+            names = [b["name"] for b in list_backups(profile)]
+            self.assertEqual(names, ["chrome.backup-20260814120000"])
+
+
+class RollbackTests(unittest.TestCase):
+
+    def two_versions(self, root):
+        from fxcss.install import install_theme
+        theme = _make_theme(root)
+        profile = _make_profile(root)
+        first = install_theme(theme, profile, "o/n@v1",
+                              stamp="20260814120000")
+        second = install_theme(theme, profile, "o/n@v2",
+                               stamp="20260815120000",
+                               origin_backup=first["backup"])
+        return profile, first, second
+
+    def test_rollback_restores_the_previous_version(self):
+        from fxcss.install import read_manifest, rollback_to
+        with tempfile.TemporaryDirectory() as td:
+            profile, _, second = self.two_versions(Path(td))
+            summary = rollback_to(profile, second["backup"],
+                                  stamp="20260816120000")
+            self.assertEqual(summary["restored"], second["backup"])
+            self.assertEqual(read_manifest(profile)["theme"], "o/n@v1")
+
+    def test_what_was_installed_becomes_a_backup_so_it_is_undoable(self):
+        from fxcss.install import read_manifest, rollback_to
+        with tempfile.TemporaryDirectory() as td:
+            profile, _, second = self.two_versions(Path(td))
+            summary = rollback_to(profile, second["backup"],
+                                  stamp="20260816120000")
+            forward = summary["moved_aside"]
+            self.assertTrue((profile / forward).is_dir())
+            rollback_to(profile, forward, stamp="20260817120000")
+            self.assertEqual(read_manifest(profile)["theme"], "o/n@v2")
+
+    def test_the_origin_carries_through_a_rollback(self):
+        """Rolling back must not strand the user's own files.
+
+        The restored manifest is the older one, which already names the
+        origin; the risk is a rollback that rewrites or drops it.
+        """
+        from fxcss.install import read_manifest, rollback_to, uninstall_theme
+        with tempfile.TemporaryDirectory() as td:
+            profile, first, second = self.two_versions(Path(td))
+            rollback_to(profile, second["backup"], stamp="20260816120000")
+            self.assertEqual(read_manifest(profile)["origin_backup"],
+                             first["backup"])
+            uninstall_theme(profile)
+            self.assertEqual(
+                (profile / "chrome" / "userChrome.css").read_text(),
+                "/* the user's own */\n")
+
+    def test_rolling_back_to_the_original_takes_the_prefs_with_it(self):
+        from fxcss.install import install_theme, rollback_to
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            theme = _make_theme(root)
+            profile = _make_profile(root)
+            result = install_theme(theme, profile, "o/n@v1",
+                                   stamp="20260814120000")
+            summary = rollback_to(profile, result["backup"],
+                                  stamp="20260815120000")
+            self.assertEqual(summary["user_js"], "removed")
+            # the profile's own pref survives; only the fxcss block goes
+            self.assertEqual((profile / "user.js").read_text(),
+                             'user_pref("mine", 1);\n')
+            self.assertEqual(
+                (profile / "chrome" / "userChrome.css").read_text(),
+                "/* the user's own */\n")
+
+    def test_a_version_that_recorded_no_prefs_is_reported_not_invented(self):
+        from fxcss.install import rollback_to
+        with tempfile.TemporaryDirectory() as td:
+            profile, _, second = self.two_versions(Path(td))
+            stale = profile / second["backup"] / "fxcss-install.json"
+            data = json.loads(stale.read_text())
+            del data["user_js_block"]
+            stale.write_text(json.dumps(data), encoding="utf-8")
+            before = (profile / "user.js").read_text()
+            summary = rollback_to(profile, second["backup"],
+                                  stamp="20260816120000")
+            self.assertEqual(summary["user_js"], "unknown")
+            self.assertEqual((profile / "user.js").read_text(), before)
+
+    def test_a_backup_outside_the_profile_is_refused(self):
+        from fxcss.install import rollback_to
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            profile, _, _ = self.two_versions(root)
+            for bad in ("../elsewhere", "/etc", "chrome", "chrome.removed-1"):
+                with self.assertRaises(RuntimeError):
+                    rollback_to(profile, bad)
+            self.assertTrue((profile / "chrome" / "userChrome.css").is_file())
+
+
+class PruneBackupsTests(unittest.TestCase):
+
+    def _stack(self, profile, count):
+        for i in range(count):
+            (profile / f"chrome.backup-2026081412000{i}").mkdir(parents=True)
+
+    def test_keeps_the_newest_and_never_the_protected_one(self):
+        from fxcss.install import prune_backups
+        with tempfile.TemporaryDirectory() as td:
+            profile = Path(td)
+            self._stack(profile, 5)
+            origin = "chrome.backup-20260814120000"
+            removed = prune_backups(profile, keep=2, protect=[origin])
+            left = sorted(p.name for p in profile.glob("chrome.backup-*"))
+            self.assertIn(origin, left)
+            self.assertEqual(left, [origin,
+                                    "chrome.backup-20260814120003",
+                                    "chrome.backup-20260814120004"])
+            self.assertEqual(len(removed), 2)
+
+    def test_the_protected_backup_does_not_use_up_the_allowance(self):
+        """`--keep 2` means two besides the original, not one plus it."""
+        from fxcss.install import prune_backups
+        with tempfile.TemporaryDirectory() as td:
+            profile = Path(td)
+            self._stack(profile, 4)
+            prune_backups(profile, keep=2,
+                          protect=["chrome.backup-20260814120000"])
+            self.assertEqual(len(list(profile.glob("chrome.backup-*"))), 3)
+
+    def test_none_prunes_nothing(self):
+        from fxcss.install import prune_backups
+        with tempfile.TemporaryDirectory() as td:
+            profile = Path(td)
+            self._stack(profile, 4)
+            self.assertEqual(prune_backups(profile, keep=None), [])
+            self.assertEqual(len(list(profile.glob("chrome.backup-*"))), 4)
+
+
+class SheetContinuityTests(unittest.TestCase):
+    """An option that vanishes between versions must not vanish quietly."""
+
+    def variants(self, *names):
+        return [Path("custom") / f"{name}.css" for name in names]
+
+    def test_a_renamed_sheet_is_reported_missing(self):
+        from fxcss.fetch import sheet_continuity
+        got = sheet_continuity(["theme-nord", "compact-tabs"],
+                               self.variants("compact-tabs", "theme-nordic"))
+        self.assertEqual(got["missing"], ["theme-nord"])
+        self.assertEqual([s.stem for s in got["kept"]], ["compact-tabs"])
+
+    def test_matching_ignores_case_and_survives_no_sheets(self):
+        from fxcss.fetch import sheet_continuity
+        got = sheet_continuity(["Compact-Tabs"], self.variants("compact-tabs"))
+        self.assertEqual((got["missing"], len(got["kept"])), ([], 1))
+        self.assertEqual(sheet_continuity([], self.variants("a")),
+                         {"kept": [], "missing": []})
+        self.assertEqual(sheet_continuity(None, []),
+                         {"kept": [], "missing": []})
