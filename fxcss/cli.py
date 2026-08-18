@@ -547,13 +547,32 @@ def _install_source(owner, name, ref, info, explicit):
     return source
 
 
-def _choose_profile(explicit, interactive):
+def profile_state(profile):
+    """"managed" (fxcss installed a theme here), "unmanaged" or "empty"."""
+    from . import install
+    if install.read_manifest(profile["path"]):
+        return "managed"
+    chrome = Path(profile["path"]) / "chrome"
+    if chrome.is_dir() and any(chrome.rglob("*.css")):
+        return "unmanaged"
+    return "empty"
+
+
+def _choose_profile(explicit, interactive, prefer=None):
     """Which real profile to touch, asking only when that is a real question.
 
     Mirrors choose_firefox: an explicit --profile always wins, a clear default
     is used silently, and the menu appears only for a human at a terminal --
     CI must not block on stdin. Ambiguity without a terminal is an error
     rather than a guess, because this command edits a profile someone lives in.
+
+    `prefer` narrows the field to profiles the command can actually act on --
+    "managed" for uninstall, upgrade and rollback, "unmanaged" for adopt.
+    Without it, a theme deliberately installed into a profile that is not the
+    one Firefox opens could not be found again: every command would go to
+    Firefox's default and report nothing installed there, which is true and
+    useless. Firefox's own default still decides, but only among profiles that
+    have what the command needs.
     """
     from . import install
     profiles = install.discover_profiles()
@@ -568,6 +587,14 @@ def _choose_profile(explicit, interactive):
             "one, or pass --profile <path>.")
     if len(profiles) == 1:
         return profiles[0]
+    if prefer:
+        # None matching is left to the command to report: it knows what it
+        # wanted and can say so far better than a generic message here.
+        narrowed = [p for p in profiles if profile_state(p) == prefer]
+        if len(narrowed) == 1:
+            return narrowed[0]
+        if narrowed:
+            profiles = narrowed
     defaults = [p for p in profiles if p["default"]]
     if len(defaults) == 1:
         return defaults[0]
@@ -824,7 +851,7 @@ def cmd_uninstall(args):
         return _print_profiles()
     interactive = (sys.stdin.isatty() and sys.stdout.isatty()
                    and not os.environ.get("CI"))
-    picked = _choose_profile(args.profile, interactive)
+    picked = _choose_profile(args.profile, interactive, prefer="managed")
     manifest = install.read_manifest(picked["path"])
     print(f"\n  profile: {picked['name']}  ({picked['path']})")
     if manifest and manifest.get("theme"):
@@ -877,7 +904,7 @@ def cmd_upgrade(args):
 
     interactive = (sys.stdin.isatty() and sys.stdout.isatty()
                    and not os.environ.get("CI"))
-    picked = _choose_profile(args.profile, interactive)
+    picked = _choose_profile(args.profile, interactive, prefer="managed")
     manifest = install.read_manifest(picked["path"])
     print(f"\n  profile: {picked['name']}  ({picked['path']})")
     if not manifest:
@@ -1073,7 +1100,7 @@ def cmd_adopt(args):
         return _print_profiles()
     interactive = (sys.stdin.isatty() and sys.stdout.isatty()
                    and not os.environ.get("CI"))
-    picked = _choose_profile(args.profile, interactive)
+    picked = _choose_profile(args.profile, interactive, prefer="unmanaged")
     chrome = Path(picked["path"]) / "chrome"
     print(f"\n  profile: {picked['name']}  ({picked['path']})")
 
@@ -1197,7 +1224,7 @@ def cmd_rollback(args):
 
     interactive = (sys.stdin.isatty() and sys.stdout.isatty()
                    and not os.environ.get("CI"))
-    picked = _choose_profile(args.profile, interactive)
+    picked = _choose_profile(args.profile, interactive, prefer="managed")
     backups = install.list_backups(picked["path"])
     manifest = install.read_manifest(picked["path"])
     print(f"\n  profile: {picked['name']}  ({picked['path']})")
