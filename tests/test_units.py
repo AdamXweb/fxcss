@@ -329,7 +329,7 @@ class ImportabilityTests(unittest.TestCase):
         # Doubles as the Python-floor check when CI runs this on 3.9.
         import fxcss.audit, fxcss.catalogue, fxcss.cli   # noqa: F401,E401
         import fxcss.compare, fxcss.core, fxcss.fetch    # noqa: F401,E401
-        import fxcss.install, fxcss.probe                # noqa: F401,E401
+        import fxcss.install, fxcss.probe, fxcss.sheets  # noqa: F401,E401
 
 
 if __name__ == "__main__":
@@ -1848,3 +1848,172 @@ class SheetContinuityTests(unittest.TestCase):
                          {"kept": [], "missing": []})
         self.assertEqual(sheet_continuity(None, []),
                          {"kept": [], "missing": []})
+
+
+class DeclarationsTests(unittest.TestCase):
+    """The parser only has to answer "does this sheet set that, there"."""
+
+    def parse(self, text):
+        from fxcss.sheets import declarations
+        return declarations(text)
+
+    def test_selector_lists_land_under_every_selector(self):
+        got = self.parse("a, b { color: red; }")
+        self.assertEqual(got, {((), "a", "color"): "red",
+                               ((), "b", "color"): "red"})
+
+    def test_comments_are_not_css_even_when_they_hold_braces(self):
+        got = self.parse("/* } .fake { color: blue; */ .real { color: red }")
+        self.assertEqual(got, {((), ".real", "color"): "red"})
+
+    def test_a_media_query_is_part_of_the_address(self):
+        got = self.parse("""
+            :root { --x: 1px }
+            @media (-moz-platform: windows) { :root { --x: 2px } }
+        """)
+        self.assertEqual(got[((), ":root", "--x")], "1px")
+        self.assertEqual(
+            got[(("@media (-moz-platform: windows)",), ":root", "--x")],
+            "2px")
+
+    def test_braces_and_semicolons_inside_strings_are_text(self):
+        got = self.parse('.a { content: "}; color: blue"; color: red }')
+        self.assertEqual(got, {((), ".a", "content"): '"}; color: blue"',
+                               ((), ".a", "color"): "red"})
+
+    def test_a_last_declaration_needs_no_semicolon(self):
+        self.assertEqual(self.parse(".a { color: red }"),
+                         {((), ".a", "color"): "red"})
+
+    def test_top_level_at_rules_are_not_declarations(self):
+        got = self.parse('@namespace url("http://x");\n'
+                         '@import "other.css";\n.a { color: red }')
+        self.assertEqual(got, {((), ".a", "color"): "red"})
+
+    def test_importance_is_part_of_the_value(self):
+        got = self.parse(".a { color: red !important }")
+        self.assertEqual(got[((), ".a", "color")], "red !important")
+
+    def test_whitespace_never_changes_the_answer(self):
+        self.assertEqual(self.parse(".a>.b{color:red}"),
+                         self.parse("  .a > .b  {\n  color :  red ;\n}\n"))
+
+
+class OverlapTests(unittest.TestCase):
+    """Alternatives, subsumed, overlap — and the difference between them."""
+
+    def verdict(self, a, b):
+        from fxcss.sheets import declarations, overlap, verdict
+        return verdict(overlap(("a", declarations(a)), ("b", declarations(b))))
+
+    def test_same_ground_different_values_are_alternatives(self):
+        """The colour-theme case, which is what this exists for."""
+        a = ":root { --bg: #111; --fg: #eee; --accent: #a00 }"
+        b = ":root { --bg: #222; --fg: #ddd; --accent: #0a0 }"
+        self.assertEqual(self.verdict(a, b), "alternatives")
+
+    def test_agreeing_sheets_are_not_in_conflict(self):
+        """Identical declarations compete for nothing.
+
+        This is the case a conflicting-count metric gets right and a
+        shared-count metric alone would not.
+        """
+        a = ":root { --bg: #111; --fg: #eee }"
+        self.assertEqual(self.verdict(a, a), "")
+
+    def test_partly_agreeing_palettes_are_still_alternatives(self):
+        """Two palettes sharing a few exact colours are not thereby milder.
+
+        Measured on WhiteSur: theme-nord and theme-dracula set the same 122
+        declarations but only 87 differ, so judging by differences alone put
+        them under the threshold and let both install.
+        """
+        a = ":root { --bg: #111; --fg: #eee; --edge: #777; --line: #777 }"
+        b = ":root { --bg: #222; --fg: #ddd; --edge: #777; --line: #777 }"
+        self.assertEqual(self.verdict(a, b), "alternatives")
+
+    def test_a_small_sheet_swallowed_by_a_big_one_is_subsumed(self):
+        small = ".tab { height: 28px }"
+        big = (".tab { height: 40px }\n.x{a:1}\n.y{b:2}\n.z{c:3}\n"
+               ".w{d:4}\n.v{e:5}")
+        self.assertEqual(self.verdict(small, big), "subsumed")
+
+    def test_sheets_that_merely_disagree_somewhere_are_overlap(self):
+        a = ".tab { height: 28px }\n.a{p:1}\n.b{p:1}\n.c{p:1}\n.d{p:1}"
+        b = ".tab { height: 40px }\n.e{p:1}\n.f{p:1}\n.g{p:1}\n.h{p:1}"
+        self.assertEqual(self.verdict(a, b), "overlap")
+
+    def test_disjoint_sheets_say_nothing(self):
+        self.assertEqual(self.verdict(".a { color: red }",
+                                      ".b { height: 10px }"), "")
+
+    def test_the_same_property_elsewhere_is_not_a_clash(self):
+        self.assertEqual(self.verdict(".a { color: red }",
+                                      ".b { color: blue }"), "")
+
+    def test_the_same_rule_under_different_conditions_is_not_a_clash(self):
+        a = "@media (-moz-platform: windows) { .a { color: red } }"
+        b = "@media (-moz-platform: macos) { .a { color: blue } }"
+        self.assertEqual(self.verdict(a, b), "")
+
+    def test_which_sheet_stops_mattering_is_named(self):
+        from fxcss.sheets import declarations, overlap, overridden
+        small = declarations(".tab { height: 28px }")
+        big = declarations(".tab { height: 40px }\n.x{a:1}\n.y{b:2}\n"
+                           ".z{c:3}\n.w{d:4}\n.v{e:5}")
+        report = overlap(("compact", small), ("everything", big))
+        self.assertEqual(overridden(report), "compact")
+
+
+class ConflictsTests(unittest.TestCase):
+
+    def _sheets(self, root, **bodies):
+        paths = []
+        for name, text in bodies.items():
+            path = root / f"{name}.css"
+            path.write_text(text, encoding="utf-8")
+            paths.append(path)
+        return paths
+
+    def test_every_clashing_pair_is_found_and_the_rest_left_out(self):
+        from fxcss.sheets import conflicts
+        with tempfile.TemporaryDirectory() as td:
+            paths = self._sheets(
+                Path(td),
+                nord=":root { --bg: #2e3440; --fg: #eceff4 }",
+                dracula=":root { --bg: #282a36; --fg: #f8f8f2 }",
+                compact=".tab { height: 28px }")
+            found = conflicts(paths)
+            self.assertEqual(len(found), 1)
+            self.assertEqual({found[0]["a"], found[0]["b"]},
+                             {"nord", "dracula"})
+
+    def test_an_unreadable_sheet_is_not_a_crash(self):
+        from fxcss.sheets import conflicts, read_declarations
+        with tempfile.TemporaryDirectory() as td:
+            missing = Path(td) / "gone.css"
+            self.assertEqual(read_declarations(missing), {})
+            self.assertEqual(conflicts([missing]), [])
+
+
+class SelectorSpellingTests(unittest.TestCase):
+    """Two sheets written by different hands must still compare."""
+
+    def parse(self, text):
+        from fxcss.sheets import declarations
+        return declarations(text)
+
+    def test_combinator_spacing_is_normalised(self):
+        for spelling in (".a>.b", ".a > .b", ".a  >  .b", ".a>  .b"):
+            self.assertEqual(list(self.parse(spelling + "{c:1}"))[0][1],
+                             ".a > .b", spelling)
+
+    def test_attribute_and_nth_child_operators_are_left_alone(self):
+        cases = {
+            '[class~="identity-color-blue"]{c:1}':
+                '[class~="identity-color-blue"]',
+            ".tab:nth-child(2n+1){c:1}": ".tab:nth-child(2n+1)",
+            'a[href~="x"] > .b{c:1}': 'a[href~="x"] > .b',
+        }
+        for text, expected in cases.items():
+            self.assertEqual(list(self.parse(text))[0][1], expected, text)
