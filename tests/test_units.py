@@ -2299,3 +2299,100 @@ class AdoptThemeTests(unittest.TestCase):
             data["adopted"]["differing"] = ["../../../etc/passwd", "gone.css"]
             path.write_text(json.dumps(data), encoding="utf-8")
             self.assertEqual(local_changes(profile), [])
+
+
+class ProfileChoiceTests(unittest.TestCase):
+    """Which profile a command acts on when several exist.
+
+    The rule that matters: a theme installed deliberately into a profile that
+    is *not* the one Firefox opens must still be findable. Choosing Firefox's
+    default there would report "nothing installed" -- true of that profile,
+    and useless.
+    """
+
+    def fake_root(self, root, managed=(), unmanaged=(), default=None):
+        import os
+        names = list(managed) + list(unmanaged) + ["spare"]
+        lines = []
+        for i, name in enumerate(names):
+            directory = root / "Profiles" / name
+            directory.mkdir(parents=True)
+            (directory / "prefs.js").write_text("", encoding="utf-8")
+            lines.append(f"[Profile{i}]\nName={name}\nIsRelative=1\n"
+                         f"Path=Profiles/{name}\n")
+            if name in managed:
+                chrome = directory / "chrome"
+                chrome.mkdir()
+                (chrome / "userChrome.css").write_text("#a{}\n",
+                                                      encoding="utf-8")
+                (chrome / "fxcss-install.json").write_text(
+                    json.dumps({"theme": "o/n@v1", "files": []}),
+                    encoding="utf-8")
+            elif name in unmanaged:
+                chrome = directory / "chrome"
+                chrome.mkdir()
+                (chrome / "userChrome.css").write_text("#a{}\n",
+                                                      encoding="utf-8")
+        if default:
+            lines.append(f"[Install01]\nDefault=Profiles/{default}\n")
+        (root / "profiles.ini").write_text("\n".join(lines), encoding="utf-8")
+        os.environ["FXCSS_PROFILE_ROOTS"] = str(root)
+        self.addCleanup(os.environ.pop, "FXCSS_PROFILE_ROOTS", None)
+
+    def test_the_themed_profile_wins_over_firefoxs_default(self):
+        from fxcss.cli import _choose_profile
+        with tempfile.TemporaryDirectory() as td:
+            self.fake_root(Path(td), managed=["dev"], default="spare")
+            self.assertEqual(
+                _choose_profile(None, False, prefer="managed")["name"], "dev")
+
+    def test_adopt_looks_for_a_theme_fxcss_did_not_install(self):
+        from fxcss.cli import _choose_profile
+        with tempfile.TemporaryDirectory() as td:
+            self.fake_root(Path(td), managed=["dev"], unmanaged=["byhand"],
+                           default="spare")
+            self.assertEqual(
+                _choose_profile(None, False, prefer="unmanaged")["name"],
+                "byhand")
+
+    def test_an_explicit_profile_still_wins(self):
+        from fxcss.cli import _choose_profile
+        with tempfile.TemporaryDirectory() as td:
+            self.fake_root(Path(td), managed=["dev"], default="spare")
+            self.assertEqual(
+                _choose_profile("spare", False, prefer="managed")["name"],
+                "spare")
+
+    def test_several_candidates_fall_back_to_firefoxs_default(self):
+        from fxcss.cli import _choose_profile
+        with tempfile.TemporaryDirectory() as td:
+            self.fake_root(Path(td), managed=["one", "two"], default="one")
+            self.assertEqual(
+                _choose_profile(None, False, prefer="managed")["name"], "one")
+
+    def test_several_candidates_and_no_default_is_an_error_not_a_guess(self):
+        from fxcss.cli import _choose_profile
+        with tempfile.TemporaryDirectory() as td:
+            self.fake_root(Path(td), managed=["one", "two"])
+            with self.assertRaises(SystemExit):
+                _choose_profile(None, False, prefer="managed")
+
+    def test_no_candidate_leaves_the_command_to_explain(self):
+        """Falling back keeps the old behaviour, so the command still runs
+        and reports what it wanted in its own words."""
+        from fxcss.cli import _choose_profile
+        with tempfile.TemporaryDirectory() as td:
+            self.fake_root(Path(td), default="spare")
+            self.assertEqual(
+                _choose_profile(None, False, prefer="managed")["name"],
+                "spare")
+
+    def test_profile_state_tells_the_three_apart(self):
+        from fxcss.cli import profile_state
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self.fake_root(root, managed=["m"], unmanaged=["u"])
+            states = {name: profile_state({"path": root / "Profiles" / name})
+                      for name in ("m", "u", "spare")}
+            self.assertEqual(states, {"m": "managed", "u": "unmanaged",
+                                      "spare": "empty"})

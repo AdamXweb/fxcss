@@ -227,6 +227,14 @@ default, interactive runs get a picker and scripts get an error — CI is never
 prompted. Profiles kept somewhere unusual can be added to the search with
 `FXCSS_PROFILE_ROOTS=/path/to/dir`, mirroring `FXCSS_FIREFOX_ROOTS`.
 
+Firefox's default profile decides only for `install`, which is choosing where
+to *put* a theme. Every command that acts on one already installed —
+`uninstall`, `upgrade`, `rollback` — looks for the profile that **has** it,
+so a theme installed deliberately into your Developer Edition profile is
+still found by a bare `fxcss uninstall`. `adopt` looks for the opposite: a
+`chrome/` folder fxcss did not install. Firefox's default breaks the tie only
+when more than one profile qualifies, and `--profile` always wins.
+
 The picker and `--list-profiles` say which Firefox each profile belongs to,
 because `default-release` and `dev-edition-default` are one word apart in a
 list of hashed directory names — and installing into the wrong one looks
