@@ -77,7 +77,7 @@ def _api(path):
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
             return None
-        if exc.code == 403:
+        if exc.code in (403, 429):
             raise RuntimeError(
                 "GitHub refused the request (rate limit). Set GITHUB_TOKEN to "
                 "raise it, or pass --ref to skip the lookups.") from exc
@@ -169,6 +169,48 @@ def ref_options(info):
             "note": note,
         })
     return out
+
+
+def known_refs(owner, name, limit=10):
+    """Versions worth checking a profile's files against, newest first.
+
+    Releases first, because a theme installed by hand was almost certainly
+    installed from one, then any remaining tags. The default branch goes last
+    -- someone who cloned rather than downloaded is on it, but it is a moving
+    target and a poor thing to pin a profile to without being asked.
+    """
+    refs, seen = [], set()
+
+    def add(ref, kind):
+        if ref and ref not in seen:
+            seen.add(ref)
+            refs.append({"ref": ref, "kind": kind})
+
+    for release in _api(f"/repos/{owner}/{name}/releases?per_page={limit}") or []:
+        add(release.get("tag_name"), "release")
+    for tag in _api(f"/repos/{owner}/{name}/tags?per_page={limit}") or []:
+        add(tag.get("name"), "tag")
+    repo = _api(f"/repos/{owner}/{name}") or {}
+    add(repo.get("default_branch"), "branch")
+    return refs[:limit]
+
+
+def tree(owner, name, ref):
+    """{path: blob sha} for every file in a repository at a ref.
+
+    One request per ref rather than an archive download: identifying a theme
+    means comparing against several versions, and this keeps that cheap
+    enough to do. Returns {} when the tree comes back truncated -- GitHub
+    caps very large trees, and a partial listing would understate how much of
+    a theme matches, which reads as "this is not it".
+    """
+    from urllib.parse import quote
+    data = _api(f"/repos/{owner}/{name}/git/trees/{quote(str(ref), safe='')}"
+                "?recursive=1")
+    if not data or data.get("truncated"):
+        return {}
+    return {entry["path"]: entry["sha"] for entry in data.get("tree", [])
+            if entry.get("type") == "blob" and entry.get("path")}
 
 
 def update_state(source, info):

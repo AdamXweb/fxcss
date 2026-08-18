@@ -128,6 +128,7 @@ at it with `--theme /path/to/theme`.
 | [`uninstall`](#fxcss-install) | Remove it again, restoring what was there |
 | [`upgrade`](#fxcss-upgrade) | Fetch a newer version of the theme you installed |
 | [`rollback`](#fxcss-upgrade) | Put the previous version back |
+| [`adopt`](#fxcss-adopt) | Take over a theme installed some other way |
 | [`profiles`](#fxcss-profiles) | List every Firefox profile and what is themed in it |
 | [`watch`](#fxcss-watch) | Edit CSS and see it live, no restart |
 | [`pick`](#fxcss-pick) | Click any part of the UI to get its CSS selector |
@@ -411,6 +412,68 @@ five upgrades the newest backup holds *the theme*, not your files, so the
 manifest carries the original's name forward and `fxcss uninstall` still
 restores what you had before you ever ran fxcss. `--keep N` (default 3) prunes
 older backups; the original is never one of them.
+
+### fxcss adopt
+
+```bash
+fxcss adopt owner/theme              # identify what is already installed
+fxcss adopt                          # …if chrome/ says where it came from
+fxcss adopt owner/theme --ref v2.0.0 # check against one version only
+```
+
+Most themed profiles were not themed by fxcss — someone ran the theme's
+`install.sh`, or copied a `chrome/` folder in by hand, long before any of this.
+`fxcss profiles` can *describe* those, but nothing can act on them: there is no
+record of what the theme is. `adopt` writes that record, and then `upgrade`,
+`rollback` and `uninstall` all work.
+
+**It identifies the theme by its contents.** Every file under `chrome/` is
+hashed exactly the way git hashes a blob and compared against the repository's
+own tree at each recent version. A version where every file matches is not a
+guess — it is the same bytes:
+
+```console
+$ fxcss adopt AdamXweb/WhiteSurFirefoxThemeMacOS
+
+  profile: default-release  (~/Library/…/8f2h1kqp.default-release)
+
+  comparing 148 file(s) against AdamXweb/WhiteSurFirefoxThemeMacOS …
+    v2.0.0: 129/135 files match, 6 edited, 7 added
+    v1.6.3: 114/132 files match, 18 edited, 10 added
+
+  best match: v2.0.0: 129/135 files match, 6 edited, 7 added
+  Recorded as that version plus local differences, so an upgrade knows
+  not to overwrite them without being told.
+```
+
+Comparison uses GitHub's git-tree API rather than downloading anything, so
+checking ten versions costs ten small requests instead of ten archives — and
+archives are the first thing GitHub rate-limits.
+
+Naming the repository is usually necessary. `adopt` checks `chrome/` for a git
+remote (definitive — someone cloned it there) and for GitHub URLs in the
+theme's own files (a hint worth confirming), but plenty of themes leave no
+trace at all once installed: WhiteSur's `chrome/` contains no URL anywhere.
+That is normal, not a failure, and the message says so.
+
+**Nothing is installed or replaced.** The `chrome/` already there is *copied*
+to a `chrome.backup-*` and then described, so `uninstall` has somewhere to put
+things back to — verified as a byte-identical round trip. `user.js` is left
+exactly as it is: the pref that turns `userChrome.css` on is evidently already
+set, since the theme is working, and writing an fxcss block to say so again
+would edit a file for no gain. The next `upgrade` writes one properly, from the
+theme it fetches.
+
+Files that already differed from the release are recorded, and
+[`upgrade`](#fxcss-upgrade) treats them exactly like edits made after an
+install — it will not overwrite them without `--force`. That matters here more
+than anywhere: a theme someone has been hand-editing for a year is the most
+likely thing to be adopted.
+
+> Two versions can also be identical in content while differing in line
+> endings, which is what a Windows clone with `core.autocrlf` produces.
+> That is reported as a match, noting the difference, rather than as
+> "nothing matches".
 
 ### fxcss profiles
 

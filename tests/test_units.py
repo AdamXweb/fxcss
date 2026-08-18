@@ -330,6 +330,7 @@ class ImportabilityTests(unittest.TestCase):
         import fxcss.audit, fxcss.catalogue, fxcss.cli   # noqa: F401,E401
         import fxcss.compare, fxcss.core, fxcss.fetch    # noqa: F401,E401
         import fxcss.install, fxcss.probe, fxcss.sheets  # noqa: F401,E401
+        import fxcss.adopt                               # noqa: F401
 
 
 if __name__ == "__main__":
@@ -2017,3 +2018,284 @@ class SelectorSpellingTests(unittest.TestCase):
         }
         for text, expected in cases.items():
             self.assertEqual(list(self.parse(text))[0][1], expected, text)
+
+
+class BlobShaTests(unittest.TestCase):
+    """Identification rests on hashing files exactly as git does."""
+
+    def test_matches_git_hash_object(self):
+        """Checked against git itself rather than a copied constant.
+
+        Skipped where git is missing; the CI images all have it.
+        """
+        import shutil as sh
+        import subprocess
+        from fxcss.adopt import blob_sha
+        if not sh.which("git"):
+            self.skipTest("git not available")
+        with tempfile.TemporaryDirectory() as td:
+            for name, data in (("text.css", b"#nav-bar { color: red }\n"),
+                               ("empty.css", b""),
+                               ("binary.png", bytes(range(256)) * 4),
+                               ("crlf.css", b".a {\r\n  color: red;\r\n}\r\n")):
+                path = Path(td) / name
+                path.write_bytes(data)
+                want = subprocess.run(["git", "hash-object", str(path)],
+                                      capture_output=True, text=True).stdout
+                self.assertEqual(blob_sha(data), want.strip(), name)
+
+    def test_crlf_files_offer_an_lf_reading_and_others_do_not(self):
+        from fxcss.adopt import blob_sha, file_blob_sha
+        with tempfile.TemporaryDirectory() as td:
+            crlf = Path(td) / "a.css"
+            crlf.write_bytes(b".a {\r\n  color: red;\r\n}\r\n")
+            raw, as_lf = file_blob_sha(crlf)
+            self.assertEqual(as_lf, blob_sha(b".a {\n  color: red;\n}\n"))
+            self.assertNotEqual(raw, as_lf)
+
+            plain = Path(td) / "b.css"
+            plain.write_bytes(b".b { color: red }\n")
+            self.assertIsNone(file_blob_sha(plain)[1])
+
+            binary = Path(td) / "c.png"
+            binary.write_bytes(b"\x89PNG\0\r\n\x1a\n" + bytes(200))
+            self.assertIsNone(file_blob_sha(binary)[1])
+
+
+class CandidateRepoTests(unittest.TestCase):
+    """Where a chrome/ folder might say it came from."""
+
+    def test_a_clone_names_its_own_origin(self):
+        from fxcss.adopt import candidates
+        with tempfile.TemporaryDirectory() as td:
+            chrome = Path(td) / "chrome"
+            (chrome / ".git").mkdir(parents=True)
+            (chrome / ".git" / "config").write_text(
+                '[remote "origin"]\n'
+                '\turl = https://github.com/owner/theme.git\n',
+                encoding="utf-8")
+            found = candidates(chrome)
+            self.assertEqual(found[0]["repo"], "owner/theme")
+            self.assertTrue(found[0]["certain"])
+
+    def test_an_ssh_remote_reads_the_same(self):
+        from fxcss.adopt import git_config_remote
+        with tempfile.TemporaryDirectory() as td:
+            chrome = Path(td) / "chrome"
+            (chrome / ".git").mkdir(parents=True)
+            (chrome / ".git" / "config").write_text(
+                '[remote "origin"]\n\turl = git@github.com:owner/theme.git\n',
+                encoding="utf-8")
+            self.assertEqual(git_config_remote(chrome), "owner/theme")
+
+    def test_urls_in_the_theme_are_hints_not_certainties(self):
+        from fxcss.adopt import candidates
+        with tempfile.TemporaryDirectory() as td:
+            chrome = Path(td) / "chrome"
+            chrome.mkdir()
+            (chrome / "userChrome.css").write_text(
+                "/* from https://github.com/owner/theme, with palette\n"
+                "   ideas from https://github.com/someone/else */\n",
+                encoding="utf-8")
+            found = candidates(chrome)
+            self.assertEqual([c["repo"] for c in found],
+                             ["owner/theme", "someone/else"])
+            self.assertFalse(any(c["certain"] for c in found))
+
+    def test_a_theme_that_says_nothing_offers_nothing(self):
+        """WhiteSur's installed chrome/ carries no URL at all — measured."""
+        from fxcss.adopt import candidates
+        with tempfile.TemporaryDirectory() as td:
+            chrome = Path(td) / "chrome"
+            chrome.mkdir()
+            (chrome / "userChrome.css").write_text("#nav-bar { }\n",
+                                                   encoding="utf-8")
+            self.assertEqual(candidates(chrome), [])
+
+
+class CompareTreeTests(unittest.TestCase):
+    """Matching a profile's files against one version of a repository."""
+
+    def build(self, root, **files):
+        chrome = root / "chrome"
+        for name, text in files.items():
+            path = chrome / name.replace("__", "/")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+        return chrome
+
+    def tree_of(self, prefix, **files):
+        from fxcss.adopt import blob_sha
+        return {f"{prefix}{name.replace('__', '/')}":
+                blob_sha(text.encode()) for name, text in files.items()}
+
+    def test_an_identical_tree_is_an_exact_match(self):
+        from fxcss.adopt import compare, exact
+        files = {"userChrome.css": "#nav-bar { }\n", "parts__tabs.css": ".t{}\n"}
+        with tempfile.TemporaryDirectory() as td:
+            chrome = self.build(Path(td), **files)
+            result = compare(chrome, self.tree_of("chrome/", **files))
+            self.assertTrue(exact(result))
+            self.assertEqual((result["matched"], result["files"]), (2, 2))
+
+    def test_edited_missing_and_added_files_are_each_named(self):
+        from fxcss.adopt import compare, exact
+        with tempfile.TemporaryDirectory() as td:
+            chrome = self.build(Path(td), **{"userChrome.css": "#nav-bar { }\n",
+                                             "mine.css": ".mine{}\n"})
+            tree = self.tree_of("chrome/", **{"userChrome.css": "#nav-bar { color: red }\n",
+                                              "gone.css": ".g{}\n"})
+            result = compare(chrome, tree)
+            self.assertFalse(exact(result))
+            self.assertEqual(result["differing"], ["userChrome.css"])
+            self.assertEqual(result["missing"], ["gone.css"])
+            self.assertEqual(result["extra"], ["mine.css"])
+
+    def test_a_theme_kept_under_src_is_still_found(self):
+        from fxcss.adopt import compare, exact
+        files = {"userChrome.css": "#nav-bar { }\n"}
+        with tempfile.TemporaryDirectory() as td:
+            chrome = self.build(Path(td), **files)
+            result = compare(chrome, self.tree_of("src/chrome/", **files))
+            self.assertTrue(exact(result))
+
+    def test_files_added_by_hand_do_not_spoil_an_exact_match(self):
+        """Scored against the version's files, not the profile's.
+
+        Someone who dropped an extra sheet into chrome/ still has an
+        unmodified copy of the release, and pinning the version is the point.
+        """
+        from fxcss.adopt import compare, exact
+        files = {"userChrome.css": "#nav-bar { }\n"}
+        with tempfile.TemporaryDirectory() as td:
+            chrome = self.build(Path(td), **files)
+            (chrome / "extra.css").write_text(".x{}\n", encoding="utf-8")
+            result = compare(chrome, self.tree_of("chrome/", **files))
+            self.assertTrue(exact(result))
+            self.assertEqual(result["extra"], ["extra.css"])
+
+    def test_line_endings_alone_still_match_and_say_so(self):
+        from fxcss.adopt import compare, exact
+        with tempfile.TemporaryDirectory() as td:
+            chrome = Path(td) / "chrome"
+            chrome.mkdir()
+            (chrome / "userChrome.css").write_bytes(b"#nav-bar {\r\n}\r\n")
+            tree = self.tree_of("chrome/",
+                                **{"userChrome.css": "#nav-bar {\n}\n"})
+            result = compare(chrome, tree)
+            self.assertTrue(exact(result))
+            self.assertTrue(result["eol"])
+
+    def test_a_tree_with_no_userchrome_matches_nothing(self):
+        from fxcss.adopt import compare
+        with tempfile.TemporaryDirectory() as td:
+            chrome = self.build(Path(td), **{"userChrome.css": "#a{}\n"})
+            result = compare(chrome, {"README.md": "abc"})
+            self.assertEqual((result["files"], result["matched"]), (0, 0))
+
+    def test_the_closer_of_two_versions_wins(self):
+        from fxcss.adopt import better, compare
+        files = {"userChrome.css": "#nav-bar { }\n", "b.css": ".b{}\n"}
+        with tempfile.TemporaryDirectory() as td:
+            chrome = self.build(Path(td), **files)
+            near = compare(chrome, self.tree_of("chrome/", **files))
+            far = compare(chrome, self.tree_of(
+                "chrome/", **{"userChrome.css": "#nav-bar { }\n",
+                              "b.css": ".changed{}\n"}))
+            self.assertTrue(better(near, far))
+            self.assertFalse(better(far, near))
+            self.assertTrue(better(far, None))
+
+
+class AdoptThemeTests(unittest.TestCase):
+    """Recording a theme fxcss did not install."""
+
+    def hand_installed(self, root):
+        profile = root / "profile"
+        (profile / "chrome").mkdir(parents=True)
+        (profile / "chrome" / "userChrome.css").write_text(
+            "#nav-bar { }\n", encoding="utf-8")
+        (profile / "prefs.js").write_text("", encoding="utf-8")
+        (profile / "user.js").write_text('user_pref("mine", 1);\n',
+                                         encoding="utf-8")
+        return profile
+
+    SOURCE = {"kind": "github", "owner": "o", "name": "n", "ref": "v1",
+              "ref_kind": "release", "resolved": "v1", "path": None}
+    MATCH = {"ref": "v1", "matched": 1, "files": 1, "score": 1.0,
+             "differing": [], "missing": [], "extra": [], "eol": False}
+
+    def test_the_theme_is_copied_not_moved(self):
+        from fxcss.install import adopt_theme
+        with tempfile.TemporaryDirectory() as td:
+            profile = self.hand_installed(Path(td))
+            result = adopt_theme(profile, "o/n@v1", self.SOURCE, self.MATCH,
+                                 stamp="20260814120000")
+            self.assertEqual(
+                (profile / "chrome" / "userChrome.css").read_text(),
+                "#nav-bar { }\n")
+            self.assertTrue(
+                (profile / result["backup"] / "userChrome.css").is_file())
+            self.assertEqual(result["origin_backup"], result["backup"])
+
+    def test_user_js_is_left_exactly_as_it_was(self):
+        from fxcss.install import adopt_theme
+        with tempfile.TemporaryDirectory() as td:
+            profile = self.hand_installed(Path(td))
+            adopt_theme(profile, "o/n@v1", self.SOURCE, self.MATCH)
+            self.assertEqual((profile / "user.js").read_text(),
+                             'user_pref("mine", 1);\n')
+
+    def test_adopting_twice_is_refused(self):
+        from fxcss.install import adopt_theme
+        with tempfile.TemporaryDirectory() as td:
+            profile = self.hand_installed(Path(td))
+            adopt_theme(profile, "o/n@v1", self.SOURCE, self.MATCH)
+            with self.assertRaises(RuntimeError):
+                adopt_theme(profile, "o/n@v1", self.SOURCE, self.MATCH)
+
+    def test_a_profile_with_no_theme_is_refused(self):
+        from fxcss.install import adopt_theme
+        with tempfile.TemporaryDirectory() as td:
+            profile = Path(td) / "empty"
+            profile.mkdir()
+            with self.assertRaises(RuntimeError):
+                adopt_theme(profile, "o/n@v1", self.SOURCE, self.MATCH)
+
+    def test_uninstall_puts_the_adopted_theme_back(self):
+        from fxcss.install import adopt_theme, uninstall_theme
+        with tempfile.TemporaryDirectory() as td:
+            profile = self.hand_installed(Path(td))
+            adopt_theme(profile, "o/n@v1", self.SOURCE, self.MATCH)
+            uninstall_theme(profile)
+            self.assertEqual(
+                (profile / "chrome" / "userChrome.css").read_text(),
+                "#nav-bar { }\n")
+
+    def test_differences_found_at_adoption_count_as_local_changes(self):
+        """An upgrade must not overwrite what already differed.
+
+        Adoption records the files as they are, so `drift` sees nothing --
+        the comparison against the release is the only place that knowledge
+        lives, and `local_changes` is what joins the two.
+        """
+        from fxcss.install import adopt_theme, drift, local_changes
+        with tempfile.TemporaryDirectory() as td:
+            profile = self.hand_installed(Path(td))
+            match = dict(self.MATCH, matched=0,
+                         differing=["userChrome.css"], score=0.0)
+            adopt_theme(profile, "o/n@v1", self.SOURCE, match)
+            self.assertEqual(drift(profile)["modified"], [])
+            self.assertEqual(local_changes(profile),
+                             ["chrome/userChrome.css"])
+
+    def test_local_changes_ignores_a_tampered_adopted_record(self):
+        from fxcss.install import adopt_theme, local_changes
+        with tempfile.TemporaryDirectory() as td:
+            profile = self.hand_installed(Path(td))
+            adopt_theme(profile, "o/n@v1", self.SOURCE, self.MATCH)
+            path = profile / "chrome" / "fxcss-install.json"
+            data = json.loads(path.read_text())
+            data["adopted"]["differing"] = ["../../../etc/passwd", "gone.css"]
+            path.write_text(json.dumps(data), encoding="utf-8")
+            self.assertEqual(local_changes(profile), [])
