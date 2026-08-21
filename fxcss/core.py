@@ -584,8 +584,8 @@ SEED_BOOKMARKS = """
 const done = arguments[arguments.length - 1];
 (async () => {
   try {
-    const {PlacesUtils} = ChromeUtils.importESModule(
-      "resource://gre/modules/PlacesUtils.sys.mjs");
+    const {PlacesUtils} =
+      Services.wm.getMostRecentWindow("navigator:browser");
     for (const [title, url] of [["GitHub", "https://github.com/"],
                                 ["Mozilla", "https://www.mozilla.org/"],
                                 ["Example", "https://example.com/"]]) {
@@ -946,13 +946,19 @@ for (let i = 0; i < count; i++) {
 return win.gBrowser.tabs.length;
 """
 
+# Off the window, for the same reason APPLY_TOOLBAR takes CustomizableUI that
+# way: Firefox 154 moved this module from resource://gre/modules/ to
+# moz-src:///toolkit/components/contextualidentity/, and importing either URL
+# hard fails on the build that does not have it -- which is how it broke, in
+# the field, the day 154 shipped. browser.js declares it with
+# ChromeUtils.defineESModuleGetters(this, ...) on both, so the window property
+# is the same object either side and names no URL to go stale.
 CONTAINER_TABS = """
 const [url] = arguments;
 const win = Services.wm.getMostRecentWindow("navigator:browser");
 const sp = Services.scriptSecurityManager.getSystemPrincipal();
 Services.prefs.setBoolPref("privacy.userContext.enabled", true);
-const {ContextualIdentityService} = ChromeUtils.importESModule(
-  "resource://gre/modules/ContextualIdentityService.sys.mjs");
+const {ContextualIdentityService} = win;
 const ids = ContextualIdentityService.getPublicIdentities().slice(0, 3);
 for (const identity of ids) {
   win.gBrowser.addTab(url, {triggeringPrincipal: sp, userContextId: identity.userContextId});

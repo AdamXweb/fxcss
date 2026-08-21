@@ -2396,3 +2396,34 @@ class ProfileChoiceTests(unittest.TestCase):
                       for name in ("m", "u", "spare")}
             self.assertEqual(states, {"m": "managed", "u": "unmanaged",
                                       "spare": "empty"})
+
+
+class ModuleUrlTests(unittest.TestCase):
+    """Chrome scripts must reach Firefox modules off the window, not by URL.
+
+    Module URLs move. `resource://gre/modules/ContextualIdentityService.sys.mjs`
+    became `moz-src:///toolkit/components/contextualidentity/…` in Firefox 154
+    and every capture broke the day it shipped, on a line that had been correct
+    for a year. `ChromeUtils.defineESModuleGetters` puts the same objects on
+    the browser window under a name that does not move, so a script naming a
+    URL is a dated assumption waiting for the next uplift.
+
+    Scanning the source rather than listing the scripts by name: a new script
+    with a fresh import is exactly what this needs to catch.
+    """
+
+    def source(self):
+        from fxcss import core
+        return Path(core.__file__).read_text(encoding="utf-8")
+
+    def test_no_script_imports_a_module_by_url(self):
+        offenders = [line.strip() for line in self.source().splitlines()
+                     if "importESModule" in line and not
+                     line.lstrip().startswith("#")]
+        self.assertEqual(offenders, [], "reach these off the window instead")
+
+    def test_the_scripts_that_needed_modules_still_name_them(self):
+        """Guard the guard: a passing scan means nothing if the uses vanished."""
+        source = self.source()
+        for name in ("ContextualIdentityService", "PlacesUtils"):
+            self.assertIn(name, source, name)
