@@ -2427,3 +2427,55 @@ class ModuleUrlTests(unittest.TestCase):
         source = self.source()
         for name in ("ContextualIdentityService", "PlacesUtils"):
             self.assertIn(name, source, name)
+
+
+class TemplateActionVersionTests(unittest.TestCase):
+    """The shipped templates must not fall behind fxcss's own workflows.
+
+    Dependabot watches .github/workflows/ and bumps the actions there; it
+    does not know fxcss/templates/ holds the same actions, shipped in the
+    wheel for every theme that runs `fxcss init`. That is how the templates
+    sat on checkout@v4 / setup-python@v5 -- the Node 20 set GitHub is
+    retiring -- while fxcss's CI had moved to v7 months earlier. Pinning the
+    two to each other turns the next Dependabot bump into a failing test.
+    """
+
+    PIN = re.compile(r"uses:\s*actions/([a-z-]+)@v(\d+)")
+
+    def versions(self, paths):
+        found = {}
+        for path in paths:
+            for name, major in self.PIN.findall(
+                    path.read_text(encoding="utf-8")):
+                found.setdefault(name, set()).add(int(major))
+        return found
+
+    def test_templates_match_the_workflows_fxcss_itself_runs(self):
+        root = Path(__file__).resolve().parent.parent
+        own = self.versions((root / ".github" / "workflows").glob("*.yml"))
+        shipped = self.versions((root / "fxcss" / "templates").glob("*.yml"))
+        self.assertTrue(own and shipped)
+        for name, majors in shipped.items():
+            self.assertEqual(len(majors), 1,
+                             f"{name} pinned inconsistently in templates")
+            if name in own:
+                self.assertEqual(majors, own[name],
+                                 f"templates pin actions/{name}@v{majors} but "
+                                 f"fxcss's own CI runs v{own[name]}")
+
+    def test_no_template_action_targets_node_20(self):
+        """The majors GitHub's deprecation notice names, by action.
+
+        Kept as a floor rather than derived: what counts as "old" is a fact
+        about GitHub's runners on a date, and a test should say which date.
+        Floors as of 2026-08, each read from the action's own action.yml at
+        that tag: the first major declaring `using: node24`.
+        """
+        root = Path(__file__).resolve().parent.parent
+        floors = {"checkout": 5, "setup-python": 6, "upload-artifact": 6,
+                  "download-artifact": 7, "github-script": 8}
+        shipped = self.versions((root / "fxcss" / "templates").glob("*.yml"))
+        for name, floor in floors.items():
+            for major in shipped.get(name, ()):
+                self.assertGreaterEqual(
+                    major, floor, f"actions/{name}@v{major} runs on Node 20")
