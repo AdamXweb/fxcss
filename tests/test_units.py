@@ -2440,7 +2440,9 @@ class TemplateActionVersionTests(unittest.TestCase):
     two to each other turns the next Dependabot bump into a failing test.
     """
 
-    PIN = re.compile(r"uses:\s*actions/([a-z-]+)@v(\d+)")
+    # `actions/cache/restore@v5` is actions/cache: the sub-path is not a
+    # separate action and is versioned with its parent.
+    PIN = re.compile(r"uses:\s*actions/([a-z-]+)(?:/[a-z-]+)?@v(\d+)")
 
     def versions(self, paths):
         found = {}
@@ -2473,7 +2475,7 @@ class TemplateActionVersionTests(unittest.TestCase):
         """
         root = Path(__file__).resolve().parent.parent
         floors = {"checkout": 5, "setup-python": 6, "upload-artifact": 6,
-                  "download-artifact": 7, "github-script": 8}
+                  "download-artifact": 7, "github-script": 8, "cache": 5}
         shipped = self.versions((root / "fxcss" / "templates").glob("*.yml"))
         for name, floor in floors.items():
             for major in shipped.get(name, ()):
