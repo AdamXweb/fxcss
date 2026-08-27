@@ -1048,6 +1048,31 @@ def cmd_upgrade(args):
                       "upgrade anyway.", file=sys.stderr)
                 return 1
 
+        if args.compare:
+            # Seeing beats being told: render what is installed and what the
+            # upgrade would install, and diff them, before the question is
+            # asked. The profile itself is the theme root for the installed
+            # side -- its chrome/ IS the theme as the user actually has it,
+            # local edits and carried-over sheets included, which no re-fetch
+            # of the recorded ref could reproduce.
+            try:
+                from . import compare as compare_mod
+            except ImportError as exc:
+                return _needs_pillow("upgrade --compare", exc)
+            import tempfile
+            firefox = choose_firefox(args.firefox)
+            outdir = Path(tempfile.mkdtemp(prefix="fxcss-upgrade-compare-"))
+            print("\n  rendering what is installed now …")
+            with core.Session(Path(picked["path"]), firefox) as session:
+                core.capture_views(session, outdir / "installed")
+            print(f"\n  rendering {why} …")
+            with core.Session(theme_root, firefox) as session:
+                core.capture_views(session, outdir / "new")
+            print()
+            compare_mod.run(outdir / "installed", outdir / "new",
+                            outdir / "diff", "upgrade")
+            print(f"  before/after images: {outdir / 'diff'}")
+
         if install.firefox_running(picked["path"]):
             print("\n  note: Firefox appears to be running — the change will "
                   "only show after a restart.")
@@ -1778,6 +1803,10 @@ def build_parser():
                     help="report only, changing nothing. Exit 0 when up to "
                          "date, 1 when an upgrade is available, 2 when it "
                          "cannot be told — for cron and CI")
+    up.add_argument("--compare", action="store_true",
+                    help="render the installed theme and the new version, "
+                         "and show what changes, before asking (needs Pillow "
+                         "and a local Firefox)")
     up.add_argument("--audit", action="store_true",
                     help="before installing, check the new version's "
                          "selectors against a real Firefox")

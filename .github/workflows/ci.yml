@@ -163,6 +163,40 @@ jobs:
           print(f"{len(s['changed_views'])} of {len(s['views'])} views changed, as expected")
           PY
 
+      # End to end and Linux-only (the code is platform-independent Python;
+      # once is proof, three times is minutes): install the starter theme into
+      # a fake profile, change the source, and let `upgrade --compare` render
+      # installed vs new and diff them. This is the one upgrade path that
+      # needs a live Firefox, so unit tests cannot carry it.
+      - name: upgrade --compare renders installed vs new
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/ffprofiles"
+          mkdir -p "$root/Profiles/ci.default-release"
+          touch "$root/Profiles/ci.default-release/prefs.js"
+          printf '[Profile0]\nName=ci\nIsRelative=1\nPath=Profiles/ci.default-release\n' \
+            > "$root/profiles.ini"
+          cp -r fxcss/templates/starter "$RUNNER_TEMP/upgrade-src"
+          FXCSS_PROFILE_ROOTS="$root" fxcss install "$RUNNER_TEMP/upgrade-src" \
+            --profile ci --with '' --yes
+          printf '\n#nav-bar { background-color: #a01414 !important; }\n' \
+            >> "$RUNNER_TEMP/upgrade-src/chrome/userChrome.css"
+          FXCSS_PROFILE_ROOTS="$root" fxcss upgrade --profile ci --compare --yes
+          python - <<'PY'
+          import glob, json, pathlib, sys
+          dirs = sorted(glob.glob("/tmp/fxcss-upgrade-compare-*"))
+          if not dirs:
+              sys.exit("no fxcss-upgrade-compare output directory was written")
+          summary = json.loads(
+              pathlib.Path(dirs[-1], "diff", "summary.json").read_text())
+          changed = [v["view"] for v in summary["changed_views"]]
+          if not changed:
+              sys.exit("the nav-bar recolour was not seen by upgrade --compare")
+          print(f"upgrade --compare saw the change in: {', '.join(changed)}")
+          PY
+
       - name: The sidebar, vertical-tab and toolbar views cover new ground
         shell: bash
         run: |
