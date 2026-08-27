@@ -99,7 +99,7 @@ the [releases page](https://github.com/AdamXweb/fxcss/releases) has the latest.
 CI runners' Pythons are not externally managed, so plain pip is fine there:
 
 ```bash
-pip install "fxcss[images]==0.17.0"
+pip install "fxcss[images]==0.18.0"
 ```
 
 Either gives you an `fxcss` command. To hack on it, clone and install editable:
@@ -348,6 +348,7 @@ Restart Firefox after either command; it reads `userChrome.css` at startup.
 fxcss upgrade                        # take the newest version of what you have
 fxcss upgrade --check                # report only; exit code says what it found
 fxcss upgrade --audit                # check the new version against your Firefox first
+fxcss upgrade --compare              # see it before deciding: installed vs new, rendered
 fxcss upgrade --ref v2.1.0           # somewhere specific
 fxcss rollback                       # …and back again
 ```
@@ -369,6 +370,15 @@ It stops rather than surprise you, in three places:
 - **Selectors the new version needs and your Firefox lacks** — with `--audit`,
   which runs the same check as [`fxcss audit`](#fxcss-audit) against the
   fetched copy *before* anything is installed.
+
+`--compare` renders what is installed and what the upgrade would install —
+the profile's own `chrome/`, local edits and carried-over sheets included, not
+a re-fetch of what the manifest says — and diffs them before the confirmation
+prompt, printing where the before/after images landed. It completes the three
+questions an upgrade can answer about a theme with no API: do the selectors
+still exist (`--audit`), has the user edited anything (always checked), and
+what actually changes on screen (`--compare`). Needs Pillow and a local
+Firefox, like `shot`.
 
 `--check` changes nothing and answers with its exit code, for cron, launchd or
 CI: **0** up to date, **1** an upgrade is available, **2** it cannot be told
@@ -1009,7 +1019,7 @@ check out the base revision and the pull request revision, render both, compare,
 and publish the result.
 
 ```yaml
-- run: pip install "fxcss[images]==0.17.0"   # pin: your CI, your upgrades
+- run: pip install "fxcss[images]==0.18.0"   # pin: your CI, your upgrades
 - run: fxcss shot --theme base --out shots/base
 - run: fxcss shot --theme head --out shots/head
 - run: fxcss compare --base shots/base --head shots/head --out out/ --platform ${{ runner.os }}
