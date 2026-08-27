@@ -49,3 +49,27 @@ jobs:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
+
+      # Upload succeeding is not the same as the release being installable:
+      # the index lags the upload by seconds to minutes, and that gap is real
+      # -- a pin bump pushed 13 seconds after a release left a CI runner
+      # whose index still ended at the previous version, and its job red.
+      # This gate polls with pip itself (the consumer that matters) until the
+      # new version resolves, so a green Publish run MEANS "safe to bump
+      # pins", and a rule to remember becomes a mechanism.
+      - name: Gate — wait until the release is installable
+        run: |
+          set -euo pipefail
+          # From the built artifact, not the tag: workflow_dispatch has no tag.
+          version=$(basename dist/*.whl | cut -d- -f2)
+          echo "waiting for fxcss==$version to resolve from PyPI …"
+          for attempt in $(seq 1 40); do
+            if python3 -m pip download --no-deps --no-cache-dir --quiet \
+                --dest "$RUNNER_TEMP/gate" "fxcss==$version"; then
+              echo "installable (attempt $attempt, ~$(( (attempt - 1) * 15 ))s after upload)"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::error::fxcss==$version still not installable 10 minutes after upload — do not bump pins off this run"
+          exit 1
