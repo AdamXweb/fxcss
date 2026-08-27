@@ -649,8 +649,8 @@ rendered unstyled. One command found it; the fix was `.urlbar-background`.
 
 ```bash
 fxcss init                       # before/after previews on every PR
-fxcss init --watch --showcase    # plus the weekly Firefox audit and
-                                 # release screenshots
+fxcss init --watch --showcase    # plus the weekly Firefox audit + capture
+                                 # canary, and release screenshots
 fxcss init --previews            # plus README screenshots that keep themselves
                                  # current: every view and variant, re-rendered
                                  # on each change and pushed to a previews branch
@@ -660,7 +660,7 @@ fxcss init --previews            # plus README screenshots that keep themselves
 and it writes the preview workflows into `.github/workflows/`, ready to commit:
 every pull request then gets a comment showing the browser chrome before and
 after the change, with changed pixels highlighted — rendered on macOS, Windows
-and Linux, across sixteen views and every variant stylesheet you ship.
+and Linux, across eighteen views and every variant stylesheet you ship.
 
 The generation is the point, not a convenience: the fxcss version is pinned to
 the one doing the generating, and the publish allowlist is enumerated from

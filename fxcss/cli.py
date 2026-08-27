@@ -1898,7 +1898,8 @@ def build_parser():
     ini.add_argument("--theme", type=Path, default=Path.cwd(),
                      help="theme root, the folder containing chrome/ (default: cwd)")
     ini.add_argument("--watch", action="store_true",
-                     help="also add the weekly Firefox release/beta/nightly audit")
+                     help="also add the weekly Firefox release/beta/nightly audit "
+                          "and capture canary")
     ini.add_argument("--showcase", action="store_true",
                      help="also add the on-release showcase screenshot workflow")
     ini.add_argument("--previews", action="store_true",
