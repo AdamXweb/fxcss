@@ -299,9 +299,11 @@ screenshotting a `--combo` that cannot take effect.
 > fighting over the same property. Two sheets that rearrange the same area
 > through *different* selectors — WhiteSur's `tabs-swapclose` and
 > `windows-swapclose` both move a close button and share no declarations at
-> all — are invisible to it. `fxcss tweaks --combo a+b` is what proves those:
-> if `a+b` renders identically to `b` alone, `a` was overridden. Silence here
-> is "nothing measurable", never "verified compatible".
+> all — are invisible to it. `fxcss tweaks --combo a+b` proves those from
+> the rendered pixels — and says so itself: a combo that renders identically
+> to one of its parts alone is called out in TWEAKS.md as not a real
+> combination on that Firefox. Silence from the static check is "nothing
+> measurable", never "verified compatible"; the pixels are the judge.
 
 When the theme's default branch has moved on since its newest release, that
 choice is put to you as well — a tag can be a year behind a fix you are
@@ -685,6 +687,13 @@ incantations — and a user assembles their preferred setup in their head. This
 renders the answer instead: the base theme, every optional stylesheet, and any
 combination you bless with `--combo`, each with a labelled **before/after crop
 of the region it actually changes** and how much of the chrome it touches.
+
+A `--combo` is also judged against its own parts: if `a+b` renders
+pixel-identically to `b` alone, then `a` did nothing in that combination, and
+TWEAKS.md says so rather than presenting the pair as a real option. That is
+the check the static conflict analysis in `install` cannot make — two sheets
+can fight over the same pixels through entirely different rules — and the
+rendered images settle it as a fact rather than a judgement.
 
 The crop is built from the changed pixels, so it needs no per-option
 configuration and cannot drift when Firefox moves something. It centres on the

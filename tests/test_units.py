@@ -2481,3 +2481,69 @@ class TemplateActionVersionTests(unittest.TestCase):
             for major in shipped.get(name, ()):
                 self.assertGreaterEqual(
                     major, floor, f"actions/{name}@v{major} runs on Node 20")
+
+
+class ComboVerdictTests(unittest.TestCase):
+    """`a+b` rendering identically to `b` alone proves `a` did nothing there.
+
+    This is the pixel half of the sheet-conflict story: sheets.py sees two
+    sheets fighting over the same declarations, and cannot see two sheets
+    fighting over the same pixels through different rules (tabs-swapclose vs
+    windows-swapclose share no declarations at all). The rendered images are
+    the honest judge, with "identical" meaning the same thing it means in
+    compare: zero pixels changed above the noise threshold.
+    """
+
+    def image(self, colour):
+        from PIL import Image
+        return Image.new("RGB", (24, 16), colour)
+
+    def entry(self, slug):
+        return {"slug": slug, "sheets": [], "percent": 0.0, "image": None}
+
+    def test_a_combo_identical_to_one_part_names_that_part(self):
+        from fxcss.tweaks import combo_verdict
+        captures = {"a": self.image((200, 50, 50)),
+                    "b": self.image((100, 100, 100)),
+                    "a+b": self.image((100, 100, 100))}
+        self.assertEqual(combo_verdict(self.entry("a+b"), captures), "b")
+
+    def test_noise_below_the_diff_threshold_still_counts_as_identical(self):
+        from fxcss.tweaks import combo_verdict
+        near = self.image((100, 100, 110))       # the DiffStats noise case
+        captures = {"a": self.image((200, 50, 50)),
+                    "b": self.image((100, 100, 100)), "a+b": near}
+        self.assertEqual(combo_verdict(self.entry("a+b"), captures), "b")
+
+    def test_a_combo_that_is_more_than_its_parts_matches_nothing(self):
+        from fxcss.tweaks import combo_verdict
+        captures = {"a": self.image((200, 50, 50)),
+                    "b": self.image((100, 100, 100)),
+                    "a+b": self.image((50, 200, 50))}
+        self.assertIsNone(combo_verdict(self.entry("a+b"), captures))
+
+    def test_single_options_are_never_judged(self):
+        from fxcss.tweaks import combo_verdict
+        captures = {"a": self.image((1, 2, 3)), "b": self.image((1, 2, 3))}
+        self.assertIsNone(combo_verdict(self.entry("a"), captures))
+
+    def test_a_window_that_changed_size_is_not_compared(self):
+        from PIL import Image
+        from fxcss.tweaks import combo_verdict
+        captures = {"a": Image.new("RGB", (10, 10), (1, 2, 3)),
+                    "a+b": self.image((1, 2, 3))}
+        self.assertIsNone(combo_verdict(self.entry("a+b"), captures))
+
+    def test_the_markdown_carries_the_verdict(self):
+        from fxcss.tweaks import render_markdown
+        with tempfile.TemporaryDirectory() as td:
+            entries = [
+                {"slug": "a+b", "sheets": [], "percent": 1.0,
+                 "image": None, "same_as": "b"},
+                {"slug": "compact-tabs", "sheets": [], "percent": 1.0,
+                 "image": None},
+            ]
+            text = render_markdown(Path(td), entries, [], "154.0")
+            self.assertIn("renders pixel-identically to `b` alone", text)
+            self.assertIn("`a` has no effect here", text)
+            self.assertEqual(text.count("Not a real combination"), 1)
