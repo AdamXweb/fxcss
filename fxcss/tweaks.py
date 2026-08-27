@@ -200,6 +200,7 @@ def build(session, theme: Path, outdir: Path, variants, flags):
     _shrink(base, FULL_WIDTH).save(outdir / "base.png", optimize=True)
 
     entries = []
+    captures = {}
     for slug, sheets in sorted(variants.items()):
         for sheet in sheets:
             session.m.script(core.LOAD_VARIANT_SHEET, [sheet.resolve().as_uri()])
@@ -218,13 +219,53 @@ def build(session, theme: Path, outdir: Path, variants, flags):
         else:
             (outdir / f"{slug}.png").unlink()
         entries.append(entry)
+        captures[slug] = after
         state = f"{pct:.2f}% of the chrome" if changed else "nothing on this Firefox"
         print(f"  {slug}: changes {state}", flush=True)
+
+    for entry in entries:
+        matched = combo_verdict(entry, captures)
+        if matched:
+            entry["same_as"] = matched
+            print(f"  {entry['slug']}: renders identically to {matched} alone "
+                  "— the other sheet(s) have no effect in this combination",
+                  flush=True)
 
     info = session.info()
     markdown = render_markdown(theme, entries, flags, info["version"])
     (outdir / "TWEAKS.md").write_text(markdown, encoding="utf-8")
     return entries
+
+
+def combo_verdict(entry, captures):
+    """The single option a combo capture is pixel-identical to, or None.
+
+    Static analysis can say two sheets set the same declarations; it cannot
+    see two sheets that fight over the same pixels through different rules --
+    WhiteSur's tabs-swapclose and windows-swapclose both move the tab close
+    button while sharing no declarations at all. The rendered images settle
+    it: if `a+b` is identical to `b` alone, then `a` did nothing in that
+    combination, and that is a fact about pixels rather than a judgement.
+    Identical means what it means everywhere else in fxcss -- zero pixels
+    changed above diff_stats' noise threshold.
+
+    Only combinations are judged, and only against their own constituents:
+    `a+b` matching some unrelated option c would be a coincidence worth
+    nothing. Returns the constituent's slug, or None when the combo really is
+    more than any one of its parts.
+    """
+    parts = entry["slug"].split("+")
+    if len(parts) < 2 or entry["slug"] not in captures:
+        return None
+    combo = captures[entry["slug"]]
+    for part in parts:
+        single = captures.get(part)
+        if single is None or single.size != combo.size:
+            continue
+        changed, _, _ = diff_stats(single, combo)
+        if changed == 0:
+            return part
+    return None
 
 
 def render_markdown(theme: Path, entries, flags, firefox_version):
@@ -260,6 +301,13 @@ def render_markdown(theme: Path, entries, flags, firefox_version):
             lines.append(f"![before and after of {title}]({entry['image']})")
             lines.append("")
             lines.append(f"Full window: [{slug}.png]({slug}.png)")
+            lines.append("")
+        if entry.get("same_as"):
+            others = " + ".join(part for part in slug.split("+")
+                                if part != entry["same_as"]) or "the rest"
+            lines.append(f"**Not a real combination on this Firefox:** it "
+                         f"renders pixel-identically to `{entry['same_as']}` "
+                         f"alone — `{others}` has no effect here.")
             lines.append("")
         enable = ", ".join(f"`{sheet_path_for_doc(theme, s)}`" for s in entry["sheets"])
         lines.append(f"Enable by copying {enable} into your profile's `chrome/` "
