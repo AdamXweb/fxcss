@@ -330,7 +330,7 @@ class ImportabilityTests(unittest.TestCase):
         import fxcss.audit, fxcss.catalogue, fxcss.cli   # noqa: F401,E401
         import fxcss.compare, fxcss.core, fxcss.fetch    # noqa: F401,E401
         import fxcss.install, fxcss.probe, fxcss.sheets  # noqa: F401,E401
-        import fxcss.adopt                               # noqa: F401
+        import fxcss.adopt, fxcss.omni                   # noqa: F401,E401
 
 
 if __name__ == "__main__":
@@ -814,7 +814,7 @@ class PillowFreeCoreTests(unittest.TestCase):
     def test_core_modules_import_without_pillow(self):
         result = self.run_blocked(
             "import fxcss.cli, fxcss.core, fxcss.audit, fxcss.probe, "
-            "fxcss.fetch, fxcss.scaffold, fxcss.install; "
+            "fxcss.fetch, fxcss.scaffold, fxcss.install, fxcss.omni; "
             "from fxcss.audit import css_references; print('ok')")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("ok", result.stdout)
@@ -2547,3 +2547,274 @@ class ComboVerdictTests(unittest.TestCase):
             self.assertIn("renders pixel-identically to `b` alone", text)
             self.assertIn("`a` has no effect here", text)
             self.assertEqual(text.count("Not a real combination"), 1)
+
+
+class OmniPackTests(unittest.TestCase):
+    """Reading the shipped chrome out of omni.ja without zipfile.
+
+    The real archives are "optimized" ZIPs whose central directory Python's
+    zipfile rejects outright, so read_entries walks local file headers
+    instead. A zipfile-written archive keeps conventional local headers, which
+    makes it the right fixture: it proves the walk and both storage methods
+    without needing a Firefox on the test machine.
+    """
+
+    def build(self, td, entries, compression):
+        import zipfile
+        path = Path(td) / "omni.ja"
+        with zipfile.ZipFile(path, "w", compression) as zf:
+            for name, text in entries:
+                zf.writestr(name, text)
+        return path
+
+    def test_reads_stored_and_deflated_entries(self):
+        import zipfile
+        from fxcss import omni
+        entries = [("chrome/a.css", ":root { color: var(--live-token); }"),
+                   ("chrome/b.js", 'style.getPropertyValue("--js-token");')]
+        for method in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+            with tempfile.TemporaryDirectory() as td:
+                path = self.build(td, entries, method)
+                got = dict(omni.read_entries(path))
+                self.assertIn("chrome/a.css", got)
+                self.assertIn(b"--live-token", got["chrome/a.css"])
+                self.assertIn(b"--js-token", got["chrome/b.js"])
+
+    def fake_firefox(self, td, entries):
+        """A macOS-shaped install around a zipfile-built omni.ja."""
+        import zipfile
+        contents = Path(td) / "Contents"
+        binary = contents / "MacOS" / "firefox"
+        binary.parent.mkdir(parents=True)
+        binary.write_bytes(b"")
+        resources = contents / "Resources"
+        resources.mkdir()
+        with zipfile.ZipFile(resources / "omni.ja", "w") as zf:
+            for name, text in entries:
+                zf.writestr(name, text)
+        return binary
+
+    def test_scan_separates_consumed_from_declared(self):
+        from fxcss import omni
+        with tempfile.TemporaryDirectory() as td:
+            binary = self.fake_firefox(td, [
+                ("chrome/global.css",
+                 ":root { --declared-only: white; }\n"
+                 "body { background: var(--consumed-token); }"),
+                ("chrome/browser.js", 'setProperty("--script-token", v);'),
+                ("chrome/commonDialog.xhtml",
+                 '<dialog id="commonDialog" class="dialogBody another"/>'),
+            ])
+            pack = omni.scan(binary)
+        self.assertIn("--consumed-token", pack["consumed"])
+        self.assertIn("--script-token", pack["consumed"])
+        self.assertNotIn("--declared-only", pack["consumed"])
+        self.assertIn("--declared-only", pack["declared"])
+        self.assertIn("commonDialog", pack["ids"])
+        self.assertIn("dialogBody", pack["classes"])
+        self.assertIn("another", pack["classes"])
+
+    def test_scan_returns_none_without_archives(self):
+        from fxcss import omni
+        with tempfile.TemporaryDirectory() as td:
+            binary = Path(td) / "firefox"
+            binary.write_bytes(b"")
+            self.assertIsNone(omni.scan(binary))
+
+
+class SuggestPropertyTests(unittest.TestCase):
+    """The rename inference for custom properties.
+
+    Properties version by appending whole words (--panel-background became
+    --panel-background-color), so the near-miss window is wider than the
+    two-character one element renames get -- but a name with no close consumed
+    relative must yield nothing rather than a guess.
+    """
+
+    PACK = {"consumed": {"--panel-background-color": "omni.ja!a.css",
+                         "--toolbar-color": "omni.ja!a.css"}}
+
+    def test_suffix_rename_is_suggested(self):
+        from fxcss import omni
+        self.assertEqual(
+            omni.suggest_property("--panel-background", self.PACK),
+            "--panel-background-color")
+
+    def test_unrelated_name_gets_no_guess(self):
+        from fxcss import omni
+        self.assertIsNone(
+            omni.suggest_property("--in-content-page-background", self.PACK))
+
+
+class ClassifyUnusedPackTests(unittest.TestCase):
+    """With shipped-chrome evidence, declared-but-unread overrides surface.
+
+    This is the class of bug the resolution probe can never see: the name
+    still resolves (something declares it), so probing calls the override
+    healthy while no rule reads the value any more. --in-content-page-background
+    died exactly this way, and cost a white dialog body under dark palettes.
+    """
+
+    def static(self, td, kept=()):
+        theme = Path(td)
+        sheet = theme / "chrome" / "x.css"
+        return {
+            "theme": theme,
+            "reachable": 1,
+            "orphans": [],
+            "optional": [],
+            "defined": {name: [(sheet, 1)] for name in
+                        ("--dead-token", "--stale-token", "--healthy-override",
+                         "--kept-token")},
+            "used": {},
+            "kept": set(kept),
+        }
+
+    PACK = {"consumed": {"--healthy-override": "omni.ja!a.css"},
+            "declared": {"--stale-token"},
+            "ids": {}, "classes": {}, "paths": []}
+
+    def test_pack_splits_dead_stale_and_healthy(self):
+        from fxcss import audit
+        with tempfile.TemporaryDirectory() as td:
+            (Path(td) / "chrome").mkdir()
+            result = audit.classify_unused(
+                self.static(td, kept=("--kept-token",)), set(), pack=self.PACK)
+        self.assertEqual([i["name"] for i in result["stale_overrides"]],
+                         ["--stale-token"])
+        self.assertEqual([i["name"] for i in result["unused_properties"]],
+                         ["--dead-token"])
+        self.assertEqual(result["overrides"], 1)
+        self.assertEqual(result["kept"], ["--kept-token"])
+        self.assertTrue(result["packed"])
+
+    def test_without_pack_behaviour_is_the_old_one(self):
+        from fxcss import audit
+        with tempfile.TemporaryDirectory() as td:
+            (Path(td) / "chrome").mkdir()
+            result = audit.classify_unused(
+                self.static(td), {"--stale-token", "--healthy-override"})
+        # A resolution probe cannot tell stale from healthy: both count as
+        # overrides, and only the never-declared name reads as dead.
+        self.assertEqual(result["stale_overrides"], [])
+        self.assertEqual(result["overrides"], 2)
+        self.assertEqual([i["name"] for i in result["unused_properties"]],
+                         ["--dead-token", "--kept-token"])
+        self.assertFalse(result["packed"])
+
+
+class KeepPragmaTests(unittest.TestCase):
+    """`/* fxcss-keep */` on a declaration line exempts that property.
+
+    The audit judges against one Firefox, but themes support several: WhiteSur
+    keeps --in-content-page-background for ESR 140, which current Firefox has
+    dropped entirely. The pragma is how an author records that on the line
+    itself rather than in a CI flag nobody finds later.
+    """
+
+    def test_pragma_is_collected_from_the_raw_line(self):
+        from fxcss import audit
+        with tempfile.TemporaryDirectory() as td:
+            sheet = Path(td) / "a.css"
+            sheet.write_text(
+                ":root {\n"
+                "  --kept-one: red; /* fxcss-keep: ESR 140 still reads it */\n"
+                "  --plain-one: blue;\n"
+                "}\n", encoding="utf-8")
+            defined, used, kept = audit.custom_properties([sheet])
+        self.assertEqual(kept, {"--kept-one"})
+        self.assertIn("--plain-one", defined)
+
+
+class OffscreenSelectorTests(unittest.TestCase):
+    """A selector missing live but shipped in chrome markup is healthy.
+
+    The live audit cannot open every state -- the window-modal dialog most of
+    all, since Marionette dismisses it on sight -- so #commonDialog used to
+    land in `unresolved` with the suspicious framing that implies. The pack
+    knows better: the markup ships, the state just never opened.
+    """
+
+    DOM = {"ids": set(), "classes": set()}
+    PACK = {"ids": {"commonDialog": "omni.ja!chrome/commonDialog.xhtml"},
+            "classes": {"dialogBody": "omni.ja!chrome/commonDialog.xhtml"},
+            "consumed": {}, "declared": set(), "paths": []}
+
+    def test_shipped_markup_resolves_to_offscreen(self):
+        from fxcss import audit
+        finding = audit.suggest("#commonDialog", self.DOM, pack=self.PACK)
+        self.assertEqual(finding["confidence"], "offscreen")
+        self.assertIn("commonDialog.xhtml", finding["reason"])
+
+    def test_unknown_name_stays_unresolved(self):
+        from fxcss import audit
+        finding = audit.suggest("#neverExisted", self.DOM, pack=self.PACK)
+        self.assertEqual(finding["confidence"], "unresolved")
+
+    def test_offscreen_never_reaches_a_patch(self):
+        from fxcss import audit
+        result = {"findings": [
+            {"confidence": "offscreen", "token": "#commonDialog", "uses": []}]}
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td) / "fix.diff"
+            self.assertEqual(audit.write_patch(result, Path(td), out), 0)
+
+
+class DialogViewContractTests(unittest.TestCase):
+    """Pin the constraints the modal-dialog capture cannot survive without.
+
+    Each of these was found the hard way: Marionette's prompt listener aborts
+    in-flight scripts and dismisses the dialog on the next command (hence the
+    handoff file), the parent window's setTimeout is suspended while modal
+    (hence nsITimer), and MODAL_TYPE_WINDOW blocks a nested event loop until
+    a human closes the OS window (hence INTERNAL_WINDOW only).
+    """
+
+    def source(self):
+        from fxcss import core
+        return core.DIALOG_VIEW
+
+    def test_result_travels_by_file_not_return_value(self):
+        self.assertIn("IOUtils.writeUTF8", self.source())
+
+    def test_sleeps_are_nsitimer_not_settimeout(self):
+        source = self.source()
+        self.assertIn("nsITimer", source)
+        self.assertNotIn("setTimeout", source)
+
+    def test_only_the_in_window_modal_type_is_used(self):
+        # The comment may (and should) warn about MODAL_TYPE_WINDOW; the
+        # argument actually passed is what must stay INTERNAL_WINDOW.
+        source = self.source()
+        self.assertIn("ps.MODAL_TYPE_INTERNAL_WINDOW,", source)
+        self.assertNotIn("ps.MODAL_TYPE_WINDOW,", source)
+
+    def test_the_view_is_captured_per_colour_scheme(self):
+        from fxcss import core
+        source = Path(core.__file__).read_text(encoding="utf-8")
+        self.assertIn('f"{mode}-04-dialog"', source)
+
+
+class InjectorReachTests(unittest.TestCase):
+    """Live sheets must reach every chrome document, present and future.
+
+    Loading into the top window's windowUtils misses the window-modal
+    dialog's own document and every window opened later -- a watch session
+    then shows edits everywhere except the quit prompt, silently. The swap
+    walks all chrome docshells and an observer covers documents created
+    afterwards; both halves have to stay in the scripts.
+    """
+
+    def test_swaps_walk_every_chrome_docshell(self):
+        from fxcss import core
+        for script in (core.SWAP_SHEET, core.SWAP_FILE_SHEET):
+            self.assertIn("getAllDocShellsInSubtree", script)
+
+    def test_future_documents_are_covered_by_the_observer(self):
+        from fxcss import core
+        for script in (core.SWAP_SHEET, core.SWAP_FILE_SHEET):
+            self.assertIn("chrome-document-global-created", script)
+
+    def test_no_module_urls_sneak_in(self):
+        from fxcss import core
+        self.assertNotIn("importESModule", core._INJECTOR_JS)

@@ -625,15 +625,69 @@ gb.selectedTab = gb.tabs[1];
 return gb.tabs.length;
 """
 
-SWAP_SHEET = """
-const win = Services.wm.getMostRecentWindow("navigator:browser");
-const u = win.windowUtils;
-const uri = "data:text/css;charset=utf-8," + encodeURIComponent(arguments[0]);
-if (win._fxcssSheet) {
-  try { u.removeSheetUsingURIString(win._fxcssSheet, u.USER_SHEET); } catch (e) {}
+# Live sheets used to load into the top browser window's windowUtils only,
+# which silently missed every other chrome document: the window-modal dialog
+# (commonDialog.xhtml is its own document inside #window-modal-dialog), and
+# any window opened after the swap. So a `watch` session showed edits
+# everywhere except the quit prompt, which kept rendering the theme the
+# profile started with -- with no error anywhere. The injector walks every
+# chrome docshell for the swap itself, keeps the current sheet URIs on the
+# shared system global (the one place that outlives Marionette's per-script
+# sandboxes), and re-applies them to each chrome document as it is created --
+# the same reach the profile's real userChrome.css gets.
+_INJECTOR_JS = """
+const CU = typeof Cu !== "undefined" ? Cu : Components.utils;
+const sysGlobal = CU.getGlobalForObject(Services);
+let injector = sysGlobal._fxcssInjector;
+if (!injector) {
+  injector = sysGlobal._fxcssInjector = {
+    sheets: {},
+    observe(subject) {
+      try {
+        const doc = subject.document;
+        if (!doc || !doc.nodePrincipal.isSystemPrincipal) { return; }
+        const wu = subject.windowUtils;
+        for (const uri of Object.values(injector.sheets)) {
+          if (uri) {
+            try { wu.loadSheetUsingURIString(uri, wu.USER_SHEET); } catch (e) {}
+          }
+        }
+      } catch (e) {}
+    },
+  };
+  Services.obs.addObserver(injector, "chrome-document-global-created");
 }
-u.loadSheetUsingURIString(uri, u.USER_SHEET);
-win._fxcssSheet = uri;
+function fxcssChromeWindows() {
+  const found = [];
+  for (const win of Services.wm.getEnumerator(null)) {
+    try {
+      for (const shell of win.docShell.getAllDocShellsInSubtree(
+          Ci.nsIDocShellTreeItem.typeChrome, Ci.nsIDocShell.ENUMERATE_FORWARDS)) {
+        if (shell.domWindow) { found.push(shell.domWindow); }
+      }
+    } catch (e) { found.push(win); }
+  }
+  return found;
+}
+function fxcssSwapSheet(slot, uri) {
+  const old = injector.sheets[slot];
+  for (const win of fxcssChromeWindows()) {
+    let wu;
+    try { wu = win.windowUtils; } catch (e) { continue; }
+    if (old) {
+      try { wu.removeSheetUsingURIString(old, wu.USER_SHEET); } catch (e) {}
+    }
+    if (uri) {
+      try { wu.loadSheetUsingURIString(uri, wu.USER_SHEET); } catch (e) {}
+    }
+  }
+  injector.sheets[slot] = uri;
+}
+"""
+
+SWAP_SHEET = _INJECTOR_JS + """
+const uri = "data:text/css;charset=utf-8," + encodeURIComponent(arguments[0]);
+fxcssSwapSheet("adhoc", uri);
 return uri.length;
 """
 
@@ -661,16 +715,9 @@ win._fxcssHarnessSheet = uri;
 return true;
 """
 
-SWAP_FILE_SHEET = """
-const win = Services.wm.getMostRecentWindow("navigator:browser");
-const u = win.windowUtils;
-const uri = arguments[0];
-if (win._fxcssSheet) {
-  try { u.removeSheetUsingURIString(win._fxcssSheet, u.USER_SHEET); } catch (e) {}
-}
-u.loadSheetUsingURIString(uri, u.USER_SHEET);
-win._fxcssSheet = uri;
-return uri;
+SWAP_FILE_SHEET = _INJECTOR_JS + """
+fxcssSwapSheet("theme", arguments[0]);
+return arguments[0];
 """
 
 SET_DENSITY = """
@@ -1023,6 +1070,144 @@ return {
 
 # --- views -----------------------------------------------------------------
 
+# The window-modal prompt (commonDialog.xhtml inside #window-modal-dialog --
+# the quit confirmation and friends). It is painted by its own chrome
+# document, not the browser window's, which is exactly why themes get it
+# wrong without noticing: WhiteSur's dialog body rendered white under every
+# dark palette because the token it overrode had been dropped, and no other
+# view would ever have shown it.
+#
+# This view cannot go through _shot. Marionette's prompt listener treats an
+# open modal dialog as something to handle: it aborts whatever script is in
+# flight the moment one opens, and dismisses the dialog itself on the next
+# command. So the whole open -> settle -> draw -> close sequence runs
+# fire-and-forget inside this one script, which returns immediately and
+# writes its result to a file for Python to poll -- no Marionette command is
+# sent while the dialog exists. Sleeps are nsITimer because the parent window
+# is in a modal state, which suspends its own setTimeout callbacks. drawWindow
+# sees the dialog because it is in-document top-layer DOM, not an OS popup.
+DIALOG_VIEW = """
+const outPath = arguments[0];
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+const put = obj => win.IOUtils.writeUTF8(outPath, JSON.stringify(obj));
+const sleep = ms => new Promise(resolve => {
+  const timer = Cc["@mozilla.org/timer;1"].createInstance(Ci.nsITimer);
+  timer.initWithCallback(resolve, ms, Ci.nsITimer.TYPE_ONE_SHOT);
+  win._fxcssDialogTimers = (win._fxcssDialogTimers || []);
+  win._fxcssDialogTimers.push(timer);
+});
+(async () => {
+  const ps = Services.prompt;
+  if (!ps.asyncConfirmEx || !("MODAL_TYPE_INTERNAL_WINDOW" in ps)) {
+    await put({done: true, skip: "no in-window modal prompts on this Firefox"});
+    return;
+  }
+  const flags = ps.BUTTON_POS_0 * ps.BUTTON_TITLE_IS_STRING +
+                ps.BUTTON_POS_1 * ps.BUTTON_TITLE_IS_STRING +
+                ps.BUTTON_POS_0_DEFAULT;
+  // MODAL_TYPE_INTERNAL_WINDOW is the in-window gDialogBox path Firefox's own
+  // quit prompt takes. MODAL_TYPE_WINDOW opens a separate OS-modal window and
+  // blocks a nested event loop until a human closes it -- never use it here.
+  const dlgPromise = ps.asyncConfirmEx(win.browsingContext,
+    ps.MODAL_TYPE_INTERNAL_WINDOW, "Close this window?",
+    "A modal prompt, as the quit confirmation renders it.", flags,
+    "Close", "Cancel", null, null, false);
+
+  let frame, idoc, dlg;
+  for (let i = 0; i < 40; i++) {
+    frame = win.document.querySelector("#window-modal-dialog browser");
+    idoc = frame && frame.contentDocument;
+    dlg = idoc && idoc.readyState === "complete" && idoc.querySelector("dialog");
+    if (dlg && dlg.getButton && dlg.getButton("accept")) { break; }
+    dlg = null;
+    await sleep(250);
+  }
+  if (!dlg) {
+    await put({done: true, skip: "the modal prompt never became ready"});
+    return;
+  }
+  await sleep(600);
+
+  const scale = win.devicePixelRatio;
+  const width = win.innerWidth, height = win.innerHeight;
+  const draw = () => {
+    const canvas = win.document.createElementNS(
+      "http://www.w3.org/1999/xhtml", "canvas");
+    canvas.width = width * scale;
+    canvas.height = height * scale;
+    const ctx = canvas.getContext("2d");
+    ctx.scale(scale, scale);
+    ctx.drawWindow(win, 0, 0, width, height, "#ffffff");
+    return canvas.toDataURL("image/png");
+  };
+  // The same contract _shot enforces: two consecutive identical captures.
+  let previous = draw(), shot = previous;
+  for (let i = 0; i < 8; i++) {
+    await sleep(500);
+    shot = draw();
+    if (shot === previous) { break; }
+    previous = shot;
+  }
+
+  dlg.getButton("cancel").click();
+  await Promise.race([dlgPromise.catch(() => {}), sleep(3000)]);
+  await put({done: true, shot});
+})().catch(async e => {
+  try {
+    const browser = win.document.querySelector("#window-modal-dialog browser");
+    const dlg = browser && browser.contentDocument &&
+                browser.contentDocument.querySelector("dialog");
+    if (dlg) { dlg.getButton("cancel").click(); }
+  } catch (e2) {}
+  await put({done: true, skip: "modal prompt capture failed: " + e});
+});
+return "kicked";
+"""
+
+
+def _dialog_shot(session: "Session", outdir: Path, name: str, timeout=45.0):
+    """Capture the window-modal prompt as `name`, via DIALOG_VIEW's handoff
+    file. A timeout cannot wedge the run: the next Marionette command
+    dismisses a dialog left open, that being the listener behaviour the
+    fire-and-forget shape exists to sidestep."""
+    handoff = outdir / f".{name}.dialog.json"
+    if handoff.exists():
+        handoff.unlink()
+    kicked = session.m.script(DIALOG_VIEW, [str(handoff)])
+    if kicked != "kicked":
+        print(f"  note: could not start the modal prompt; skipping {name}",
+              flush=True)
+        return
+    result = None
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        time.sleep(0.5)
+        if not handoff.exists():
+            continue
+        try:
+            data = json.loads(handoff.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            continue  # a write in progress
+        if data.get("done"):
+            result = data
+            break
+    try:
+        handoff.unlink()
+    except OSError:
+        pass
+    if result is None:
+        print(f"  note: {name} timed out; skipping that view", flush=True)
+        return
+    if result.get("skip"):
+        print(f"  note: {result['skip']}; skipping {name}", flush=True)
+        return
+    png = base64.b64decode(result["shot"].split(",", 1)[1])
+    if len(png) < 2000:
+        raise RuntimeError(f"screenshot {name} is implausibly small ({len(png)} bytes)")
+    (outdir / f"{name}.png").write_bytes(png)
+    print(f"  captured {name}.png ({len(png) // 1024} KB)", flush=True)
+
+
 def capture_views(session: Session, outdir: Path, modes=("light", "dark"),
                   variants=None, toolbar=None):
     """Capture the standard set of views. Returns the browser info dict."""
@@ -1064,6 +1249,12 @@ def capture_views(session: Session, outdir: Path, modes=("light", "dark"),
         _shot(m, outdir, f"{mode}-03-findbar", before=RESET_FINDBAR)
         m.script(CLOSE_FINDBAR)
         time.sleep(0.6)
+
+        # The window-modal prompt is a per-scheme view like the three above:
+        # its body is painted by its own document, and dark is where themes
+        # break it (see DIALOG_VIEW). Captured through its handoff file, not
+        # _shot -- no Marionette command may run while the dialog is up.
+        _dialog_shot(session, outdir, f"{mode}-04-dialog")
 
     # Extra chrome states, captured once rather than per colour scheme: each is
     # about a distinct piece of UI appearing, not about light versus dark.
