@@ -247,6 +247,25 @@ def suggest(token, dom, pack=None):
         return {"replacement": "#" + name, "confidence": "renamed",
                 "reason": "same name, now an id rather than a class"}
 
+    # Not in any state the live audit produced -- but the shipped chrome may
+    # still carry it, in a document this tool cannot open (the window-modal
+    # dialog, other platforms' markup, DevTools). That is a healthy selector,
+    # not a suspicious one, and saying where it lives proves it.
+    #
+    # This has to outrank the fuzzy matchers below. They compare names, not
+    # meanings, so a token that Firefox ships under its own spelling can still
+    # look like a typo for some unrelated live element. WhiteSur's
+    # `#placesToolbar` is the case that found this: it is the Library window's
+    # toolbar in places.xhtml, but the live audit never opens that window, so
+    # the near-miss branch offered `#PlacesToolbar` -- the main window's
+    # bookmarks toolbar, a different element -- and --patch called it
+    # confident. Firefox shipping the exact name is the stronger evidence.
+    if pack:
+        source = (pack["ids"] if kind == "#" else pack["classes"]).get(name)
+        if source:
+            return {"replacement": None, "confidence": "offscreen",
+                    "reason": f"not in any live state, but shipped in {source}"}
+
     # A near-miss in the same namespace: usually a typo, or a suffix change.
     pool = sorted(ids if kind == "#" else classes)
     close = [c for c in difflib.get_close_matches(name, pool, n=4, cutoff=0.80)
@@ -263,16 +282,6 @@ def suggest(token, dom, pack=None):
         flip = "." if kind == "#" else "#"
         return {"replacement": flip + close[0], "confidence": "similar",
                 "reason": f"closest live name is {flip}{close[0]}"}
-
-    # Not in any state the live audit produced -- but the shipped chrome may
-    # still carry it, in a document this tool cannot open (the window-modal
-    # dialog, other platforms' markup, DevTools). That is a healthy selector,
-    # not a suspicious one, and saying where it lives proves it.
-    if pack:
-        source = (pack["ids"] if kind == "#" else pack["classes"]).get(name)
-        if source:
-            return {"replacement": None, "confidence": "offscreen",
-                    "reason": f"not in any live state, but shipped in {source}"}
 
     return {"replacement": None, "confidence": "unresolved",
             "reason": "no similar element found in any state fxcss could produce"}
@@ -323,8 +332,9 @@ def report(result, show_all=False, colour=True):
         print("  No selectors need attention: every id and class the theme uses "
               "was found\n  in the running Firefox.")
     else:
-        print(c(BOLD, f"  {len(actionable)} selector"
-                     f"{'s' if len(actionable) != 1 else ''} need attention"))
+        one = len(actionable) == 1
+        print(c(BOLD, f"  {len(actionable)} selector{'' if one else 's'}"
+                     f" {'needs' if one else 'need'} attention"))
 
     for finding in actionable:
         label = "RENAMED" if finding["confidence"] == "renamed" else "SIMILAR"
