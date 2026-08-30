@@ -1473,30 +1473,36 @@ def cmd_inspect(args):
 
 
 def cmd_audit(args):
-    from . import audit
+    from . import audit, omni
     theme = args.theme.resolve()
     firefox = choose_firefox(args.firefox)
     print(f"fxcss audit\n  theme:   {theme}\n  firefox: {firefox}\n")
+    pack = omni.scan(firefox)
+    if pack:
+        print(f"  shipped chrome read from "
+              f"{', '.join(str(p) for p in pack['paths'])}\n")
     static = None if args.no_unused else audit.collect_unused(theme)
     with core.Session(theme, firefox) as session:
-        result = audit.audit(session, theme)
+        result = audit.audit(session, theme, pack=pack)
 
     unused = None
     if static:
-        # Ask an *unthemed* Firefox which custom properties it knows about.
-        # Against the themed browser every name resolves, because the theme
-        # itself set them, and nothing could be told apart.
+        # Without omni.ja to read, ask an *unthemed* Firefox which custom
+        # properties it knows about. Against the themed browser every name
+        # resolves, because the theme itself set them, and nothing could be
+        # told apart. With the pack, the shipped sources answer better (they
+        # separate declared from consumed) and no second launch is needed.
         candidates = (set(static["used"]) - set(static["defined"])) | (
             set(static["defined"]) - set(static["used"]))
         known = set()
-        if candidates:
+        if candidates and pack is None:
             with core.Session(theme, firefox, empty_user_chrome=True) as vanilla:
                 # Sweep the same states first: panel-scoped properties like
                 # --arrowpanel-background do not exist until the panel has been
                 # built, and would otherwise look like names Firefox never had.
                 audit.collect_dom(vanilla, verbose=False)
                 known = audit.probe_properties(vanilla, candidates)
-        unused = audit.classify_unused(static, known)
+        unused = audit.classify_unused(static, known, pack=pack)
     audit.report(result, show_all=args.all, colour=not args.no_colour)
     if unused:
         audit.report_unused(unused, colour=not args.no_colour, show_all=args.all)
@@ -1507,11 +1513,22 @@ def cmd_audit(args):
             print(f"    git apply {args.patch}\n")
         else:
             print("  nothing confident enough to patch\n")
-    actionable = [f for f in result["findings"] if f["confidence"] != "unresolved"]
+    failing = 0
+    actionable = [f for f in result["findings"]
+                  if f["confidence"] in ("renamed", "similar")]
     if args.strict and actionable:
         print(f"  --strict: failing because {len(actionable)} selector(s) need attention\n")
-        return 1
-    return 0
+        failing = 1
+    if args.strict_vars and unused:
+        dead_vars = (unused["unused_properties"]
+                     + unused.get("stale_overrides", []))
+        if dead_vars:
+            print(f"  --strict-vars: failing because {len(dead_vars)} custom "
+                  f"propert{'ies' if len(dead_vars) != 1 else 'y'} no longer "
+                  f"do{'es' if len(dead_vars) == 1 else ''} anything "
+                  f"(mark deliberate ones /* fxcss-keep */)\n")
+            failing = 1
+    return failing
 
 
 def cmd_snapshot(args):
@@ -1942,6 +1959,9 @@ def build_parser():
     a.add_argument("--no-colour", action="store_true", help="plain output")
     a.add_argument("--strict", action="store_true",
                    help="exit non-zero if any selector needs attention (for CI)")
+    a.add_argument("--strict-vars", action="store_true",
+                   help="exit non-zero if a custom property override is dead — "
+                        "this Firefox no longer reads the name (for CI)")
     a.add_argument("--no-unused", action="store_true",
                    help="skip the unused/unreachable section")
     a.set_defaults(func=cmd_audit)

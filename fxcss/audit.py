@@ -234,7 +234,7 @@ def _is_near_miss(token_name, candidate):
     return _differing_chars(token_name, candidate) <= 2
 
 
-def suggest(token, dom):
+def suggest(token, dom, pack=None):
     """Infer a replacement for a token that matches nothing."""
     kind, name = token[0], token[1:]
     ids, classes = dom["ids"], dom["classes"]
@@ -264,11 +264,21 @@ def suggest(token, dom):
         return {"replacement": flip + close[0], "confidence": "similar",
                 "reason": f"closest live name is {flip}{close[0]}"}
 
+    # Not in any state the live audit produced -- but the shipped chrome may
+    # still carry it, in a document this tool cannot open (the window-modal
+    # dialog, other platforms' markup, DevTools). That is a healthy selector,
+    # not a suspicious one, and saying where it lives proves it.
+    if pack:
+        source = (pack["ids"] if kind == "#" else pack["classes"]).get(name)
+        if source:
+            return {"replacement": None, "confidence": "offscreen",
+                    "reason": f"not in any live state, but shipped in {source}"}
+
     return {"replacement": None, "confidence": "unresolved",
             "reason": "no similar element found in any state fxcss could produce"}
 
 
-def audit(session, theme: Path, verbose=True):
+def audit(session, theme: Path, verbose=True, pack=None):
     tokens = extract_tokens(theme)
     if verbose:
         print(f"  {len(tokens)} distinct id/class tokens in the theme", flush=True)
@@ -280,11 +290,11 @@ def audit(session, theme: Path, verbose=True):
     for token, uses in sorted(tokens.items()):
         if token in live:
             continue
-        info = suggest(token, dom)
+        info = suggest(token, dom, pack=pack)
         info.update({"token": token, "uses": uses})
         findings.append(info)
 
-    order = {"renamed": 0, "similar": 1, "unresolved": 2}
+    order = {"renamed": 0, "similar": 1, "offscreen": 2, "unresolved": 3}
     findings.sort(key=lambda f: (order[f["confidence"]], f["token"]))
     return {"tokens": len(tokens), "live": len(live), "findings": findings}
 
@@ -303,7 +313,9 @@ def report(result, show_all=False, colour=True):
     def c(code, s):
         return f"{code}{s}{RESET}" if colour else s
 
-    actionable = [f for f in result["findings"] if f["confidence"] != "unresolved"]
+    actionable = [f for f in result["findings"]
+                  if f["confidence"] in ("renamed", "similar")]
+    offscreen = [f for f in result["findings"] if f["confidence"] == "offscreen"]
     unresolved = [f for f in result["findings"] if f["confidence"] == "unresolved"]
 
     print()
@@ -332,6 +344,16 @@ def report(result, show_all=False, colour=True):
             plural = "s" if extra != 1 else ""
             print()
             print(f"    {c(DIM, f'… and {extra} more occurrence{plural}')}")
+
+    if offscreen:
+        print()
+        print(f"  {c(DIM, f'{len(offscreen)} token(s) live in states this audit could not open — the')}")
+        print(f"  {c(DIM, 'shipped chrome still carries them (dialogs, other platforms), so they')}")
+        print(f"  {c(DIM, 'are healthy and not counted above.')}")
+        if show_all:
+            for finding in offscreen:
+                first = finding["uses"][0]
+                print(f"    {finding['token']:<44} {c(DIM, finding['reason'])}")
 
     if unresolved:
         print()
@@ -432,17 +454,27 @@ def import_graph(theme: Path):
 
 
 def custom_properties(paths):
-    """Where each custom property is defined and where it is used."""
-    defined, used = {}, {}
+    """Where each custom property is defined and where it is used.
+
+    A declaration whose raw line carries an `fxcss-keep` comment is recorded
+    in the third return value: the theme author is saying "I know this looks
+    dead here, keep it" — the usual reason being an older Firefox (an ESR)
+    that still reads the name even though the audited build does not.
+    """
+    defined, used, kept = {}, {}, set()
     for path in paths:
         text = path.read_text(encoding="utf-8", errors="replace")
         blanked = COMMENT.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), text)
+        raw_lines = text.splitlines()
         for number, line in enumerate(blanked.splitlines(), 1):
-            for name in PROP_DEF.findall(line):
+            names = PROP_DEF.findall(line)
+            for name in names:
                 defined.setdefault(name, []).append((path, number))
+            if names and "fxcss-keep" in raw_lines[number - 1]:
+                kept.update(names)
             for name in PROP_USE.findall(line):
                 used.setdefault(name, []).append((path, number))
-    return defined, used
+    return defined, used, kept
 
 
 PROBE_PROPERTIES = """
@@ -491,7 +523,7 @@ def collect_unused(theme: Path):
         else:
             orphans.append(sheet)
 
-    defined, used = custom_properties(sorted(reachable))
+    defined, used, kept = custom_properties(sorted(reachable))
     return {
         "theme": theme,
         "reachable": len(reachable),
@@ -499,42 +531,74 @@ def collect_unused(theme: Path):
         "optional": [p.relative_to(theme) for p in optional],
         "defined": defined,
         "used": used,
+        "kept": kept,
     }
 
 
-def classify_unused(static, firefox_knows):
+def classify_unused(static, firefox_knows, pack=None):
     """Separate real dead code from names Firefox itself reads or provides.
 
-    Both directions need the browser's opinion, and asking an *unthemed*
-    Firefox is what makes the answer meaningful:
+    Both directions need Firefox's opinion. Without `pack` that opinion comes
+    from probing an *unthemed* browser — whether each name resolves to a value:
 
     * A property used but not defined here may still be one Firefox provides --
       `--toolbarbutton-inner-padding` is Firefox's, not the theme's.
     * A property defined here but never read here is usually the whole point:
       setting `--arrowpanel-background` exists precisely so Firefox's own rules
       pick it up. Only a name Firefox has never heard of is dead.
+
+    With `pack` (an omni.scan of the shipped chrome) the second direction
+    sharpens from *declared* to *consumed*: a name Firefox still declares but
+    no longer reads is a stale override -- setting it changes nothing, which a
+    resolution probe can never tell apart from a working one. That is exactly
+    how `--in-content-page-background` died: it kept resolving on ESR-era
+    guides while current Firefox had dropped every consumer.
     """
     if static is None:
         return None
     theme = static["theme"]
     defined, used = static["defined"], static["used"]
+    kept = static.get("kept", set())
+    defined_only = set(defined) - set(used)
+
+    known = set(firefox_knows)
+    if pack:
+        known |= pack["declared"] | set(pack["consumed"])
+        consumed = set(pack["consumed"])
+        overrides = sorted(defined_only & consumed)
+        stale = sorted(name for name in (defined_only & known) - consumed
+                       if name not in kept)
+    else:
+        overrides = sorted(defined_only & known)
+        stale = []
 
     missing = [name for name in sorted(set(used) - set(defined))
-               if name not in firefox_knows]
-    dead = [name for name in sorted(set(defined) - set(used))
-            if name not in firefox_knows]
-    overrides = sorted((set(defined) - set(used)) & firefox_knows)
+               if name not in known]
+    dead = [name for name in sorted(defined_only)
+            if name not in known and name not in kept]
+
+    def _where(name):
+        return {"name": name,
+                "file": str(defined[name][0][0].relative_to(theme)),
+                "line": defined[name][0][1]}
+
+    unused_properties = []
+    for name in dead:
+        item = _where(name)
+        if pack:
+            from . import omni
+            item["suggestion"] = omni.suggest_property(name, pack)
+        unused_properties.append(item)
 
     return {
         "reachable": static["reachable"],
         "orphans": static["orphans"],
         "optional": static["optional"],
         "overrides": len(overrides),
-        "unused_properties": [
-            {"name": name,
-             "file": str(defined[name][0][0].relative_to(theme)),
-             "line": defined[name][0][1]}
-            for name in dead],
+        "kept": sorted(kept & defined_only),
+        "packed": pack is not None,
+        "stale_overrides": [_where(name) for name in stale],
+        "unused_properties": unused_properties,
         "missing_properties": [
             {"name": name,
              "file": str(used[name][0][0].relative_to(theme)),
@@ -551,6 +615,7 @@ def report_unused(unused, colour=True, show_all=False):
     if not unused:
         return
     total = (len(unused["orphans"]) + len(unused["unused_properties"])
+             + len(unused.get("stale_overrides", []))
              + len(unused["missing_properties"]))
     print(c(BOLD, "  Unused and unreachable"))
     print(f"  {c(DIM, 'Housekeeping, not breakage — nothing here stops the theme working.')}")
@@ -576,6 +641,21 @@ def report_unused(unused, colour=True, show_all=False):
             print(f"    {item['name']:<44} {c(DIM, where)} {c(DIM, '×' + str(item['uses']))}")
         print()
 
+    if unused.get("stale_overrides"):
+        count = len(unused["stale_overrides"])
+        print(f"  {c(YELLOW, 'SET, NEVER READ')} {count} custom "
+              f"propert{'ies' if count != 1 else 'y'} this Firefox declares "
+              f"but no longer reads")
+        print("  " + c(DIM, "Overriding these changes nothing: the shipped chrome carries the"))
+        print("  " + c(DIM, "declaration but not one var() or script that consumes it. Mark a"))
+        print("  " + c(DIM, "line `/* fxcss-keep */` if an older Firefox you support still reads it."))
+        limit = None if show_all else 10
+        for item in unused["stale_overrides"][:limit]:
+            print(f"    {item['name']:<44} {c(DIM, item['file'] + ':' + str(item['line']))}")
+        if limit and len(unused["stale_overrides"]) > limit:
+            print(f"    {c(DIM, 'Pass --all to list them.')}")
+        print()
+
     if unused.get("overrides"):
         count = unused["overrides"]
         noun = "property is" if count == 1 else "properties are"
@@ -583,16 +663,30 @@ def report_unused(unused, colour=True, show_all=False):
         print("  " + c(DIM, "deliberate overrides, not dead code."))
         print()
 
+    if unused.get("kept"):
+        count = len(unused["kept"])
+        noun = "property" if count == 1 else "properties"
+        print("  " + c(DIM, f"{count} {noun} marked fxcss-keep — "
+                           "excluded from the findings above."))
+        print()
+
     if unused["unused_properties"]:
         print(f"  {c(DIM, 'DEFINED ONLY')}  {len(unused['unused_properties'])} custom "
               f"propert{'ies' if len(unused['unused_properties']) != 1 else 'y'} set here "
               f"and read nowhere in the theme")
-        print("  " + c(DIM, "An unthemed Firefox does not resolve these names either, so they are"))
-        print("  " + c(DIM, "likely renamed or dropped. Worth checking rather than deleting: a"))
-        print("  " + c(DIM, "name Firefox references without setting would look the same here."))
+        if unused.get("packed"):
+            print("  " + c(DIM, "This Firefox's shipped chrome neither declares nor reads these"))
+            print("  " + c(DIM, "names, so overriding them does nothing on this build."))
+        else:
+            print("  " + c(DIM, "An unthemed Firefox does not resolve these names either, so they are"))
+            print("  " + c(DIM, "likely renamed or dropped. Worth checking rather than deleting: a"))
+            print("  " + c(DIM, "name Firefox references without setting would look the same here."))
         limit = None if show_all else 10
         for item in unused["unused_properties"][:limit]:
             print(f"    {item['name']:<44} {c(DIM, item['file'] + ':' + str(item['line']))}")
+            if item.get("suggestion"):
+                print(f"      {c(GREEN, '→ ' + item['suggestion'])}"
+                      f" {c(DIM, 'is what this Firefox reads')}")
         if limit and len(unused["unused_properties"]) > limit:
             print(f"    {c(DIM, 'Pass --all to list them.')}")
         print()

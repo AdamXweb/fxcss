@@ -581,6 +581,10 @@ a file in your editor and the running window updates in about 50ms.
 The window is yours to drive — open menus, resize it, type in the address bar,
 right-click things. Nothing is scripted.
 
+Reloads reach every chrome document, not just the browser window: new windows,
+and separate documents like the window-modal dialog (the quit prompt), pick up
+your edits too — the same reach an installed `userChrome.css` has.
+
 ![The example theme rendered in light and dark](https://raw.githubusercontent.com/AdamXweb/fxcss/main/docs/watch.png)
 
 | flag | effect |
@@ -660,7 +664,7 @@ fxcss init --previews            # plus README screenshots that keep themselves
 and it writes the preview workflows into `.github/workflows/`, ready to commit:
 every pull request then gets a comment showing the browser chrome before and
 after the change, with changed pixels highlighted — rendered on macOS, Windows
-and Linux, across eighteen views and every variant stylesheet you ship.
+and Linux, across twenty views and every variant stylesheet you ship.
 
 The generation is the point, not a convenience: the fxcss version is pinned to
 the one doing the generating, and the publish allowlist is enumerated from
@@ -728,7 +732,8 @@ selectors do, and nobody notices because nobody has them enabled.
 ```bash
 fxcss audit
 fxcss audit --patch fix.diff     # write the confident fixes as a patch
-fxcss audit --strict             # exit non-zero if anything needs attention
+fxcss audit --strict             # exit non-zero if a selector needs attention
+fxcss audit --strict-vars        # …or if a custom property override is dead
 ```
 
 **Upgrading a theme after Firefox moved on.** `inspect` answers the question one
@@ -764,6 +769,7 @@ Findings come in three kinds:
 | --- | --- |
 | **RENAMED** | The same name exists, but as a class instead of an id, or the reverse. The suggestion is exact. |
 | **SIMILAR** | No exact counterpart, but a close name exists. Usually a Firefox suffix change, or a typo in your CSS. |
+| *offscreen* | Not in any state the live audit produced, but present in the markup this Firefox ships — a dialog, another platform's chrome. Healthy, and the report says which file carries it. |
 | *unresolved* | Nothing close. Listed separately with `--all` and **not** counted as a problem — normally an element that only appears in a state fxcss cannot reach, not one that was removed. |
 
 That last distinction is the point. Reporting every unmatched selector as broken
@@ -778,6 +784,39 @@ tool did.
 the replacement is certain. Review it, then `git apply`. SIMILAR findings are
 deliberately excluded: they are usually right, but "usually" is not good enough
 to rewrite your CSS unattended.
+
+#### Custom properties die differently
+
+A selector that stops matching is only half of how a theme goes stale. The
+other half is a custom property Firefox stops *reading*: the override keeps
+parsing, keeps resolving, and paints nothing — `--in-content-page-background`
+did exactly that, and a theme's dialog body silently rendered white under its
+dark palettes for months.
+
+When fxcss can find this Firefox's `omni.ja` archives (it can, for every
+packaged build), the audit reads the shipped chrome directly and separates
+three cases a live probe cannot tell apart:
+
+- **set and read by Firefox** — a working override, counted quietly;
+- **SET, NEVER READ** — this Firefox still declares the name but no rule or
+  script consumes it any more, so the override changes nothing;
+- **DEFINED ONLY** — the shipped chrome neither declares nor reads the name,
+  with the closest consumed name suggested when there is one
+  (`--panel-background` → `--panel-background-color`).
+
+Reading the shipped sources also covers documents the live audit cannot open —
+dialogs, DevTools, in-content pages — and replaces the second, unthemed
+Firefox launch the probe needed.
+
+A name you keep deliberately — for an ESR that still reads it, say — gets an
+inline pragma rather than a CI flag nobody finds later:
+
+```css
+--in-content-page-background: var(--gnome-menu-background) !important; /* fxcss-keep: ESR 140 reads it */
+```
+
+`--strict-vars` turns dead and stale overrides into a non-zero exit for CI;
+`fxcss-keep` lines are exempt.
 
 ### fxcss changelog
 
@@ -871,10 +910,15 @@ inlined, for attaching to an issue.
 fxcss shot --out shots/before
 ```
 
-Captures the standard set of views as PNGs: browser window, focused address bar
-and find bar in light and dark, then a tab playing audio, the same tab muted,
-container tabs, an overflowing tab strip, a private window, compact density, the
-sidebar, right-to-left chrome, and customize mode.
+Captures the standard set of views as PNGs: browser window, focused address bar,
+find bar and the window-modal dialog in light and dark, then a tab playing
+audio, the same tab muted, container tabs, an overflowing tab strip, a private
+window, compact density, the sidebar, right-to-left chrome, and customize mode.
+
+The dialog view is the quit-confirmation prompt (commonDialog), opened for
+real. It is its own chrome document, painted from different rules than the
+window around it, which is why themes break it without noticing — a dark theme
+whose dialog body renders white shows up here and nowhere else.
 
 The captures land **flat** in `--out`, one file per view (`shots/before/light-01-window.png`);
 `--url` captures go to `<out>/live/`. This is the directory to publish from if
