@@ -91,6 +91,200 @@ class ExtractTokensTests(unittest.TestCase):
         self.assertEqual(toks["#target"][0]["line"], 3)
 
 
+class MozDocumentScopeTests(unittest.TestCase):
+    """A rule scoped to another document cannot be judged by this window's DOM.
+
+    The live audit only ever opens a browser window, but a theme also styles
+    the Library, DevTools and about: pages through @-moz-document. Comparing
+    those rules against the browser window's DOM invents renames between
+    unrelated documents: WhiteSur's `#placesToolbar` (the Library toolbar, in
+    places.xhtml) drew a confident suggestion of `#PlacesToolbar` -- the main
+    window's bookmarks toolbar, a different element one letter of case away.
+    """
+
+    LIBRARY = 'chrome://browser/content/places/places.xhtml'
+    DOM = {"ids": {"PlacesToolbar"}, "classes": set()}
+
+    def tokens_for(self, css):
+        from fxcss.audit import extract_tokens
+        with tempfile.TemporaryDirectory() as td:
+            chrome = Path(td) / "chrome"
+            chrome.mkdir()
+            (chrome / "userChrome.css").write_text(css, encoding="utf-8")
+            return extract_tokens(Path(td))
+
+    def test_a_rule_in_another_document_is_marked_out_of_scope(self):
+        toks = self.tokens_for(
+            f'@-moz-document url("{self.LIBRARY}") {{\n'
+            '#placesToolbar { color: red; }\n'
+            '}\n')
+        self.assertTrue(toks["#placesToolbar"][0]["scoped_out"])
+
+    def test_an_unscoped_rule_is_not(self):
+        toks = self.tokens_for("#nav-bar { color: red; }\n")
+        self.assertFalse(toks["#nav-bar"][0]["scoped_out"])
+
+    def test_a_condition_naming_the_audited_window_is_not(self):
+        toks = self.tokens_for(
+            '@-moz-document url("chrome://browser/content/browser.xhtml") {\n'
+            '#nav-bar { color: red; }\n'
+            '}\n')
+        self.assertFalse(toks["#nav-bar"][0]["scoped_out"])
+
+    def test_a_url_prefix_covering_the_audited_window_is_not(self):
+        toks = self.tokens_for(
+            '@-moz-document url-prefix("chrome://browser/") {\n'
+            '#nav-bar { color: red; }\n'
+            '}\n')
+        self.assertFalse(toks["#nav-bar"][0]["scoped_out"])
+
+    def test_an_unmodelled_condition_counts_as_covering(self):
+        # Being wrong this way reports a finding a human resolves; the other
+        # way hides a real one.
+        toks = self.tokens_for(
+            '@-moz-document regexp("https:.*") {\n'
+            '#nav-bar { color: red; }\n'
+            '}\n')
+        self.assertFalse(toks["#nav-bar"][0]["scoped_out"])
+
+    def test_scope_ends_with_its_block(self):
+        toks = self.tokens_for(
+            f'@-moz-document url("{self.LIBRARY}") {{\n'
+            '#placesToolbar { color: red; }\n'
+            '}\n'
+            '#nav-bar { color: red; }\n')
+        self.assertTrue(toks["#placesToolbar"][0]["scoped_out"])
+        self.assertFalse(toks["#nav-bar"][0]["scoped_out"])
+
+    def test_a_brace_closing_beside_a_declaration_still_ends_the_block(self):
+        # Declaration-only lines are skipped for token extraction, so the
+        # closing brace on one has to be counted before the skip.
+        toks = self.tokens_for(
+            f'@-moz-document url("{self.LIBRARY}") {{\n'
+            '#placesToolbar {\n'
+            '\tcolor: red; }\n'
+            '}\n'
+            '#nav-bar { color: red; }\n')
+        self.assertFalse(toks["#nav-bar"][0]["scoped_out"])
+
+    def test_a_multi_line_condition_is_read_whole(self):
+        # A condition wrapped across lines used to be evaluated from its first
+        # line alone, which finds no url() at all and scores as "excludes the
+        # audited window" -- silently hiding every finding inside the block.
+        toks = self.tokens_for(
+            '@-moz-document\n'
+            '  url("chrome://browser/content/browser.xhtml") {\n'
+            '#nav-bar { color: red; }\n'
+            '}\n')
+        self.assertFalse(toks["#nav-bar"][0]["scoped_out"])
+
+    def test_a_condition_whose_brace_is_on_its_own_line(self):
+        toks = self.tokens_for(
+            '@-moz-document\n'
+            '  url("about:preferences")\n'
+            '{\n'
+            '#nav-bar { color: red; }\n'
+            '}\n')
+        self.assertTrue(toks["#nav-bar"][0]["scoped_out"])
+
+    def test_a_wrapped_multi_condition_is_read_whole(self):
+        toks = self.tokens_for(
+            '@-moz-document url-prefix("chrome://devtools/"),\n'
+            '  url("about:devtools-toolbox") {\n'
+            '#nav-bar { color: red; }\n'
+            '}\n')
+        self.assertTrue(toks["#nav-bar"][0]["scoped_out"])
+
+    def test_a_brace_inside_a_string_does_not_shift_the_depth(self):
+        toks = self.tokens_for(
+            f'@-moz-document url("{self.LIBRARY}") {{\n'
+            '#placesToolbar { content: "}"; }\n'
+            '}\n'
+            '#nav-bar { color: red; }\n')
+        self.assertFalse(toks["#nav-bar"][0]["scoped_out"])
+
+    def test_a_nested_at_rule_does_not_end_the_block_early(self):
+        toks = self.tokens_for(
+            f'@-moz-document url("{self.LIBRARY}") {{\n'
+            '@media (prefers-color-scheme: dark) {\n'
+            '#placesToolbar { color: red; }\n'
+            '}\n'
+            '#placesList { color: red; }\n'
+            '}\n')
+        self.assertTrue(toks["#placesToolbar"][0]["scoped_out"])
+        self.assertTrue(toks["#placesList"][0]["scoped_out"])
+
+    def test_one_token_under_two_scopes_yields_two_findings(self):
+        # --patch rewrites the exact sites a finding carries, so a token
+        # written both globally and inside an @-moz-document block must not
+        # share one verdict: the confident half would drag the unjudgeable
+        # half into the patch with it.
+        from fxcss import audit
+        with tempfile.TemporaryDirectory() as td:
+            chrome = Path(td) / "chrome"
+            chrome.mkdir()
+            (chrome / "userChrome.css").write_text(
+                '#shared { color: red; }\n'
+                '@-moz-document url-prefix("about:") {\n'
+                '#shared { color: blue; }\n'
+                '}\n', encoding="utf-8")
+            tokens = audit.extract_tokens(Path(td))
+
+            dom = {"ids": set(), "classes": {"shared"}}
+            findings = []
+            for scoped in sorted({u["scoped_out"] for u in tokens["#shared"]}):
+                group = [u for u in tokens["#shared"]
+                         if u["scoped_out"] is scoped]
+                info = audit.suggest("#shared", dom, scoped_out=scoped)
+                info.update({"token": "#shared", "uses": group})
+                findings.append(info)
+
+            by_confidence = {f["confidence"]: f for f in findings}
+            self.assertIn("renamed", by_confidence)
+            self.assertIn("other-document", by_confidence)
+            # The global use is the only one the rename may touch.
+            self.assertEqual(
+                [u["line"] for u in by_confidence["renamed"]["uses"]], [1])
+
+            out = Path(td) / "fix.diff"
+            audit.write_patch({"findings": findings}, Path(td), out)
+            rewritten = [l for l in out.read_text().splitlines()
+                         if l[:1] in "+-" and not l.startswith(("+++", "---"))]
+
+        # Only the global line, never the about:-scoped one.
+        self.assertEqual(rewritten,
+                         ["-#shared { color: red; }", "+.shared { color: red; }"])
+
+    def test_out_of_scope_never_draws_a_fuzzy_rename(self):
+        from fxcss import audit
+        finding = audit.suggest("#placesToolbar", self.DOM, scoped_out=True)
+        self.assertIsNone(finding["replacement"])
+        self.assertEqual(finding["confidence"], "other-document")
+
+    def test_in_scope_still_draws_one(self):
+        from fxcss import audit
+        finding = audit.suggest("#placesToolbar", self.DOM, scoped_out=False)
+        self.assertEqual(finding["replacement"], "#PlacesToolbar")
+
+    def test_the_shipped_pack_still_answers_for_another_document(self):
+        from fxcss import audit
+        pack = {"ids": {"placesToolbar": "omni.ja!chrome/places.xhtml"},
+                "classes": {}, "consumed": {}, "declared": set(), "paths": []}
+        finding = audit.suggest("#placesToolbar", self.DOM, pack=pack,
+                                scoped_out=True)
+        self.assertEqual(finding["confidence"], "offscreen")
+        self.assertIn("places.xhtml", finding["reason"])
+
+    def test_other_document_never_reaches_a_patch(self):
+        from fxcss import audit
+        result = {"findings": [
+            {"confidence": "other-document", "token": "#placesToolbar",
+             "uses": []}]}
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td) / "fix.diff"
+            self.assertEqual(audit.write_patch(result, Path(td), out), 0)
+
+
 class ImportGraphTests(unittest.TestCase):
     def test_orphan_is_not_reachable(self):
         from fxcss.audit import import_graph

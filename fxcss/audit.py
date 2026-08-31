@@ -38,6 +38,37 @@ HEXCOLOR = re.compile(r"^[0-9a-fA-F]+$")
 # flagging it as a dead selector would be noise.
 SPECIFICITY_HACKS = {"#hack", "#nope", "#never", "#no", "#none", "#fake"}
 
+MOZ_DOCUMENT = re.compile(r"@-moz-document\b", re.IGNORECASE)
+DOC_FUNCTION = re.compile(r"\b(url|url-prefix|domain|regexp)\(([^)]*)\)",
+                          re.IGNORECASE)
+
+# The only document the live audit ever opens. Every state in collect_dom is a
+# browser window, so this is the whole of what the collected DOM describes.
+AUDITED_DOCUMENT = "chrome://browser/content/browser.xhtml"
+
+
+def _document_functions(line):
+    """The (kind, value) pairs of an @-moz-document condition on this line."""
+    return [(m.group(1).lower(), m.group(2).strip().strip("\"'"))
+            for m in DOC_FUNCTION.finditer(line)]
+
+
+def _scope_covers(functions, document=AUDITED_DOCUMENT):
+    """Can rules under this @-moz-document condition apply to the audited window?
+
+    Unknown condition types count as covering. Being wrong in that direction
+    reports a finding that needs a human; being wrong in the other hides a real
+    one, which is the failure this whole tool exists to prevent.
+    """
+    for kind, value in functions:
+        if kind == "url" and value == document:
+            return True
+        if kind == "url-prefix" and document.startswith(value):
+            return True
+        if kind in ("domain", "regexp"):
+            return True
+    return False
+
 
 def _looks_like_colour(kind, name):
     return kind == "#" and len(name) in (3, 4, 6, 8) and HEXCOLOR.match(name)
@@ -63,23 +94,65 @@ def extract_tokens(theme: Path):
         blanked = COMMENT.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), raw)
         source_lines = raw.splitlines()
 
+        # Brace depth and the @-moz-document blocks open at each depth, so a
+        # rule scoped to a document the live audit never opens can be told
+        # apart from a global one. Counted on `cleaned`, where strings and
+        # url() bodies are already neutralised, so a brace inside either cannot
+        # shift the depth.
+        depth = 0
+        scope_stack = []
+        prelude = None
+
         for index, scanned in enumerate(blanked.splitlines()):
             cleaned = STRINGS.sub("''", URLS.sub("url()", scanned))
-            # Skip declaration-only lines so a property value cannot be mistaken
-            # for a selector.
-            if "{" not in cleaned and ";" in cleaned and ":" in cleaned:
-                continue
-            for kind, name in TOKEN.findall(cleaned):
-                if _looks_like_colour(kind, name):
-                    continue
-                token = kind + name
-                if token in SPECIFICITY_HACKS:
-                    continue
-                found.setdefault(token, []).append({
-                    "file": str(path.relative_to(theme)),
-                    "line": index + 1,
-                    "text": source_lines[index].rstrip(),
-                })
+
+            # Read the condition off `scanned`, where url() bodies survive.
+            # It may run past the end of the line -- a long list of url()s is
+            # usually wrapped -- so accumulate until the `{` that opens the
+            # block. Evaluating a half-read condition finds no functions at
+            # all, which would score as "excludes the audited window" and
+            # silently hide every finding inside.
+            if prelude is not None:
+                prelude += " " + scanned
+            elif MOZ_DOCUMENT.search(scanned):
+                prelude = scanned
+
+            for _ in range(cleaned.count("{")):
+                if prelude is not None:
+                    scope_stack.append(
+                        (depth, _scope_covers(_document_functions(prelude))))
+                    prelude = None
+                depth += 1
+
+            # One enclosing block that excludes the audited window is enough:
+            # the rule can never apply there, whatever the outer blocks say.
+            scoped_out = any(not covers for _, covers in scope_stack)
+
+            # Skip declaration-only lines so a property value cannot be
+            # mistaken for a selector -- but only for token extraction. The
+            # brace accounting still has to run below, or a `}` sharing a line
+            # with a declaration would leave the depth permanently wrong.
+            declaration_only = ("{" not in cleaned
+                                and ";" in cleaned and ":" in cleaned)
+
+            if not declaration_only:
+                for kind, name in TOKEN.findall(cleaned):
+                    if _looks_like_colour(kind, name):
+                        continue
+                    token = kind + name
+                    if token in SPECIFICITY_HACKS:
+                        continue
+                    found.setdefault(token, []).append({
+                        "file": str(path.relative_to(theme)),
+                        "line": index + 1,
+                        "text": source_lines[index].rstrip(),
+                        "scoped_out": scoped_out,
+                    })
+
+            for _ in range(cleaned.count("}")):
+                depth = max(0, depth - 1)
+                if scope_stack and scope_stack[-1][0] == depth:
+                    scope_stack.pop()
     return found
 
 
@@ -234,10 +307,28 @@ def _is_near_miss(token_name, candidate):
     return _differing_chars(token_name, candidate) <= 2
 
 
-def suggest(token, dom, pack=None):
+def suggest(token, dom, pack=None, scoped_out=False):
     """Infer a replacement for a token that matches nothing."""
     kind, name = token[0], token[1:]
     ids, classes = dom["ids"], dom["classes"]
+
+    # Every rule using this token is scoped by @-moz-document to a document the
+    # live audit never opens, so the running window's DOM is not evidence about
+    # it either way -- and comparing against it invents renames between
+    # unrelated documents. WhiteSur's `#placesToolbar` is the case that found
+    # this: the Library window's toolbar in places.xhtml, which browser.xhtml's
+    # `#PlacesToolbar` merely resembles by a single letter of case.
+    #
+    # The shipped chrome still is evidence: omni.ja carries those documents.
+    if scoped_out:
+        if pack:
+            source = (pack["ids"] if kind == "#" else pack["classes"]).get(name)
+            if source:
+                return {"replacement": None, "confidence": "offscreen",
+                        "reason": f"not in any live state, but shipped in {source}"}
+        return {"replacement": None, "confidence": "other-document",
+                "reason": "@-moz-document scopes this to a document the audit "
+                          "does not open"}
 
     # An id that is now a class, or the reverse. Exact and by far the commonest.
     if kind == "#" and name in classes:
@@ -290,12 +381,26 @@ def audit(session, theme: Path, verbose=True, pack=None):
     for token, uses in sorted(tokens.items()):
         if token in live:
             continue
-        info = suggest(token, dom, pack=pack)
-        info.update({"token": token, "uses": uses})
-        findings.append(info)
+        # Grouped by scope, not merged into one verdict per token. A token
+        # can be written both globally and inside an @-moz-document block, and
+        # the two uses are not the same claim: --patch rewrites the exact
+        # file:line sites a finding carries, so one shared verdict would let a
+        # confident rename reach the sites this audit just admitted it cannot
+        # judge -- the very failure the scope check exists to prevent.
+        for scoped_out in sorted({bool(use.get("scoped_out")) for use in uses}):
+            group = [use for use in uses
+                     if bool(use.get("scoped_out")) is scoped_out]
+            info = suggest(token, dom, pack=pack, scoped_out=scoped_out)
+            info.update({"token": token, "uses": group})
+            findings.append(info)
 
-    order = {"renamed": 0, "similar": 1, "offscreen": 2, "unresolved": 3}
-    findings.sort(key=lambda f: (order[f["confidence"]], f["token"]))
+    order = {"renamed": 0, "similar": 1, "offscreen": 2, "other-document": 3,
+             "unresolved": 4}
+    # First use as a tiebreak: two findings can now share a token, and the
+    # report and the patch must not depend on dict ordering.
+    findings.sort(key=lambda f: (order[f["confidence"]], f["token"],
+                                 f["uses"][0]["file"] if f["uses"] else "",
+                                 f["uses"][0]["line"] if f["uses"] else 0))
     return {"tokens": len(tokens), "live": len(live), "findings": findings}
 
 
@@ -316,6 +421,8 @@ def report(result, show_all=False, colour=True):
     actionable = [f for f in result["findings"]
                   if f["confidence"] in ("renamed", "similar")]
     offscreen = [f for f in result["findings"] if f["confidence"] == "offscreen"]
+    elsewhere = [f for f in result["findings"]
+                 if f["confidence"] == "other-document"]
     unresolved = [f for f in result["findings"] if f["confidence"] == "unresolved"]
 
     print()
@@ -354,6 +461,16 @@ def report(result, show_all=False, colour=True):
             for finding in offscreen:
                 first = finding["uses"][0]
                 print(f"    {finding['token']:<44} {c(DIM, finding['reason'])}")
+
+    if elsewhere:
+        print()
+        print(f"  {c(DIM, f'{len(elsewhere)} token(s) belong to another document — an @-moz-document')}")
+        print(f"  {c(DIM, 'block scopes them to a page this audit does not open, so the window')}")
+        print(f"  {c(DIM, 'it does open cannot judge them and they are not counted above.')}")
+        if show_all:
+            for finding in elsewhere:
+                first = finding["uses"][0]
+                print(f"    {finding['token']:<44} {c(DIM, first['file'] + ':' + str(first['line']))}")
 
     if unresolved:
         print()
