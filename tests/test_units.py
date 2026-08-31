@@ -2760,6 +2760,77 @@ class OffscreenSelectorTests(unittest.TestCase):
             self.assertEqual(audit.write_patch(result, Path(td), out), 0)
 
 
+class OffscreenBeatsFuzzyTests(unittest.TestCase):
+    """Shipping the exact name outranks looking like a different one.
+
+    The fuzzy matchers compare spellings, not meanings, so a token Firefox
+    ships under its own name can still read as a typo for some unrelated live
+    element. WhiteSur's `#placesToolbar` is the case that found this: it is
+    the Library window's toolbar in places.xhtml, a window the live audit
+    never opens, and the near-miss branch offered `#PlacesToolbar` -- the
+    main window's bookmarks toolbar, a different element in a different
+    document. Because `similar` is patchable, the weekly watch would have
+    opened a pull request moving Library styling onto the bookmarks bar.
+    """
+
+    # Only the capitalised name is live; the lower-cased one merely ships.
+    DOM = {"ids": {"PlacesToolbar"}, "classes": set()}
+    PACK = {"ids": {"placesToolbar": "omni.ja!chrome/browser/places/places.xhtml"},
+            "classes": {}, "consumed": {}, "declared": set(), "paths": []}
+
+    def test_shipped_name_wins_over_a_near_miss(self):
+        from fxcss import audit
+        finding = audit.suggest("#placesToolbar", self.DOM, pack=self.PACK)
+        self.assertEqual(finding["confidence"], "offscreen")
+        self.assertIsNone(finding["replacement"])
+        self.assertIn("places.xhtml", finding["reason"])
+
+    def test_the_near_miss_still_fires_when_nothing_ships_it(self):
+        from fxcss import audit
+        empty = {"ids": {}, "classes": {}, "consumed": {},
+                 "declared": set(), "paths": []}
+        finding = audit.suggest("#placesToolbar", self.DOM, pack=empty)
+        self.assertEqual(finding["confidence"], "similar")
+        self.assertEqual(finding["replacement"], "#PlacesToolbar")
+
+    def test_an_exact_namespace_flip_still_outranks_the_pack(self):
+        """Deliberate: same name as a class is direct evidence of a rename,
+        which is stronger than the same name shipping elsewhere as an id."""
+        from fxcss import audit
+        dom = {"ids": set(), "classes": {"placesToolbar"}}
+        finding = audit.suggest("#placesToolbar", dom, pack=self.PACK)
+        self.assertEqual(finding["confidence"], "renamed")
+        self.assertEqual(finding["replacement"], ".placesToolbar")
+
+
+class ActionableFindingsTests(unittest.TestCase):
+    """One definition of "the theme's problem", so callers cannot drift.
+
+    `fxcss upgrade --audit` had grown the inverse test (`!= "unresolved"`),
+    which counts `offscreen` -- a name Firefox demonstrably still ships -- as
+    a reason to block an upgrade. Harmless while almost nothing resolved to
+    offscreen; not harmless once the pack started putting names there.
+    """
+
+    FINDINGS = [
+        {"confidence": "renamed", "token": "#a"},
+        {"confidence": "similar", "token": "#b"},
+        {"confidence": "offscreen", "token": "#c"},
+        {"confidence": "unresolved", "token": "#d"},
+    ]
+
+    def test_only_renamed_and_similar_count(self):
+        from fxcss import audit
+        self.assertEqual([f["token"] for f in audit.actionable(self.FINDINGS)],
+                         ["#a", "#b"])
+
+    def test_a_shipped_name_does_not_block_an_upgrade(self):
+        from fxcss import audit
+        offscreen_only = [f for f in self.FINDINGS
+                          if f["confidence"] == "offscreen"]
+        self.assertEqual(audit.actionable(offscreen_only), [])
+
+
 class DialogViewContractTests(unittest.TestCase):
     """Pin the constraints the modal-dialog capture cannot survive without.
 
