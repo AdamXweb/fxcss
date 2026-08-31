@@ -203,6 +203,35 @@ class MozDocumentScopeTests(unittest.TestCase):
             '#nav-bar { color: red; }\n')
         self.assertFalse(toks["#nav-bar"][0]["scoped_out"])
 
+    def test_an_unbalanced_brace_in_an_unquoted_url_does_not_end_the_block(self):
+        # Brace counting runs on `cleaned`, where url() bodies are already
+        # neutralised as well as quoted strings. Blanking only strings lets a
+        # data: url carrying a lone `}` close the block early, and every rule
+        # after it silently goes back to being judged against the browser
+        # window. Balanced braces cancel out, so a tidy fixture will not catch
+        # this -- the brace here is deliberately unmatched.
+        toks = self.tokens_for(
+            '@-moz-document url("about:preferences") {\n'
+            '.odd { background: url(data:text/plain,}); }\n'
+            '#still-inside { color: red; }\n'
+            '}\n')
+        self.assertTrue(toks["#still-inside"][0]["scoped_out"])
+
+    def test_a_mixed_condition_list_covers_if_any_entry_does(self):
+        toks = self.tokens_for(
+            '@-moz-document url("about:preferences"), '
+            'url("chrome://browser/content/browser.xhtml") {\n'
+            '#nav-bar { color: red; }\n'
+            '}\n')
+        self.assertFalse(toks["#nav-bar"][0]["scoped_out"])
+
+    def test_a_mixed_condition_list_none_of_which_covers(self):
+        toks = self.tokens_for(
+            '@-moz-document url("about:preferences"), url("about:addons") {\n'
+            '#nav-bar { color: red; }\n'
+            '}\n')
+        self.assertTrue(toks["#nav-bar"][0]["scoped_out"])
+
     def test_a_nested_at_rule_does_not_end_the_block_early(self):
         toks = self.tokens_for(
             f'@-moz-document url("{self.LIBRARY}") {{\n'
