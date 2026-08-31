@@ -318,25 +318,38 @@ BOLD, DIM, RED, GREEN, YELLOW, RESET = (
     "\033[1m", "\033[2m", "\033[31m", "\033[32m", "\033[33m", "\033[0m")
 
 
+def actionable(findings):
+    """The findings that are a theme's problem to fix.
+
+    `offscreen` and `unresolved` are explicitly not: the first means Firefox
+    still ships the name in a document this tool cannot open, and the second
+    means we could not tell. Naming the two that count in one place keeps the
+    callers from drifting -- `fxcss upgrade --audit` had grown the inverse
+    test (`!= "unresolved"`), so a healthy offscreen name blocked an upgrade.
+    That was latent until the pack started resolving more names into the
+    offscreen tier.
+    """
+    return [f for f in findings if f["confidence"] in ("renamed", "similar")]
+
+
 def report(result, show_all=False, colour=True):
     def c(code, s):
         return f"{code}{s}{RESET}" if colour else s
 
-    actionable = [f for f in result["findings"]
-                  if f["confidence"] in ("renamed", "similar")]
+    problems = actionable(result["findings"])
     offscreen = [f for f in result["findings"] if f["confidence"] == "offscreen"]
     unresolved = [f for f in result["findings"] if f["confidence"] == "unresolved"]
 
     print()
-    if not actionable:
+    if not problems:
         print("  No selectors need attention: every id and class the theme uses "
               "was found\n  in the running Firefox.")
     else:
-        one = len(actionable) == 1
-        print(c(BOLD, f"  {len(actionable)} selector{'' if one else 's'}"
+        one = len(problems) == 1
+        print(c(BOLD, f"  {len(problems)} selector{'' if one else 's'}"
                      f" {'needs' if one else 'need'} attention"))
 
-    for finding in actionable:
+    for finding in problems:
         label = "RENAMED" if finding["confidence"] == "renamed" else "SIMILAR"
         tint = GREEN if finding["confidence"] == "renamed" else YELLOW
         print()

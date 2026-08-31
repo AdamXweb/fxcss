@@ -2803,6 +2803,34 @@ class OffscreenBeatsFuzzyTests(unittest.TestCase):
         self.assertEqual(finding["replacement"], ".placesToolbar")
 
 
+class ActionableFindingsTests(unittest.TestCase):
+    """One definition of "the theme's problem", so callers cannot drift.
+
+    `fxcss upgrade --audit` had grown the inverse test (`!= "unresolved"`),
+    which counts `offscreen` -- a name Firefox demonstrably still ships -- as
+    a reason to block an upgrade. Harmless while almost nothing resolved to
+    offscreen; not harmless once the pack started putting names there.
+    """
+
+    FINDINGS = [
+        {"confidence": "renamed", "token": "#a"},
+        {"confidence": "similar", "token": "#b"},
+        {"confidence": "offscreen", "token": "#c"},
+        {"confidence": "unresolved", "token": "#d"},
+    ]
+
+    def test_only_renamed_and_similar_count(self):
+        from fxcss import audit
+        self.assertEqual([f["token"] for f in audit.actionable(self.FINDINGS)],
+                         ["#a", "#b"])
+
+    def test_a_shipped_name_does_not_block_an_upgrade(self):
+        from fxcss import audit
+        offscreen_only = [f for f in self.FINDINGS
+                          if f["confidence"] == "offscreen"]
+        self.assertEqual(audit.actionable(offscreen_only), [])
+
+
 class DialogViewContractTests(unittest.TestCase):
     """Pin the constraints the modal-dialog capture cannot survive without.
 

@@ -1040,8 +1040,7 @@ def cmd_upgrade(args):
             with core.Session(theme_root, firefox) as session:
                 result = audit_mod.audit(session, theme_root)
             audit_mod.report(result, colour=not args.no_colour)
-            actionable = [f for f in result["findings"]
-                          if f["confidence"] != "unresolved"]
+            actionable = audit_mod.actionable(result["findings"])
             if actionable and not args.force:
                 print(f"  {len(actionable)} selector(s) in the new version "
                       "match nothing in this Firefox.\n  Pass --force to "
