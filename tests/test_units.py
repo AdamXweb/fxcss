@@ -2652,6 +2652,97 @@ class ModuleUrlTests(unittest.TestCase):
             self.assertIn(name, source, name)
 
 
+class SelectionRejectTests(unittest.TestCase):
+    """Under-selecting on a typo is right; doing it silently is not.
+
+    Someone typed "20, 4" at the install menu and got sheet 4 alone. Their
+    terminal had leaked a Page Up escape into the line, so the first token
+    arrived as "\\x1b[5~20", int() refused it, and it was dropped without a
+    word. The parse was working as designed; the silence was the defect.
+    """
+
+    def test_the_escape_sequence_case_is_reported(self):
+        from fxcss.cli import scan_selection
+        picked, ignored = scan_selection("\x1b[5~20, 4", 30)
+        self.assertEqual(picked, [3])
+        self.assertEqual(ignored, [("\x1b[5~20", "not a number")])
+
+    def test_out_of_range_is_reported_too(self):
+        from fxcss.cli import scan_selection
+        picked, ignored = scan_selection("99, 4", 30)
+        self.assertEqual(picked, [3])
+        self.assertEqual(ignored, [("99", "outside 1-30")])
+
+    def test_a_clean_selection_reports_nothing(self):
+        from fxcss.cli import scan_selection
+        for raw in ("20, 4", "4, 20", "20 4", "all", ""):
+            self.assertEqual(scan_selection(raw, 30)[1], [], raw)
+
+    def test_parse_selection_keeps_its_old_shape(self):
+        """Callers with nothing to say about rejects still get a plain list."""
+        from fxcss.cli import parse_selection
+        self.assertEqual(parse_selection("2,nonsense,99", 3), [1])
+
+
+class ProfileIdentityTests(unittest.TestCase):
+    """Which profile is mine? The kind alone did not answer it.
+
+    Three profiles, the (Enter) default on dev-edition-default, and the
+    Firefox actually in use on default-release. Nothing on screen said which
+    one was live, so the theme went into the wrong profile and looked like it
+    had simply not worked.
+    """
+
+    def test_home_paths_are_shortened(self):
+        from fxcss.cli import _short_path
+        inside = Path.home() / "Library" / "profile"
+        self.assertEqual(_short_path(inside), "~/Library/profile")
+
+    def test_paths_outside_home_are_left_alone(self):
+        from fxcss.cli import _short_path
+        self.assertEqual(_short_path(Path("/opt/profile")), "/opt/profile")
+
+    def test_a_profile_with_its_own_chrome_is_called_out(self):
+        from fxcss.cli import _profile_notes
+        with tempfile.TemporaryDirectory() as td:
+            chrome = Path(td) / "chrome"
+            chrome.mkdir()
+            (chrome / "userChrome.css").write_text("/* mine */")
+            notes = _profile_notes({"path": Path(td)})
+        self.assertIn("has its own chrome/", notes)
+
+    def test_an_untouched_profile_says_nothing(self):
+        from fxcss.cli import _profile_notes
+        with tempfile.TemporaryDirectory() as td:
+            self.assertEqual(_profile_notes({"path": Path(td)}), [])
+
+    def test_the_notes_reach_the_rendered_line(self):
+        from fxcss.cli import _profile_line
+        line = _profile_line({"name": "default-release", "kind": "Release",
+                              "path": Path("/opt/p")},
+                             number=3, notes=["open in Firefox now"])
+        self.assertIn("open in Firefox now", line)
+
+
+class PaintTests(unittest.TestCase):
+    def test_no_colour_env_wins(self):
+        from fxcss.cli import paint
+        import os
+        old = os.environ.get("NO_COLOR")
+        os.environ["NO_COLOR"] = "1"
+        try:
+            self.assertEqual(paint(True)("\033[1m", "text"), "text")
+        finally:
+            if old is None:
+                del os.environ["NO_COLOR"]
+            else:
+                os.environ["NO_COLOR"] = old
+
+    def test_disabled_returns_plain_text(self):
+        from fxcss.cli import paint
+        self.assertEqual(paint(False)("\033[1m", "text"), "text")
+
+
 class SuggestionPresentationTests(unittest.TestCase):
     """A guess must not be presented as the change being proposed.
 
