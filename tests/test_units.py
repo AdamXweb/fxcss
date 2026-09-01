@@ -2652,6 +2652,87 @@ class ModuleUrlTests(unittest.TestCase):
             self.assertIn(name, source, name)
 
 
+class SuggestionPresentationTests(unittest.TestCase):
+    """A guess must not be presented as the change being proposed.
+
+    RENAMED and SIMILAR used to render identically -- same before/after diff,
+    separated only by a colour that `--no-colour` strips. WhiteSur's weekly
+    watch then advertised `#placesToolbar` -> `#PlacesToolbar` in three pull
+    request bodies, formatted exactly like the fix it had applied. They are
+    different elements in different documents; applying it would have moved
+    Library window styling onto the browser window's bookmarks toolbar.
+    """
+
+    RENAMED = {"confidence": "renamed", "token": "#old-id",
+               "replacement": ".old-id",
+               "reason": "same name, now a class rather than an id",
+               "uses": [{"file": "a.css", "line": 1, "text": "#old-id {"}]}
+    SIMILAR = {"confidence": "similar", "token": "#placesToolbar",
+               "replacement": "#PlacesToolbar",
+               "reason": "no exact match; closest live name is #PlacesToolbar",
+               "replacement_home": "browser.xhtml",
+               "uses": [{"file": "b.css", "line": 9, "text": "#placesToolbar {"}]}
+
+    def render(self, findings):
+        import io, contextlib
+        from fxcss import audit
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            audit.report({"findings": findings}, colour=False)
+        return buf.getvalue()
+
+    def test_an_exact_match_still_renders_as_a_diff(self):
+        out = self.render([self.RENAMED])
+        self.assertIn("- #old-id {", out)
+        self.assertIn("+ .old-id {", out)
+
+    def test_a_guess_does_not_render_as_a_diff(self):
+        """No +/- lines: the shape is what invites a paste."""
+        out = self.render([self.SIMILAR])
+        self.assertNotIn("- #placesToolbar {", out)
+        self.assertNotIn("+ #PlacesToolbar {", out)
+        self.assertIn("#placesToolbar {", out)   # the current line, unadorned
+
+    def test_a_guess_says_it_was_not_applied(self):
+        self.assertIn("not applied", self.render([self.SIMILAR]))
+
+    def test_a_guess_names_the_document_the_replacement_belongs_to(self):
+        """The one line that makes the placesToolbar error self-evident."""
+        self.assertIn("#PlacesToolbar belongs to browser.xhtml",
+                      self.render([self.SIMILAR]))
+
+    def test_the_two_are_distinguishable_without_colour(self):
+        both = self.render([self.RENAMED, self.SIMILAR])
+        self.assertIn("RENAMED", both)
+        self.assertIn("SIMILAR", both)
+        self.assertEqual(both.count("not applied"), 1)
+
+
+class MarkupHomeTests(unittest.TestCase):
+    PACK = {"ids": {"PlacesToolbar": "omni.ja!chrome/browser/content/browser/browser.xhtml"},
+            "classes": {"sidebar-panel": "omni.ja!chrome/browser/places/bookmarksSidebar.xhtml"},
+            "consumed": {}, "declared": set(), "paths": []}
+
+    def test_reports_the_file_not_the_whole_pack_path(self):
+        from fxcss.audit import _markup_home
+        self.assertEqual(_markup_home(self.PACK, "#", "PlacesToolbar"),
+                         "browser.xhtml")
+        self.assertEqual(_markup_home(self.PACK, ".", "sidebar-panel"),
+                         "bookmarksSidebar.xhtml")
+
+    def test_an_unknown_name_or_absent_pack_is_silent(self):
+        from fxcss.audit import _markup_home
+        self.assertIsNone(_markup_home(self.PACK, "#", "neverExisted"))
+        self.assertIsNone(_markup_home(None, "#", "PlacesToolbar"))
+
+    def test_a_near_miss_finding_carries_it(self):
+        from fxcss import audit
+        dom = {"ids": {"PlacesToolbar"}, "classes": set()}
+        finding = audit.suggest("#placesToolbar", dom, pack=self.PACK)
+        self.assertEqual(finding["confidence"], "similar")
+        self.assertEqual(finding["replacement_home"], "browser.xhtml")
+
+
 class TemplateActionVersionTests(unittest.TestCase):
     """The shipped templates must not fall behind fxcss's own workflows.
 

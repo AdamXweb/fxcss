@@ -307,6 +307,20 @@ def _is_near_miss(token_name, candidate):
     return _differing_chars(token_name, candidate) <= 2
 
 
+def _markup_home(pack, kind, name):
+    """Which shipped document carries this id or class, if the pack knows.
+
+    A near-miss suggestion compares spellings, so it can land on a name
+    belonging to an entirely different document. The pack already records
+    where every name lives; surfacing it is what lets a reader see that in one
+    line rather than going to searchfox to find out.
+    """
+    if not pack:
+        return None
+    where = (pack["ids"] if kind == "#" else pack["classes"]).get(name)
+    return where.rsplit("/", 1)[-1] if where else None
+
+
 def suggest(token, dom, pack=None, scoped_out=False):
     """Infer a replacement for a token that matches nothing."""
     kind, name = token[0], token[1:]
@@ -363,7 +377,8 @@ def suggest(token, dom, pack=None, scoped_out=False):
              if _is_near_miss(name, c)][:1]
     if close:
         return {"replacement": kind + close[0], "confidence": "similar",
-                "reason": f"no exact match; closest live name is {kind}{close[0]}"}
+                "reason": f"no exact match; closest live name is {kind}{close[0]}",
+                "replacement_home": _markup_home(pack, kind, close[0])}
 
     # Same name in the other namespace but only as a near-miss.
     other = sorted(classes if kind == "#" else ids)
@@ -372,7 +387,8 @@ def suggest(token, dom, pack=None, scoped_out=False):
     if close:
         flip = "." if kind == "#" else "#"
         return {"replacement": flip + close[0], "confidence": "similar",
-                "reason": f"closest live name is {flip}{close[0]}"}
+                "reason": f"closest live name is {flip}{close[0]}",
+                "replacement_home": _markup_home(pack, flip, close[0])}
 
     return {"replacement": None, "confidence": "unresolved",
             "reason": "no similar element found in any state fxcss could produce"}
@@ -456,19 +472,42 @@ def report(result, show_all=False, colour=True):
         print(c(BOLD, f"  {len(problems)} selector{'' if one else 's'}"
                      f" {'needs' if one else 'need'} attention"))
 
+    # RENAMED and SIMILAR used to render identically -- same before/after diff,
+    # separated only by a colour that --no-colour strips. In a CI pull request
+    # body that made a guess look exactly like the change being proposed, and
+    # WhiteSur's `#placesToolbar` suggestion (the Library window's toolbar,
+    # "corrected" to the browser window's) got advertised that way three times
+    # over. Only the exact matches are written as a diff now.
     for finding in problems:
-        label = "RENAMED" if finding["confidence"] == "renamed" else "SIMILAR"
-        tint = GREEN if finding["confidence"] == "renamed" else YELLOW
+        exact = finding["confidence"] == "renamed"
         print()
-        print(f"  {c(tint, label)}  {c(BOLD, finding['token'])}"
-              f"  →  {c(BOLD, finding['replacement'])}")
-        print(f"           {c(DIM, finding['reason'])}")
+        if exact:
+            print(f"  {c(GREEN, 'RENAMED')}  {c(BOLD, finding['token'])}"
+                  f"  →  {c(BOLD, finding['replacement'])}")
+            print(f"           {c(DIM, finding['reason'])}")
+        else:
+            print(f"  {c(YELLOW, 'SIMILAR')}  {c(BOLD, finding['token'])}"
+                  f"  →  {c(BOLD, finding['replacement'])}"
+                  f"  {c(YELLOW, '(a guess, not applied)')}")
+            print(f"           {c(DIM, finding['reason'])}")
+            home = finding.get("replacement_home")
+            if home:
+                print(f"           {c(DIM, finding['replacement'] + ' belongs to ' + home)}")
+            print(f"           {c(DIM, 'check what reads that name before using it -- a close')}")
+            print(f"           {c(DIM, 'spelling can belong to an unrelated element')}")
+
         for use in finding["uses"][:3]:
-            after = replace_in_line(use["text"], finding["token"], finding["replacement"])
             print()
             print(f"    {c(DIM, use['file'] + ':' + str(use['line']))}")
-            print(f"    {c(RED, '- ' + use['text'].strip())}")
-            print(f"    {c(GREEN, '+ ' + after.strip())}")
+            if exact:
+                after = replace_in_line(use["text"], finding["token"],
+                                        finding["replacement"])
+                print(f"    {c(RED, '- ' + use['text'].strip())}")
+                print(f"    {c(GREEN, '+ ' + after.strip())}")
+            else:
+                # No +/- : a suggestion should not arrive pre-formatted as a
+                # patch someone can paste without reading it.
+                print(f"      {use['text'].strip()}")
         extra = len(finding["uses"]) - 3
         if extra > 0:
             plural = "s" if extra != 1 else ""
