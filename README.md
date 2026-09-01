@@ -99,7 +99,7 @@ the [releases page](https://github.com/AdamXweb/fxcss/releases) has the latest.
 CI runners' Pythons are not externally managed, so plain pip is fine there:
 
 ```bash
-pip install "fxcss[images]==0.20.0"
+pip install "fxcss[images]==0.21.0"
 ```
 
 Either gives you an `fxcss` command. To hack on it, clone and install editable:
@@ -1063,7 +1063,7 @@ check out the base revision and the pull request revision, render both, compare,
 and publish the result.
 
 ```yaml
-- run: pip install "fxcss[images]==0.20.0"   # pin: your CI, your upgrades
+- run: pip install "fxcss[images]==0.21.0"   # pin: your CI, your upgrades
 - run: fxcss shot --theme base --out shots/base
 - run: fxcss shot --theme head --out shots/head
 - run: fxcss compare --base shots/base --head shots/head --out out/ --platform ${{ runner.os }}
