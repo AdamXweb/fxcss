@@ -296,16 +296,54 @@ def cmd_try(args):
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-def _profile_line(profile, number=None, marker=""):
+def _short_path(path):
+    """Home-relative, because the interesting part is the tail."""
+    try:
+        return "~/" + str(Path(path).relative_to(Path.home()))
+    except ValueError:
+        return str(path)
+
+
+def _profile_notes(profile):
+    """The facts that actually settle "which one is mine?".
+
+    The kind alone was not enough. Someone with three profiles picked the
+    wrong one because the (Enter) default was dev-edition-default while the
+    Firefox they use every day was running on default-release. Which profile
+    holds a lock right now answers that directly, and whether a theme is
+    already installed says which one they have themed before.
+    """
+    from . import install
+    notes = []
+    try:
+        if install.firefox_running(profile["path"]):
+            notes.append("open in Firefox now")
+    except OSError:
+        pass
+    state = profile_state(profile)
+    if state == "managed":
+        notes.append("fxcss theme installed")
+    elif state == "unmanaged":
+        notes.append("has its own chrome/")
+    return notes
+
+
+def _profile_line(profile, number=None, marker="", notes=None, colour=None):
     """One profile as a line: which Firefox it belongs to, then where it is.
 
     The kind is the point of this: `default-release` and `dev-edition-default`
     are a letter apart in a list of hashed directory names, and installing a
     theme into the wrong one looks exactly like the theme not working.
     """
+    from .audit import BOLD
+    c = colour or (lambda code, text: text)
     lead = f"  {number}. " if number is not None else "  "
     kind = f"[{profile['kind']}]" if profile.get("kind") else "[unrecognised]"
-    return f"{lead}{profile['name']:<22} {kind:<26} {profile['path']}{marker}"
+    line = (f"{lead}{profile['name']:<22} {kind:<26} "
+            f"{_short_path(profile['path'])}{marker}")
+    if notes:
+        line += "\n" + " " * len(lead) + c(BOLD, "→ " + ", ".join(notes))
+    return line
 
 
 def complete_module():
@@ -349,9 +387,11 @@ def _print_profiles():
               "places).", file=sys.stderr)
         return 2
     print("Firefox profiles:")
+    c = paint()
     for profile in profiles:
         print(_profile_line(profile,
-                            marker="  (default)" if profile["default"] else ""))
+                            marker="  (default)" if profile["default"] else "",
+                            notes=_profile_notes(profile), colour=c))
     if any(not p.get("kind") for p in profiles):
         print("\n  [unrecognised] means the directory name does not carry one "
               "of Firefox's\n  channel suffixes — usually a profile someone "
@@ -603,10 +643,12 @@ def _choose_profile(explicit, interactive, prefer=None):
             "error: several Firefox profiles and no clear default; pass "
             "--profile <name-or-path> (--list-profiles shows them)")
     default = profiles.index(defaults[0]) if defaults else 0
+    c = paint()
     print("Several Firefox profiles exist:")
     for i, profile in enumerate(profiles, 1):
         marker = "  (Enter)" if i - 1 == default else ""
-        print(_profile_line(profile, number=i, marker=marker))
+        print(_profile_line(profile, number=i, marker=marker,
+                            notes=_profile_notes(profile), colour=c))
     try:
         raw = input(f"Which profile [1-{len(profiles)}]: ")
     except EOFError:
@@ -614,28 +656,62 @@ def _choose_profile(explicit, interactive, prefer=None):
     return profiles[_parse_choice(raw, len(profiles), default)]
 
 
-def parse_selection(raw, count):
-    """Menu input -> zero-based indices, for a multiple-choice list.
+def paint(enabled=None):
+    """A colouriser for prompts, off unless a human is watching.
+
+    NO_COLOR is honoured because these are interactive prompts, not report
+    output with its own --no-colour flag; someone who has set it globally
+    should not have to learn a per-command switch.
+    """
+    if enabled is None:
+        enabled = sys.stdout.isatty()
+    enabled = enabled and not os.environ.get("NO_COLOR")
+
+    def colour(code, text):
+        if not enabled:
+            return text
+        from .audit import RESET
+        return f"{code}{text}{RESET}"
+    return colour
+
+
+def scan_selection(raw, count):
+    """Menu input -> (zero-based indices, tokens that were not usable).
 
     Accepts "1,3", "1 3", "all", and empty for none. Anything out of range or
     unreadable is dropped rather than guessed at: this picks stylesheets that
     get written into someone's profile, so a typo should under-select, never
     over-select. Order is the list's, not the order typed, and repeats collapse.
+
+    Returning the rejects alongside is the point. Under-selecting is the right
+    instinct but it must not be silent: someone typed "20, 4" into the install
+    menu, their terminal had leaked a Page Up escape into the line, and the
+    first token arrived as "\\x1b[5~20". int() refused it, the token vanished,
+    and they got sheet 4 alone with nothing said. The caller can now show what
+    it threw away and ask again.
     """
     text = (raw or "").strip().lower()
     if not text:
-        return []
+        return [], []
     if text in ("all", "*", "a"):
-        return list(range(count))
-    picked = set()
+        return list(range(count)), []
+    picked, ignored = set(), []
     for token in text.replace(",", " ").split():
         try:
             index = int(token) - 1
         except ValueError:
+            ignored.append((token, "not a number"))
             continue
         if 0 <= index < count:
             picked.add(index)
-    return sorted(picked)
+        else:
+            ignored.append((token, f"outside 1-{count}"))
+    return sorted(picked), ignored
+
+
+def parse_selection(raw, count):
+    """Just the indices, for callers that have nothing to say about rejects."""
+    return scan_selection(raw, count)[0]
 
 
 def _sheet_conflicts(chosen, indent="  "):
@@ -667,6 +743,8 @@ def _choose_sheets(variants, interactive):
     """
     if not interactive or not variants:
         return []
+    from .audit import BOLD, YELLOW
+    c = paint()
     print("\n  This theme ships optional stylesheets:")
     for i, sheet in enumerate(variants, 1):
         print(f"    {i}. {sheet.stem}")
@@ -674,19 +752,39 @@ def _choose_sheets(variants, interactive):
     # `all` is offered above and is right for most themes, but wrong for one
     # with a family of alternatives in it -- so a picked set is checked and
     # the question asked again, rather than the answer being refused.
+    #
+    # Rejected tokens get the same treatment. Dropping them quietly is how a
+    # stray escape sequence in the line turned "20, 4" into sheet 4 alone.
+    chosen = []
     for attempt in range(3):
         try:
             raw = input("  Include: ")
         except EOFError:
             raw = ""
-        chosen = [variants[i] for i in parse_selection(raw, len(variants))]
+        # Empty means "none" the first time and "keep what you read" on a
+        # retry, so accepting a partial answer never costs the whole list.
+        if attempt and not raw.strip():
+            break
+        indices, ignored = scan_selection(raw, len(variants))
+        chosen = [variants[i] for i in indices]
+        for token, why in ignored:
+            # repr() so an escape sequence is shown rather than replayed at
+            # the terminal -- seeing the \x1b is the whole diagnosis.
+            print(c(YELLOW, f"    ignored {token!r} — {why}"))
         clashing = [r for r in _sheet_conflicts(chosen, indent="    ")
                     if r["conflicting"]]
-        if not clashing or attempt == 2:
+        if attempt == 2 or (not clashing and not ignored):
             break
-        print("\n    Pick one of each pair — the rest would have no effect.")
+        if clashing:
+            print("\n    Pick one of each pair — the rest would have no effect.")
+        else:
+            print(f"    That is {len(chosen)} of the "
+                  f"{len(indices) + len(ignored)} you asked for. Retype the "
+                  "whole list, or Enter to keep it.")
     if chosen:
-        print(f"  including: {', '.join(s.stem for s in chosen)}")
+        print(f"  including: {c(BOLD, ', '.join(s.stem for s in chosen))}")
+    else:
+        print("  including: nothing")
     return chosen
 
 
@@ -817,7 +915,10 @@ def cmd_install(args):
             chosen = _choose_sheets(facts["variants"], interactive)
 
         picked = _choose_profile(args.profile, interactive)
-        print(f"\n  profile: {picked['name']}  ({picked['path']})")
+        paint_c = paint()
+        from .audit import BOLD as _BOLD
+        print(f"\n  profile: {paint_c(_BOLD, picked['name'])}  "
+              f"({_short_path(picked['path'])})")
         if install.firefox_running(picked["path"]):
             print("  note: Firefox appears to be running — the theme will "
                   "only show after a restart.")
@@ -830,7 +931,8 @@ def cmd_install(args):
         if result["backup"]:
             print(f"  existing chrome/ saved as {result['backup']}")
         if result["sheets"]:
-            print(f"  optional sheets: {', '.join(result['sheets'])}")
+            print(f"  optional sheets: "
+                  f"{paint_c(_BOLD, ', '.join(result['sheets']))}")
         print(f"  installed {len(result['files'])} file(s) into "
               f"{picked['path'] / 'chrome'}")
         print("\n  Restart Firefox to see it. `fxcss uninstall` puts "
