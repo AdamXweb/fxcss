@@ -35,9 +35,15 @@ def main():
         assert state["pinned"] == [True, False, False], state
         assert state["selected"] == urls[1], state
         assert state["broken"] is False, state
+        session.m.set_context("content")
+        try:
+            actual = session.m.script("return document.location.href;")
+            assert actual == urls[1], actual
+        finally:
+            session.m.set_context("chrome")
         session.setup_window()
         assert session.m.script(state_script) == state, "setup changed existing fixture tabs"
-    print("Startup replaced an unusable browser and repeated setup kept the same tabs", flush=True)
+    print("Startup replaced an unusable browser, content commands reached the selected page, and repeated setup kept the same tabs", flush=True)
 
 
 if __name__ == "__main__":

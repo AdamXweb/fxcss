@@ -477,6 +477,11 @@ class Session:
         # Each attempt creates fresh browsers. A broken initial remoteTab can
         # stay detached indefinitely, so retrying loadURI on it cannot recover.
         _retry_startup_race(lambda: self.m.script(SETUP_TABS, args))
+        # Selecting a tab through browser chrome does not update Marionette's
+        # content context. Re-select this chrome window through the protocol so
+        # content commands target its selected tab instead of the discarded one.
+        handle = Marionette._unwrap(self.m.command("WebDriver:GetWindowHandle"))
+        self.m.command("WebDriver:SwitchToWindow", {"handle": handle})
         result = self.m.async_script(SEED_BOOKMARKS)
         if result is not True:
             print(f"  note: bookmark seeding returned {result!r}", flush=True)

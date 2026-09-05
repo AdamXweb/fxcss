@@ -385,7 +385,7 @@ class SamplePagesTests(unittest.TestCase):
 
 class SessionSetupTests(unittest.TestCase):
     def test_failed_setup_can_be_retried_without_duplicate_bookmarks(self):
-        from unittest.mock import Mock, patch
+        from unittest.mock import Mock, call, patch
         from fxcss import core
         session = core.Session.__new__(core.Session)
         session._window_ready = False
@@ -393,6 +393,7 @@ class SessionSetupTests(unittest.TestCase):
                         ("start.html", "docs.html", "issues.html")}
         session.m = Mock()
         session.m.script.side_effect = [core.MarionetteError("setup failed"), 3]
+        session.m.command.return_value = {"value": "chrome-window"}
         session.m.async_script.return_value = True
         with patch.object(core.time, "sleep"):
             with self.assertRaisesRegex(core.MarionetteError, "setup failed"):
@@ -403,6 +404,10 @@ class SessionSetupTests(unittest.TestCase):
             session.setup_window()
         self.assertTrue(session._window_ready)
         self.assertEqual(session.m.script.call_count, 2)
+        self.assertEqual(session.m.command.call_args_list, [
+            call("WebDriver:GetWindowHandle"),
+            call("WebDriver:SwitchToWindow", {"handle": "chrome-window"}),
+        ])
         session.m.async_script.assert_called_once_with(core.SEED_BOOKMARKS)
 
 
