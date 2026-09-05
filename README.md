@@ -1246,10 +1246,18 @@ Upgrade an existing pipx installation with `pipx upgrade fxcss`.
 
 ### Upgrading to 0.22
 
-Saved screenshot baselines now need a complete capture coverage report. If a
-baseline predates these reports, capture it again with
-`fxcss check --update-baseline` and review the new images. Missing views and
-failed browser states prevent a baseline update.
+The new `check` command requires baselines with a complete capture coverage
+report. To start using it with an older collection of screenshots, choose a
+fresh baseline directory, then review the new images:
+
+```bash
+fxcss check --baseline .fxcss/baseline-0.22 --update-baseline
+```
+
+Save that path as `baseline` in `.fxcss.json` for subsequent checks. Existing
+directories not managed by `check` are preserved. Missing views and failed
+browser states prevent a baseline update. You can still use `compare` directly
+with older screenshots.
 
 Theme repositories keep their generated workflows and pinned fxcss version
 until you update those files. To pick up the capture fixes and workflow
