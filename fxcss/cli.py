@@ -902,17 +902,19 @@ def cmd_install(args):
                       file=sys.stderr)
                 return 2
             chosen = [by_name[w] for w in sorted(wanted)]
-            blocking = [r for r in _sheet_conflicts(chosen)
-                        if r["conflicting"]]
-            if blocking and not args.force:
-                print("\n  Refusing to install stylesheets that cancel each "
-                      "other out — only one\n  of them would have any effect, "
-                      "and which one is decided by import\n  order rather "
-                      "than by you. Pick one, or pass --force.",
-                      file=sys.stderr)
-                return 2
         else:
             chosen = _choose_sheets(facts["variants"], interactive)
+
+        # The menu can return its last selection on Enter, EOF or exhausted
+        # retries. Validate that answer just like an explicit --with list.
+        blocking = [r for r in _sheet_conflicts(chosen) if r["conflicting"]]
+        if blocking and not args.force:
+            print("\n  Refusing to install stylesheets that cancel each "
+                  "other out — only one\n  of them would have any effect, "
+                  "and which one is decided by import\n  order rather "
+                  "than by you. Pick one, or pass --force.",
+                  file=sys.stderr)
+            return 2
 
         picked = _choose_profile(args.profile, interactive)
         paint_c = paint()

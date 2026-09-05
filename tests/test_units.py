@@ -556,10 +556,6 @@ class ImportabilityTests(unittest.TestCase):
         import fxcss.adopt, fxcss.omni                   # noqa: F401,E401
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TitleForTests(unittest.TestCase):
     def title(self, name):
         from fxcss.compare import title_for
@@ -2940,6 +2936,80 @@ class SelectionRejectTests(unittest.TestCase):
         self.assertEqual(parse_selection("2,nonsense,99", 3), [1])
 
 
+class InstallSheetConflictTests(unittest.TestCase):
+    """Every route out of the picker must respect install's --force gate."""
+
+    def install(self, answers, *options):
+        from contextlib import ExitStack, redirect_stderr, redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+        from fxcss import cli, install
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            theme, profile = root / "theme", root / "profile"
+            (theme / "chrome").mkdir(parents=True)
+            (theme / "custom").mkdir()
+            (theme / "chrome" / "userChrome.css").write_text("/* base */")
+            for name, colour in (("a", "red"), ("b", "blue")):
+                (theme / "custom" / f"{name}.css").write_text(
+                    f":root {{ --accent: {colour}; }}")
+            profile.mkdir()
+            (profile / "prefs.js").touch()
+            args = cli.build_parser().parse_args(
+                ["install", str(theme), "--profile", str(profile), "--yes",
+                 *options])
+            output, errors = StringIO(), StringIO()
+            with ExitStack() as stack:
+                stack.enter_context(redirect_stdout(output))
+                stack.enter_context(redirect_stderr(errors))
+                stack.enter_context(patch.object(output, "isatty", return_value=True))
+                stack.enter_context(patch("fxcss.cli.sys.stdin.isatty", return_value=True))
+                stack.enter_context(patch.dict("os.environ", {"CI": "", "NO_COLOR": "1"}))
+                stack.enter_context(patch("builtins.input", side_effect=answers))
+                stack.enter_context(patch("fxcss.install.discover_profiles", return_value=[]))
+                result = cli.cmd_install(args)
+            manifest = install.read_manifest(profile)
+            if result != 0:
+                self.assertEqual(list(profile.iterdir()), [profile / "prefs.js"])
+            return result, manifest, errors.getvalue()
+
+    def test_conflicting_menu_answers_never_install_without_force(self):
+        for answers in (["1,2", ""], ["1,2", EOFError()],
+                        ["1,2", "1,2", "1,2"], ["1,2,99", ""]):
+            with self.subTest(answers=answers):
+                result, manifest, error = self.install(answers)
+                self.assertEqual(result, 2)
+                self.assertIsNone(manifest)
+                self.assertIn("Pick one, or pass --force", error)
+
+    def test_corrected_menu_selection_installs(self):
+        result, manifest, _ = self.install(["1,2", "1"])
+        self.assertEqual(result, 0)
+        self.assertEqual(manifest["sheets"], ["a"])
+
+    def test_enter_keeps_a_valid_partial_selection(self):
+        result, manifest, _ = self.install(["1,99", ""])
+        self.assertEqual(result, 0)
+        self.assertEqual(manifest["sheets"], ["a"])
+
+    def test_force_allows_conflicting_menu_selection(self):
+        result, manifest, _ = self.install(["1,2", ""], "--force")
+        self.assertEqual(result, 0)
+        self.assertEqual(manifest["sheets"], ["a", "b"])
+
+    def test_explicit_selection_still_requires_force(self):
+        result, manifest, error = self.install([], "--with", "a,b")
+        self.assertEqual(result, 2)
+        self.assertIsNone(manifest)
+        self.assertIn("Pick one, or pass --force", error)
+
+    def test_force_still_allows_explicit_conflicts(self):
+        result, manifest, _ = self.install([], "--with", "a,b", "--force")
+        self.assertEqual(result, 0)
+        self.assertEqual(manifest["sheets"], ["a", "b"])
+
+
 class ProfileIdentityTests(unittest.TestCase):
     """Which profile is mine? The kind alone did not answer it.
 
@@ -3540,3 +3610,7 @@ class InjectorReachTests(unittest.TestCase):
     def test_no_module_urls_sneak_in(self):
         from fxcss import core
         self.assertNotIn("importESModule", core._INJECTOR_JS)
+
+
+if __name__ == "__main__":
+    unittest.main()
