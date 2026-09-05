@@ -19,9 +19,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - 'chrome/**'
-      - 'custom/**'
-      - 'configuration/**'
+__FXCSS_THEME_PATHS__
       - '.github/workflows/pr-preview.yml'
 
 permissions:

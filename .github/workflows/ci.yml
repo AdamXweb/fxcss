@@ -1,7 +1,7 @@
 name: CI
 
-# Smoke-tests the toolkit against fxcss/templates/starter on the two platforms
-# most themes target. The determinism check is the important one: rendering the
+# Smoke-tests the toolkit against the starter and representative layouts on
+# macOS, Windows and Linux. The determinism check is the important one: rendering the
 # same unchanged theme twice must produce identical screenshots, or `compare`
 # would report noise as a change on every pull request.
 
@@ -10,10 +10,18 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      compatibility:
+        description: 'Also run Stable, ESR, Beta and Nightly compatibility checks'
+        type: boolean
+        default: false
   workflow_call:
 
 permissions:
   contents: read
+
+env:
+  PYTHONUTF8: '1'
 
 jobs:
   units:
@@ -25,7 +33,7 @@ jobs:
       matrix:
         # 3.9 is the floor pyproject claims; the import test makes this job
         # prove every module at least loads there.
-        python: ['3.9', '3.12']
+        python: ['3.9', '3.12', '3.14']
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -33,6 +41,48 @@ jobs:
           python-version: ${{ matrix.python }}
       - run: python -m pip install --disable-pip-version-check ".[images]"
       - run: python -m unittest discover -s tests -v
+
+  profiles:
+    name: Profile recovery (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: python -m pip install .
+      - run: python -m unittest tests.test_profile_safety tests.test_units.InstallThemeTests tests.test_units.UninstallThemeTests tests.test_units.RollbackTests tests.test_units.OriginBackupTests -v
+
+  build-package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: python -m pip install build
+      - run: python -m build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: candidate-dist
+          path: dist/
+          if-no-files-found: error
+
+  package-checks:
+    needs: build-package
+    uses: ./.github/workflows/package-check.yml
+    with:
+      artifact-name: candidate-dist
+
+  compatibility:
+    if: github.event_name == 'workflow_dispatch' && inputs.compatibility
+    uses: ./.github/workflows/firefox-compatibility.yml
 
   smoke:
     name: ${{ matrix.label }}
@@ -44,10 +94,16 @@ jobs:
         include:
           - os: macos-latest
             label: macOS
+            product: firefox-latest-ssl
           - os: windows-latest
             label: Windows
+            product: firefox-latest-ssl
           - os: ubuntu-latest
             label: Linux
+            product: firefox-latest-ssl
+          - os: ubuntu-latest
+            label: Linux-ESR
+            product: firefox-esr-latest-ssl
 
     steps:
       - uses: actions/checkout@v7
@@ -64,7 +120,7 @@ jobs:
         run: |
           set -euo pipefail
           curl -sSL -o firefox.dmg \
-            "https://download.mozilla.org/?product=firefox-latest-ssl&os=osx&lang=en-US"
+            "https://download.mozilla.org/?product=${{ matrix.product }}&os=osx&lang=en-US"
           hdiutil attach -nobrowse -quiet -mountpoint /Volumes/ffci firefox.dmg
           cp -R /Volumes/ffci/Firefox.app "$RUNNER_TEMP/Firefox.app"
           hdiutil detach /Volumes/ffci -quiet
@@ -79,7 +135,7 @@ jobs:
           # xvfb because Firefox draws no browser chrome headless -- a headless
           # screenshot is an empty window, so a real display is required.
           sudo apt-get install -y -qq xvfb libdbus-glib-1-2 >/dev/null
-          curl -sSL -o firefox.tar "https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US"
+          curl -sSL -o firefox.tar "https://download.mozilla.org/?product=${{ matrix.product }}&os=linux64&lang=en-US"
           mkdir -p "$RUNNER_TEMP/ff"
           tar -xf firefox.tar -C "$RUNNER_TEMP/ff"
           echo "FIREFOX_BIN=$RUNNER_TEMP/ff/firefox/firefox" >> "$GITHUB_ENV"
@@ -103,7 +159,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $installer = Join-Path $env:RUNNER_TEMP 'firefox-setup.exe'
-          Invoke-WebRequest -Uri 'https://download.mozilla.org/?product=firefox-latest-ssl&os=win64&lang=en-US' -OutFile $installer
+          Invoke-WebRequest -Uri 'https://download.mozilla.org/?product=${{ matrix.product }}&os=win64&lang=en-US' -OutFile $installer
           Start-Process -FilePath $installer -ArgumentList '/S' -Wait
           $bin = 'C:\Program Files\Mozilla Firefox\firefox.exe'
           if (-not (Test-Path $bin)) { throw "Firefox not found at $bin" }
@@ -112,15 +168,27 @@ jobs:
       - name: doctor
         run: fxcss doctor --theme fxcss/templates/starter
 
+      - name: Representative theme layouts
+        run: python -m tests.smoke_themes
+
       - name: Optional stylesheets apply in install and try
         run: python -m tests.smoke_variants
 
       # Three, not two. The flakes this has caught were intermittent, so a
       # single pair passed often enough to be misleading.
-      - name: Capture three times
+      - name: Project check and three captures
         shell: bash
         run: |
-          fxcss shot --theme fxcss/templates/starter --out shots/a --variants all
+          fxcss check --theme fxcss/templates/starter --firefox "$FIREFOX_BIN" \
+            --out "$GITHUB_WORKSPACE/out/check"
+          python - <<'PY'
+          import json, pathlib, shutil
+          report, = pathlib.Path("out/check").glob("run-*/summary.json")
+          result = json.loads(report.read_text())
+          assert result["exit_code"] == 0, result
+          browser, = result["browsers"]
+          shutil.copytree(report.parent / browser["key"] / "shots", "shots/a")
+          PY
           fxcss shot --theme fxcss/templates/starter --out shots/b --variants all
           fxcss shot --theme fxcss/templates/starter --out shots/c --variants all
 
@@ -138,9 +206,10 @@ jobs:
           for pair in ("b", "c"):
               s = json.loads(pathlib.Path(f"out/determinism-{pair}/summary.json").read_text())
               changed = s["changed_views"]
-              if changed:
+              if s["any_change"]:
                   failed = True
                   print(f"run a vs run {pair}: rendered differently")
+                  print(f"    missing: {s['only_in_base']}; added: {s['only_in_head']}")
                   for v in changed:
                       print(f"    {v['view']}: {v['percent']}% of pixels")
               else:
@@ -160,7 +229,7 @@ jobs:
           python - <<'PY'
           import json, sys, pathlib
           s = json.loads(pathlib.Path("out/changed/summary.json").read_text())
-          if not s["any_change"]:
+          if not s["changed_views"]:
               print("An obvious CSS change produced no pixel difference — "
                     "the comparison is not sensitive.")
               sys.exit(1)
@@ -231,9 +300,6 @@ jobs:
               sys.exit(1)
           print(f"all four state views reacted; {len(changed)} views changed")
           PY
-
-      - name: audit — the example theme must have no stale selectors
-        run: fxcss audit --theme fxcss/templates/starter --strict --no-colour
 
       - name: catalogue
         run: fxcss catalogue --theme fxcss/templates/starter --out out/catalogue --self-contained

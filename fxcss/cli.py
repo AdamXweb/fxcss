@@ -20,6 +20,7 @@
     fxcss catalogue    build a directory of themeable UI parts
     fxcss shot         capture a set of screenshots
     fxcss compare      diff two sets into before/after/diff images
+    fxcss check        audit, capture and compare using saved project settings
     fxcss completions  print a shell completion script
     fxcss doctor       report what this Firefox supports
 
@@ -61,10 +62,11 @@ LANDING = """fxcss - a testing toolkit for Firefox userChrome.css themes
     fxcss init                     add before/after PR previews and CI checks
     fxcss tweaks                   screenshot every install option for your README
     fxcss audit                    find selectors Firefox has renamed
+    fxcss check                    run the theme's saved checks and write a report
 
 Run `fxcss --help` for the full command list, or `fxcss <command> --help`
-for one command. Only `fxcss install` touches your real Firefox profile —
-everything else runs in throwaway profiles."""
+for one command. Preview and testing sessions use throwaway profiles;
+install, adopt, upgrade, rollback and uninstall manage your selected real profile."""
 
 TOOLBOX_KEY = {
     "darwin": "Cmd+Opt+Shift+I",
@@ -1172,8 +1174,11 @@ def cmd_upgrade(args):
             with core.Session(theme_root, firefox) as session:
                 core.capture_views(session, outdir / "new")
             print()
-            compare_mod.run(outdir / "installed", outdir / "new",
-                            outdir / "diff", "upgrade")
+            status = compare_mod.run(outdir / "installed", outdir / "new",
+                                     outdir / "diff", "upgrade")
+            if status:
+                print("error: upgrade preview failed; nothing was installed", file=sys.stderr)
+                return status
             print(f"  before/after images: {outdir / 'diff'}")
 
         if install.firefox_running(picked["path"]):
@@ -1727,13 +1732,17 @@ def cmd_shot(args):
 
     toolbar = _toolbar_ops(args)
     firefox = choose_firefox(args.firefox)
-    with core.Session(theme, firefox) as session:
-        if not getattr(args, "only_live", False):
-            core.capture_views(session, args.out.resolve(), variants=variants,
-                               toolbar=toolbar)
-        if urls:
-            print("\n  live sites (captured, never compared):", flush=True)
-            core.capture_live(session, args.out.resolve(), urls)
+    try:
+        with core.Session(theme, firefox) as session:
+            if not getattr(args, "only_live", False):
+                core.capture_views(session, args.out.resolve(), variants=variants,
+                                   toolbar=toolbar)
+            if urls:
+                print("\n  live sites (captured, never compared):", flush=True)
+                core.capture_live(session, args.out.resolve(), urls)
+    except (OSError, ValueError, RuntimeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     print(f"\nwrote screenshots to {args.out}")
     return 0
 
@@ -1745,6 +1754,17 @@ def cmd_compare(args):
         return _needs_pillow("compare", exc)
     return compare.run(args.base.resolve(), args.head.resolve(),
                        args.out.resolve(), args.platform)
+
+
+def cmd_check(args):
+    try:
+        from . import check
+        return check.run(args)
+    except ImportError as exc:
+        return _needs_pillow("check", exc)
+    except (OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
 
 
 def cmd_catalogue(args):
@@ -1818,12 +1838,12 @@ def _bool(v):
     return v.lower() not in ("false", "0", "no")
 
 
-def _common(p, theme=True):
+def _common(p, theme=True, firefox_help=None):
     if theme:
         p.add_argument("--theme", type=Path, default=Path.cwd(),
                        help="theme root, the folder containing chrome/ (default: cwd)")
     p.add_argument("--firefox", default=None,
-                   help="a channel or fork name (stable, beta, dev, nightly, esr, librewolf, floorp, waterfox, zen) or a path to a binary "
+                   help=firefox_help or "a channel or fork name (stable, beta, dev, nightly, esr, librewolf, floorp, waterfox, zen) or a path to a binary "
                         "(default: ask if several are installed)")
 
 
@@ -2117,6 +2137,24 @@ def build_parser():
                         "`fxcss shot`'s --out directly")
     c.add_argument("--platform", default="local")
     c.set_defaults(func=cmd_compare)
+
+    ck = sub.add_parser("check", help="audit, capture and compare with saved project settings")
+    _common(ck, firefox_help="override the saved browser list with one channel or binary path "
+                            "(default: saved settings, otherwise stable)")
+    ck.add_argument("--config", type=Path, help="JSON settings file (default: <theme>/.fxcss.json)")
+    ck.add_argument("--out", type=Path, help="report directory, relative to the theme")
+    ck.add_argument("--baseline", type=Path, help="baseline directory, relative to the theme")
+    ck.add_argument("--update-baseline", action="store_true",
+                    help="accept captures as a baseline only if all checks pass")
+    ck.add_argument("--variants", help="optional stylesheet captures: all or comma-separated names")
+    ck.add_argument("--toolbar", help="toolbar arrangement for the captures")
+    ck.add_argument("--strict", action=argparse.BooleanOptionalAction, default=None,
+                    help="fail on actionable selector findings (default: true)")
+    ck.add_argument("--strict-vars", action=argparse.BooleanOptionalAction, default=None,
+                    help="fail on dead custom properties (default: false)")
+    ck.add_argument("--max-changed-percent", type=float,
+                    help="fail if any view exceeds this percent of changed pixels (0–100)")
+    ck.set_defaults(func=cmd_check)
 
     g = sub.add_parser("catalogue", help="build the themeable UI directory")
     _common(g); _menus(g)

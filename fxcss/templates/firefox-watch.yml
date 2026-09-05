@@ -19,7 +19,10 @@ on:
   workflow_dispatch:
     inputs:
       channel:
-        description: 'Single channel to check (blank = all)'
+        description: 'Firefox channel to check'
+        type: choice
+        default: all
+        options: [all, release, beta, nightly]
         required: false
 
 permissions:
@@ -53,7 +56,7 @@ jobs:
           "fxcss[images]==${{ env.FXCSS_VERSION }}"
 
       - name: Install Firefox (${{ matrix.channel }})
-        if: ${{ github.event.inputs.channel == '' || github.event.inputs.channel == matrix.channel }}
+        if: ${{ github.event.inputs.channel == '' || github.event.inputs.channel == 'all' || github.event.inputs.channel == matrix.channel }}
         run: |
           set -euo pipefail
           case "${{ matrix.channel }}" in
@@ -76,7 +79,7 @@ jobs:
 
       - name: Audit
         id: audit
-        if: ${{ github.event.inputs.channel == '' || github.event.inputs.channel == matrix.channel }}
+        if: ${{ github.event.inputs.channel == '' || github.event.inputs.channel == 'all' || github.event.inputs.channel == matrix.channel }}
         run: |
           set +e
           # Note the redirect rather than a pipe into tee: after a pipeline $?
@@ -100,7 +103,7 @@ jobs:
       # release, and the usual fix is an fxcss update rather than a theme one.
       - name: Capture smoke
         id: smoke
-        if: ${{ github.event.inputs.channel == '' || github.event.inputs.channel == matrix.channel }}
+        if: ${{ github.event.inputs.channel == '' || github.event.inputs.channel == 'all' || github.event.inputs.channel == matrix.channel }}
         run: |
           set +e
           fxcss shot --out "$RUNNER_TEMP/smoke" > smoke.txt 2>&1
@@ -109,7 +112,7 @@ jobs:
           echo "status=$status" >> "$GITHUB_OUTPUT"
 
       - name: Open or update the capture-pipeline issue
-        if: steps.smoke.outputs.status != '0'
+        if: steps.smoke.outcome == 'success' && steps.smoke.outputs.status != '0'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CHANNEL: ${{ matrix.channel }}
@@ -145,7 +148,7 @@ jobs:
           fi
 
       - name: Close the capture-pipeline issue if this channel is clean again
-        if: steps.smoke.outputs.status == '0'
+        if: steps.smoke.outcome == 'success' && steps.smoke.outputs.status == '0'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CHANNEL: ${{ matrix.channel }}
@@ -160,7 +163,7 @@ jobs:
           fi
 
       - name: Open a pull request with the confident fixes
-        if: steps.audit.outputs.status != '0' && steps.audit.outputs.patch == 'yes'
+        if: steps.audit.outcome == 'success' && steps.audit.outputs.status != '0' && steps.audit.outputs.patch == 'yes'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CHANNEL: ${{ matrix.channel }}
@@ -215,7 +218,7 @@ jobs:
             --body-file body.md
 
       - name: Open or update the heads-up issue
-        if: steps.audit.outputs.status != '0' && steps.audit.outputs.patch != 'yes'
+        if: steps.audit.outcome == 'success' && steps.audit.outputs.status != '0' && steps.audit.outputs.patch != 'yes'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CHANNEL: ${{ matrix.channel }}
@@ -243,7 +246,7 @@ jobs:
           fi
 
       - name: Close the issue if this channel is clean again
-        if: steps.audit.outputs.status == '0'
+        if: steps.audit.outcome == 'success' && steps.audit.outputs.status == '0'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CHANNEL: ${{ matrix.channel }}

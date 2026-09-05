@@ -1200,6 +1200,8 @@ def _dialog_shot(session: "Session", outdir: Path, name: str, timeout=45.0):
         return
     if result.get("skip"):
         print(f"  note: {result['skip']}; skipping {name}", flush=True)
+        if result["skip"] == "no in-window modal prompts on this Firefox":
+            return "no in-window modal prompts"
         return
     png = base64.b64decode(result["shot"].split(",", 1)[1])
     if len(png) < 2000:
@@ -1210,10 +1212,31 @@ def _dialog_shot(session: "Session", outdir: Path, name: str, timeout=45.0):
 
 def capture_views(session: Session, outdir: Path, modes=("light", "dark"),
                   variants=None, toolbar=None):
+    """Capture views and require every supported state to be represented."""
+    from . import capture
+    outdir.mkdir(parents=True, exist_ok=True)
+    expected = capture.expected_views(variants or (), modes)
+    # Old generated images cannot mask a failed view on a repeated run.
+    for path in outdir.glob("*.png"):
+        if path.stem in capture.expected_views() or capture.VARIANT.fullmatch(path.stem):
+            path.unlink()
+    coverage = {"info": {}, "unsupported": {}, "failed": {}}
+    try:
+        info = _capture_views(session, outdir, modes, variants, toolbar, coverage)
+    finally:
+        capture.write_coverage(outdir, coverage["info"], expected,
+                               coverage["unsupported"], coverage["failed"])
+    capture.validate_coverage(outdir, expected)
+    return info
+
+
+def _capture_views(session: Session, outdir: Path, modes=("light", "dark"),
+                   variants=None, toolbar=None, coverage=None):
     """Capture the standard set of views. Returns the browser info dict."""
     outdir.mkdir(parents=True, exist_ok=True)
     session.setup_window()
     info = session.info()
+    coverage["info"] = info
     print(f"  firefox {info['version']} ({info['os']}), dpr={info['dpr']}, "
           f"window={info['outer']}, legacyStylesheets={info['legacyStylesheets']}",
           flush=True)
@@ -1254,7 +1277,9 @@ def capture_views(session: Session, outdir: Path, modes=("light", "dark"),
         # its body is painted by its own document, and dark is where themes
         # break it (see DIALOG_VIEW). Captured through its handoff file, not
         # _shot -- no Marionette command may run while the dialog is up.
-        _dialog_shot(session, outdir, f"{mode}-04-dialog")
+        unsupported = _dialog_shot(session, outdir, f"{mode}-04-dialog")
+        if unsupported:
+            coverage["unsupported"][f"{mode}-04-dialog"] = unsupported
 
     # Extra chrome states, captured once rather than per colour scheme: each is
     # about a distinct piece of UI appearing, not about light versus dark.
@@ -1268,7 +1293,8 @@ def capture_views(session: Session, outdir: Path, modes=("light", "dark"),
     time.sleep(4.0)
     state = m.script(AUDIO_STATE)
     if not state.get("playing"):
-        print("  note: audio tab is not reporting sound; capturing anyway", flush=True)
+        coverage["failed"]["extra-04-audio"] = "audio tab did not report playing sound"
+        print("  note: audio state failed; recording the image for diagnosis", flush=True)
     _shot(m, outdir, "extra-04-audio")
     m.script(MUTE_TAB)
     time.sleep(1.2)
@@ -1391,6 +1417,9 @@ def capture_views(session: Session, outdir: Path, modes=("light", "dark"),
                 and state.get("width")):
             _shot(vt.m, outdir, "extra-14-vertical-tabs")
         else:
+            version = re.match(r"\d+", str(info.get("version", "")))
+            if version and int(version[0]) < 133:
+                coverage["unsupported"]["extra-14-vertical-tabs"] = "Firefox before 133"
             print("  note: vertical tabs unavailable on this Firefox "
                   "(needs 133+); skipping that view", flush=True)
 
@@ -1590,8 +1619,9 @@ def find_variant_sheets(theme: Path):
     Looks in the same folders `fxcss try --with` does. Keys are slugs safe for
     a filename, so a capture can be named after its variant.
     """
+    from .fetch import VARIANT_DIRS
     sheets = {}
-    for folder in ("custom", "optional", "options", "extras", "variants"):
+    for folder in VARIANT_DIRS:
         directory = theme / folder
         if directory.is_dir():
             for css in sorted(directory.glob("*.css")):

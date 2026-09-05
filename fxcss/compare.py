@@ -167,12 +167,58 @@ def compare_view(name, base_path, head_path, outdir):
     return result
 
 
-def run(base_dir: Path, head_dir: Path, out: Path, platform: str):
-    out.mkdir(parents=True, exist_ok=True)
+def _captures(directory):
+    if not directory.is_dir():
+        raise ValueError(f"screenshot directory does not exist: {directory}")
+    shots = {p.stem: p for p in sorted(directory.glob("*.png"))}
+    if not shots:
+        raise ValueError(f"no PNG screenshots in {directory}")
+    for path in shots.values():
+        with Image.open(path) as image:
+            if image.format != "PNG":
+                raise ValueError(f"not a PNG screenshot: {path}")
+            image.verify()
+    return shots
 
-    base_shots = {p.stem: p for p in sorted(base_dir.glob("*.png"))}
-    head_shots = {p.stem: p for p in sorted(head_dir.glob("*.png"))}
+
+def _clear_previous(out):
+    """Remove only files named by our previous report, preserving other files."""
+    previous = out / "summary.json"
+    if not previous.exists():
+        return
+    data = json.loads(previous.read_text(encoding="utf-8"))
+    names = ({v["view"] for v in data["views"]} | set(data["only_in_head"])
+             | set(data.get("only_in_base", [])))
+    for name in names:
+        if not isinstance(name, str) or Path(name).name != name or "\\" in name:
+            raise ValueError("invalid filename in previous comparison summary")
+    for name in names:
+        for path in (out / f"{name}.png", out / "full" / f"{name}.png"):
+            if path.is_file() or path.is_symlink():
+                path.unlink()
+    previous.unlink()
+
+
+def run(base_dir: Path, head_dir: Path, out: Path, platform: str):
+    try:
+        return _run(base_dir.resolve(), head_dir.resolve(), out.resolve(), platform)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        print(f"error: cannot compare screenshots: {exc}", file=sys.stderr)
+        return 2
+
+
+def _run(base_dir, head_dir, out, platform):
+    for source in (base_dir, head_dir):
+        if out == source or out in source.parents or source in out.parents:
+            raise ValueError("comparison output must be separate from the input directories")
+
+    base_shots = _captures(base_dir)
+    head_shots = _captures(head_dir)
+    if (out / "full").is_symlink():
+        raise ValueError("comparison full/ directory must not be a symlink")
     shared = sorted(set(base_shots) & set(head_shots))
+    out.mkdir(parents=True, exist_ok=True)
+    _clear_previous(out)
 
     summary = {
         "platform": platform,
@@ -197,7 +243,8 @@ def run(base_dir: Path, head_dir: Path, out: Path, platform: str):
     summary["changed_views"] = [v for v in summary["views"] if v["changed_pixels"]]
     # A view with no base-side counterpart -- a variant this PR adds, say -- is
     # a visual change too, even though there was nothing to diff it against.
-    summary["any_change"] = bool(summary["changed_views"] or summary["only_in_head"])
+    summary["any_change"] = bool(summary["changed_views"] or summary["only_in_head"]
+                                 or summary["only_in_base"])
 
     src = head_dir / "render-info.json"
     if src.exists():
@@ -207,6 +254,8 @@ def run(base_dir: Path, head_dir: Path, out: Path, platform: str):
     print(f"\n{len(summary['changed_views'])} of {len(shared)} views changed on {platform}")
     if summary["only_in_head"]:
         print(f"{len(summary['only_in_head'])} more exist only on the head side")
+    if summary["only_in_base"]:
+        print("Missing from the head captures: " + ", ".join(summary["only_in_base"]))
     return 0
 
 

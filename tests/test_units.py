@@ -600,12 +600,11 @@ class FindVariantSheetsTests(unittest.TestCase):
 class ScaffoldTests(unittest.TestCase):
     def test_variant_alternation(self):
         from fxcss.scaffold import variant_alternation
-        self.assertEqual(variant_alternation([]), "")
-        self.assertEqual(variant_alternation(["b-2", "a"]), "|variant-(?:a|b-2)")
-        # Anything that could break out of the regex is dropped, not escaped:
-        # the allowlist is a security boundary and only boring names belong.
-        self.assertEqual(variant_alternation(["ok", "Bad.Name", "x|y"]),
-                         "|variant-(?:ok)")
+        pattern = re.compile("^(?:" + variant_alternation([]).lstrip("|") + ")$")
+        for name in ("variant-new-option", "variant-a+b", "variant-compact-tabs"):
+            self.assertRegex(name, pattern)
+        for name in ("variant-../bad", "variant-<script>", "variant-x/y", "variant-" + "a" * 161):
+            self.assertIsNone(pattern.fullmatch(name))
 
     def test_https_repo_url(self):
         from fxcss.scaffold import https_repo_url
@@ -631,7 +630,7 @@ class ScaffoldTests(unittest.TestCase):
             self.assertEqual(skipped, [])
             publish = (theme / ".github" / "workflows"
                        / "pr-preview-publish.yml").read_text()
-            self.assertIn("|variant-(?:my-variant)", publish)
+            self.assertIn("|variant-[a-z0-9][a-z0-9+-]{0,159}", publish)
             self.assertNotIn("__FXCSS_", publish)
             preview = (theme / ".github" / "workflows" / "pr-preview.yml").read_text()
             self.assertIn("FXCSS_VERSION: 9.9.9", preview)
@@ -917,8 +916,7 @@ class VariantSpecTests(unittest.TestCase):
 
     def test_combo_slug_is_regex_escaped_in_allowlist(self):
         from fxcss.scaffold import variant_alternation
-        self.assertEqual(variant_alternation(["a+b", "plain"]),
-                         "|variant-(?:a\\+b|plain)")
+        self.assertRegex("variant-a+b", "^(?:" + variant_alternation([]).lstrip("|") + ")$")
 
 
 class TweaksMarkdownTests(unittest.TestCase):
