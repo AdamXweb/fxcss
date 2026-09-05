@@ -392,7 +392,10 @@ class SessionSetupTests(unittest.TestCase):
         session.urls = {name: f"file:///{name}" for name in
                         ("start.html", "docs.html", "issues.html")}
         session.m = Mock()
-        session.m.script.side_effect = [core.MarionetteError("setup failed"), 3]
+        ready = [{"url": session.urls[name], "title": core.SAMPLE_PAGES[name][0],
+                  "busy": False, "loading": False, "iconReady": True}
+                 for name in ("start.html", "docs.html", "issues.html")]
+        session.m.script.side_effect = [core.MarionetteError("setup failed"), 3, ready]
         session.m.command.return_value = {"value": "chrome-window"}
         session.m.async_script.return_value = True
         with patch.object(core.time, "sleep"):
@@ -403,12 +406,37 @@ class SessionSetupTests(unittest.TestCase):
             session.setup_window()
             session.setup_window()
         self.assertTrue(session._window_ready)
-        self.assertEqual(session.m.script.call_count, 2)
+        self.assertEqual(session.m.script.call_count, 3)
         self.assertEqual(session.m.command.call_args_list, [
             call("WebDriver:GetWindowHandle"),
             call("WebDriver:SwitchToWindow", {"handle": "chrome-window"}),
         ])
         session.m.async_script.assert_called_once_with(core.SEED_BOOKMARKS)
+
+    def test_blank_or_incomplete_pages_are_never_ready(self):
+        from fxcss import core
+        expected = [("file:///docs.html", "Documentation")]
+        ready = {"url": expected[0][0], "title": expected[0][1],
+                 "busy": False, "loading": False, "iconReady": True}
+        self.assertTrue(core._fixture_pages_loaded([ready], expected))
+        for change in ({"url": "about:blank"}, {"title": ""}, {"busy": True},
+                       {"loading": True}, {"iconReady": False}):
+            with self.subTest(change=change):
+                self.assertFalse(core._fixture_pages_loaded([dict(ready, **change)], expected))
+        for incomplete in (None, [], [ready, ready]):
+            self.assertFalse(core._fixture_pages_loaded(incomplete, expected))
+
+    def test_page_wait_is_bounded_and_reports_the_loading_state(self):
+        from unittest.mock import Mock, patch
+        from fxcss import core
+        session = core.Session.__new__(core.Session)
+        session.urls = {name: f"file:///{name}" for name in
+                        ("start.html", "docs.html", "issues.html")}
+        session.m = Mock()
+        session.m.script.return_value = [{"url": "about:blank", "busy": True}]
+        with patch.object(core.time, "monotonic", side_effect=[0, 31]):
+            with self.assertRaisesRegex(core.MarionetteError, "sample pages.*about:blank"):
+                session._wait_for_fixture_pages()
 
 
 class StartupRaceTests(unittest.TestCase):

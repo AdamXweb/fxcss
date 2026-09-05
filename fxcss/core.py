@@ -415,6 +415,15 @@ def _retry_startup_race(operation, delays=STARTUP_RACE_DELAYS, sleep=time.sleep)
     return operation()
 
 
+def _fixture_pages_loaded(state, expected):
+    return (isinstance(state, list) and len(state) == len(expected)
+            and all(isinstance(tab, dict) and tab.get("url") == url
+                    and tab.get("title") == title
+                    and tab.get("busy") is False and tab.get("loading") is False
+                    and tab.get("iconReady") is True
+                    for tab, (url, title) in zip(state, expected)))
+
+
 class Session:
     """A running Firefox with a themed profile and a Marionette connection."""
 
@@ -482,11 +491,27 @@ class Session:
         # content commands target its selected tab instead of the discarded one.
         handle = Marionette._unwrap(self.m.command("WebDriver:GetWindowHandle"))
         self.m.command("WebDriver:SwitchToWindow", {"handle": handle})
+        self._wait_for_fixture_pages()
         result = self.m.async_script(SEED_BOOKMARKS)
         if result is not True:
             print(f"  note: bookmark seeding returned {result!r}", flush=True)
         time.sleep(3.0)
         self._window_ready = True
+
+    def _wait_for_fixture_pages(self, timeout=30):
+        # A loading page can paint the same blank frame twice, so _shot's
+        # visual stability check cannot establish that navigation finished.
+        expected = [(self.urls[name], SAMPLE_PAGES[name][0]) for name in
+                    ("start.html", "docs.html", "issues.html")]
+        deadline = time.monotonic() + timeout
+        while True:
+            state = self.m.script(FIXTURE_PAGES_STATE)
+            if _fixture_pages_loaded(state, expected):
+                return
+            if time.monotonic() >= deadline:
+                raise MarionetteError(
+                    f"sample pages did not finish loading in {timeout}s: {state}")
+            time.sleep(0.25)
 
     def apply_harness_css(self):
         """Hide artifacts of the automation harness in every window.
@@ -585,6 +610,21 @@ try {
 }
 for (const tab of original) { gb.removeTab(tab, {animate: false}); }
 return gb.tabs.length;
+"""
+
+FIXTURE_PAGES_STATE = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+const icons = Services.prefs.getBoolPref("browser.chrome.site_icons", true);
+return Array.from(win.gBrowser.tabs, tab => {
+  const browser = tab.linkedBrowser;
+  return {
+    url: browser.currentURI.spec,
+    title: browser.contentTitle,
+    busy: tab.hasAttribute("busy"),
+    loading: browser.webProgress.isLoadingDocument,
+    iconReady: !icons || !!tab.getAttribute("image"),
+  };
+});
 """
 
 # Live sheets used to load into the top browser window's windowUtils only,

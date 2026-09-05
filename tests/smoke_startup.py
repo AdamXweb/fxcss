@@ -1,12 +1,48 @@
 """Fixture setup must replace an unusable initial browser and stay idempotent."""
+from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+import tempfile
+import threading
+import time
 
 from fxcss import core
 
 
+@contextmanager
+def delayed_document():
+    """A local fixture whose navigation outlasts the old three-second sleep."""
+    with tempfile.TemporaryDirectory(prefix="fxcss-delayed-page-") as td:
+        core.build_pages(Path(td))
+        content = (Path(td) / "docs.html").read_bytes()
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                time.sleep(5)
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(content)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(content)
+
+            def log_message(self, *args):
+                pass
+
+        with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
+            worker = threading.Thread(target=server.serve_forever, daemon=True)
+            worker.start()
+            try:
+                yield f"http://127.0.0.1:{server.server_port}/docs.html"
+            finally:
+                server.shutdown()
+                worker.join(timeout=5)
+
+
 def main():
     theme = Path(core.__file__).parent / "templates" / "starter"
-    with core.Session(theme, core.find_firefox()) as session:
+    with delayed_document() as url, core.Session(theme, core.find_firefox()) as session:
+        session.urls["docs.html"] = url
         # Reproduce the operation that failed indefinitely on Windows CI. The
         # original browser must never be navigated, even if it looks ready.
         session.m.script('''
@@ -17,7 +53,9 @@ def main():
                 throw new TypeError("this._browser.frameLoader.remoteTab is null");
             };
         ''')
+        started = time.monotonic()
         session.setup_window()
+        assert time.monotonic() - started >= 5, "setup returned before the delayed page loaded"
         state_script = '''
             const win = Services.wm.getMostRecentWindow("navigator:browser");
             const gb = win.gBrowser;
@@ -39,11 +77,13 @@ def main():
         try:
             actual = session.m.script("return document.location.href;")
             assert actual == urls[1], actual
+            content = session.m.script("return [document.title, document.readyState];")
+            assert content == ["Documentation", "complete"], content
         finally:
             session.m.set_context("chrome")
         session.setup_window()
         assert session.m.script(state_script) == state, "setup changed existing fixture tabs"
-    print("Startup replaced an unusable browser, content commands reached the selected page, and repeated setup kept the same tabs", flush=True)
+    print("Startup replaced an unusable browser, waited for a deliberately slow page, and repeated setup kept the same loaded tabs", flush=True)
 
 
 if __name__ == "__main__":
