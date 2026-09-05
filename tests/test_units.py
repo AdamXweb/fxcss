@@ -556,10 +556,6 @@ class ImportabilityTests(unittest.TestCase):
         import fxcss.adopt, fxcss.omni                   # noqa: F401,E401
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TitleForTests(unittest.TestCase):
     def title(self, name):
         from fxcss.compare import title_for
@@ -3284,3 +3280,7 @@ class InjectorReachTests(unittest.TestCase):
     def test_no_module_urls_sneak_in(self):
         from fxcss import core
         self.assertNotIn("importESModule", core._INJECTOR_JS)
+
+
+if __name__ == "__main__":
+    unittest.main()
