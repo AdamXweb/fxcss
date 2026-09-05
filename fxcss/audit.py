@@ -426,13 +426,91 @@ def audit(session, theme: Path, verbose=True, pack=None):
     findings.sort(key=lambda f: (order[f["confidence"]], f["token"],
                                  f["uses"][0]["file"] if f["uses"] else "",
                                  f["uses"][0]["line"] if f["uses"] else 0))
-    return {"tokens": len(tokens), "live": len(live), "findings": findings}
+    result = {"tokens": len(tokens), "live": len(live), "findings": findings}
+    _mark_duplicate_patches(result, theme)
+    return result
 
 
 def replace_in_line(text, token, replacement):
     """Swap one id/class token in a line, leaving the rest of the rule alone."""
     pattern = re.compile(r"(?<![\w-])" + re.escape(token) + r"(?![\w-])")
     return pattern.sub(replacement, text)
+
+
+# Strings, comments and escapes must be consumed before structural punctuation:
+# commas inside :is(), attribute values or comments do not separate selectors.
+CSS_PARTS = re.compile(r'''/\*[\s\S]*?\*/|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|\\[\s\S]|[{};,\[\]()]''')
+CSS_SPACE = re.compile(r'''"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|\s+''')
+
+
+def _selector_key(selector):
+    # Preserve whitespace inside attribute strings. Only formatting outside
+    # strings can be collapsed when comparing two selectors.
+    selector = CSS_PARTS.sub(
+        lambda m: "" if m[0].startswith("/*") else m[0], selector)
+    return CSS_SPACE.sub(lambda m: " " if m[0].isspace() else m[0], selector).strip()
+
+
+def _selector_lists(source):
+    """Yield source spans for the comma-separated selectors before each rule."""
+    start, commas, depth = 0, [], 0
+    for match in CSS_PARTS.finditer(source):
+        part = match[0]
+        if part in ("(", "["):
+            depth += 1
+        elif part in (")", "]"):
+            depth = max(0, depth - 1)
+        elif depth == 0 and part == ",":
+            commas.append(match.start())
+        elif depth == 0 and part in ("{", "}", ";"):
+            if part == "{" and commas:
+                prelude = _selector_key(source[start:match.start()])
+                if prelude and not prelude.startswith("@"):
+                    starts = [start] + [comma + 1 for comma in commas]
+                    ends = commas + [match.start()]
+                    yield list(zip(starts, ends))
+            start, commas = match.end(), []
+
+
+def _mark_duplicate_patches(result, theme):
+    """Keep exact diagnoses but leave duplicate-producing edits for review.
+
+    Work per source occurrence: a duplicate in one rule must not prevent the
+    same rename being safely patched in a different rule or file.
+    """
+    sources = {}
+    for finding in result["findings"]:
+        if finding["confidence"] != "renamed":
+            continue
+        by_file = {}
+        for use in finding["uses"]:
+            use.pop("patch_note", None)
+            by_file.setdefault(use["file"], []).append(use)
+        for rel, uses in by_file.items():
+            if rel not in sources:
+                source = (theme / rel).read_text(encoding="utf-8", errors="replace")
+                sources[rel] = (source, list(_selector_lists(source)))
+            source, groups = sources[rel]
+            for spans in groups:
+                keys = [_selector_key(source[start:end]) for start, end in spans]
+                for index, (start, end) in enumerate(spans):
+                    first_line = source.count("\n", 0, start) + 1
+                    last_line = source.count("\n", 0, end) + 1
+                    affected = [use for use in uses if first_line <= use["line"] <= last_line]
+                    if not affected:
+                        continue
+                    lines = source[start:end].splitlines(keepends=True)
+                    for use in affected:
+                        offset = use["line"] - first_line
+                        if offset < len(lines):
+                            lines[offset] = replace_in_line(
+                                lines[offset], finding["token"], finding["replacement"])
+                    candidate = _selector_key("".join(lines))
+                    if candidate != keys[index] and candidate in keys[:index] + keys[index + 1:]:
+                        for use in affected:
+                            use["patch_note"] = (
+                                "not patched: the replacement would duplicate another "
+                                "selector in this rule; remove the redundant selector manually")
 
 
 BOLD, DIM, RED, GREEN, YELLOW, RESET = (
@@ -499,7 +577,10 @@ def report(result, show_all=False, colour=True):
         for use in finding["uses"][:3]:
             print()
             print(f"    {c(DIM, use['file'] + ':' + str(use['line']))}")
-            if exact:
+            if exact and use.get("patch_note"):
+                print(f"      {use['text'].strip()}")
+                print(f"      {c(YELLOW, use['patch_note'])}")
+            elif exact:
                 after = replace_in_line(use["text"], finding["token"],
                                         finding["replacement"])
                 print(f"    {c(RED, '- ' + use['text'].strip())}")
@@ -550,11 +631,14 @@ def report(result, show_all=False, colour=True):
 
 def write_patch(result, theme: Path, out: Path):
     """Emit a unified diff of the confident replacements, for review."""
+    _mark_duplicate_patches(result, theme)
     edits = {}
     for finding in result["findings"]:
         if finding["confidence"] != "renamed":
             continue
         for use in finding["uses"]:
+            if use.get("patch_note"):
+                continue
             edits.setdefault(use["file"], []).append(
                 (use["line"], finding["token"], finding["replacement"]))
 

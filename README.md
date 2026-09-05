@@ -903,15 +903,14 @@ to change — with the real line from your file and the replacement applied:
     - #urlbar-background {
     + .urlbar-background {
 
-  SIMILAR  #appMenu-fullscreen-button  →  #appMenu-fullscreen-button2
+  SIMILAR  #appMenu-fullscreen-button  →  #appMenu-fullscreen-button2  (a guess, not applied)
            no exact match; closest live name is #appMenu-fullscreen-button2
 
     chrome/parts/icons.css:198
-    - #appMenu-fullscreen-button {
-    + #appMenu-fullscreen-button2 {
+      #appMenu-fullscreen-button {
 ```
 
-That output is real — it is what this finds in a long-running theme. The
+These examples come from findings in a long-running theme. The
 `…-button2` pattern is how Firefox has been versioning app-menu controls, and it
 breaks menu styling silently.
 
@@ -933,7 +932,10 @@ Firefox versions, so they keep working for releases that came out after this
 tool did.
 
 `--patch` writes a unified diff of the **RENAMED** findings only — the ones where
-the replacement is certain. Review it, then `git apply`. SIMILAR findings are
+the replacement is certain. If a replacement would repeat another selector in
+the same rule, that occurrence is left out of the patch and the report asks
+you to remove the redundant selector manually. Other safe occurrences are
+still patched. Review the diff, then `git apply`. SIMILAR findings are
 deliberately excluded: they are usually right, but "usually" is not good enough
 to rewrite your CSS unattended.
 
@@ -1082,7 +1084,7 @@ text.
 For a custom workflow, the core capture-and-compare steps are:
 
 ```yaml
-- run: pip install "fxcss[images]==0.21.0"
+- run: pip install "fxcss[images]==0.22.0"
 - run: fxcss shot --theme base --out shots/base
 - run: fxcss shot --theme head --out shots/head
 - run: fxcss compare --base shots/base --head shots/head --out out/ --platform ${{ runner.os }}
@@ -1237,10 +1239,24 @@ the [releases page](https://github.com/AdamXweb/fxcss/releases) has the latest.
 CI runners' Pythons are not externally managed, so plain pip is fine there:
 
 ```bash
-pip install "fxcss[images]==0.21.0"
+pip install "fxcss[images]==0.22.0"
 ```
 
 Upgrade an existing pipx installation with `pipx upgrade fxcss`.
+
+### Upgrading to 0.22
+
+Saved screenshot baselines now need a complete capture coverage report. If a
+baseline predates these reports, capture it again with
+`fxcss check --update-baseline` and review the new images. Missing views and
+failed browser states prevent a baseline update.
+
+Theme repositories keep their generated workflows and pinned fxcss version
+until you update those files. To pick up the capture fixes and workflow
+improvements, [regenerate the workflows](#github-actions-workflows) with
+your existing options and review the changes before committing them. The
+generator skips existing files unless you pass `--force`; preserve any custom
+workflow edits when reviewing the regenerated files.
 
 ### fxcss completions
 
