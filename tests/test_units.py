@@ -383,6 +383,29 @@ class SamplePagesTests(unittest.TestCase):
         self.assertEqual(build_pages(), build_pages())
 
 
+class SessionSetupTests(unittest.TestCase):
+    def test_failed_setup_can_be_retried_without_duplicate_bookmarks(self):
+        from unittest.mock import Mock, patch
+        from fxcss import core
+        session = core.Session.__new__(core.Session)
+        session._window_ready = False
+        session.urls = {name: f"file:///{name}" for name in
+                        ("start.html", "docs.html", "issues.html")}
+        session.m = Mock()
+        session.m.script.side_effect = [core.MarionetteError("setup failed"), 3]
+        session.m.async_script.return_value = True
+        with patch.object(core.time, "sleep"):
+            with self.assertRaisesRegex(core.MarionetteError, "setup failed"):
+                session.setup_window()
+            self.assertFalse(session._window_ready)
+            session.m.async_script.assert_not_called()
+            session.setup_window()
+            session.setup_window()
+        self.assertTrue(session._window_ready)
+        self.assertEqual(session.m.script.call_count, 2)
+        session.m.async_script.assert_called_once_with(core.SEED_BOOKMARKS)
+
+
 class StartupRaceTests(unittest.TestCase):
     """Only the initial-browser race may be retried; real failures must not.
 

@@ -68,6 +68,7 @@ jobs:
       - name: Verify theme layouts and optional stylesheet loading
         run: |
           python -m tests.smoke_themes
+          python -m tests.smoke_startup
           python -m tests.smoke_variants
           python -m tests.smoke_audio
       - name: Audit, complete capture coverage and repeatability

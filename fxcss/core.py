@@ -472,33 +472,16 @@ class Session:
         # bookmarks twice used to leave the toolbar showing each one twice.
         if self._window_ready:
             return
-        self._window_ready = True
+        args = [[self.urls["start.html"], self.urls["docs.html"],
+                 self.urls["issues.html"]], pinned]
+        # Each attempt creates fresh browsers. A broken initial remoteTab can
+        # stay detached indefinitely, so retrying loadURI on it cannot recover.
+        _retry_startup_race(lambda: self.m.script(SETUP_TABS, args))
         result = self.m.async_script(SEED_BOOKMARKS)
         if result is not True:
             print(f"  note: bookmark seeding returned {result!r}", flush=True)
-        self._wait_for_initial_browser()
-        args = [[self.urls["start.html"], self.urls["docs.html"],
-                 self.urls["issues.html"]], pinned]
-        # The readiness poll covers the race we have seen; the retry covers
-        # the shape of it we have not. Only the startup race is retried.
-        _retry_startup_race(lambda: self.m.script(SETUP_TABS, args))
         time.sleep(3.0)
-
-    def _wait_for_initial_browser(self, timeout=10):
-        # Marionette answers commands before the first window's browser has
-        # attached its remoteTab, and SETUP_TABS' loadURI in that gap fails
-        # (intermittent on Windows CI). Poll the attachment point itself
-        # rather than sleeping a guessed amount. Best-effort by design: on
-        # timeout, proceed and let the loadURI retry own whatever state this
-        # is -- a real loadURI error names the problem, where failing here
-        # would only report that a poll gave up.
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            if self.m.script(BROWSER_READY) is True:
-                return
-            time.sleep(0.25)
-        print(f"  note: initial browser not visibly ready after {timeout}s; "
-              f"proceeding anyway", flush=True)
+        self._window_ready = True
 
     def apply_harness_css(self):
         """Hide artifacts of the automation harness in every window.
@@ -575,30 +558,27 @@ const done = arguments[arguments.length - 1];
 })();
 """
 
-# A remote browser cannot take a loadURI until its frameLoader has attached a
-# remoteTab (the content-process handle tabbrowser talks to). Only that gap
-# is worth waiting out. A browser with no frameLoader at all is a lazy
-# browser, which stays that way until a load forces the frameLoader into
-# existence -- polling it deadlocks, as a windows-latest run demonstrated
-# (30s of waiting and it never came; the loadURI itself is what creates it).
-BROWSER_READY = """
-const win = Services.wm.getMostRecentWindow("navigator:browser");
-const browser = win && win.gBrowser && win.gBrowser.selectedBrowser;
-if (!browser) { return false; }
-return !browser.isRemoteBrowser || !browser.frameLoader ||
-       !!browser.frameLoader.remoteTab;
-"""
-
 SETUP_TABS = """
 const [urls, pinned] = arguments;
 const sp = Services.scriptSecurityManager.getSystemPrincipal();
 const win = Services.wm.getMostRecentWindow("navigator:browser");
 const gb = win.gBrowser;
-while (gb.tabs.length > 1) { gb.removeTab(gb.tabs[gb.tabs.length - 1]); }
-gb.selectedBrowser.loadURI(Services.io.newURI(urls[0]), {triggeringPrincipal: sp});
-for (let i = 1; i < urls.length; i++) { gb.addTab(urls[i], {triggeringPrincipal: sp}); }
-if (pinned) { gb.pinTab(gb.tabs[0]); }
-gb.selectedTab = gb.tabs[1];
+// Do not navigate the startup browser: on Windows its remoteTab can remain
+// detached even after a long readiness wait. Create the fixture tabs first,
+// keeping the original tabs until a replacement is ready to keep the window open.
+const original = Array.from(gb.tabs);
+const fresh = [];
+try {
+  for (const url of urls) {
+    fresh.push(gb.addTab(url, {triggeringPrincipal: sp, skipAnimation: true}));
+  }
+  if (pinned) { gb.pinTab(fresh[0]); }
+  gb.selectedTab = fresh[1];
+} catch (error) {
+  for (const tab of fresh) { gb.removeTab(tab, {animate: false}); }
+  throw error;
+}
+for (const tab of original) { gb.removeTab(tab, {animate: false}); }
 return gb.tabs.length;
 """
 

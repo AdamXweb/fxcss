@@ -178,6 +178,9 @@ jobs:
       - name: Representative theme layouts
         run: python -m tests.smoke_themes
 
+      - name: Unusable initial browser recovery
+        run: python -m tests.smoke_startup
+
       - name: Audio indicators render without a sound device
         run: python -m tests.smoke_audio
 
