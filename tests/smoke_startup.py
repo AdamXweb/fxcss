@@ -79,20 +79,6 @@ def main():
             return command(name, args)
 
         session.m.command = lose_context_once
-        wait_for_pages = session._wait_for_fixture_pages
-
-        def late_label_direction():
-            wait_for_pages()
-            # A title arriving before pseudo-localisation finishes retains LTR
-            # alignment even after the chrome switches to RTL.
-            session.m.script('''
-                const win = Services.wm.getMostRecentWindow("navigator:browser");
-                for (const tab of win.gBrowser.tabs) {
-                    tab.removeAttribute("labelendaligned");
-                }
-            ''')
-
-        session._wait_for_fixture_pages = late_label_direction
         started = time.monotonic()
         session.setup_window()
         assert time.monotonic() - started >= 5, "setup returned before the delayed page loaded"
@@ -105,8 +91,6 @@ def main():
                 pinned: Array.from(gb.tabs, t => t.pinned),
                 selected: gb.selectedBrowser.currentURI.spec,
                 direction: win.document.dir,
-                labels: Array.from(gb.tabs, t => [t.label,
-                    t.getAttribute("labeldirection"), t.hasAttribute("labelendaligned")]),
                 broken: !!win.document.querySelector("[fxcss-broken-startup]")
             };
         '''
@@ -119,8 +103,6 @@ def main():
         assert discarded, "the discarded-context regression was not exercised"
         assert navigations >= 4, "the discarded context did not trigger recovery"
         assert state["direction"] == "rtl", state
-        assert state["labels"] == [[title, "ltr", True] for title in
-                                   ("Start", "Documentation", "Issue tracker")], state
         session.m.set_context("content")
         try:
             actual = session.m.script("return document.location.href;")
@@ -131,8 +113,34 @@ def main():
             session.m.set_context("chrome")
         session.setup_window()
         assert session.m.script(state_script) == state, "setup changed existing fixture tabs"
+        # Reproduce stale overflow left by a long loading URL. The short Docs
+        # label should return to RTL alignment; a genuinely narrow label must
+        # retain its overflow treatment, including any theme-imposed width.
+        session.m.script('''
+            const gb = Services.wm.getMostRecentWindow("navigator:browser").gBrowser;
+            gb.tabs[1].querySelector(".tab-label-container").setAttribute("textoverflow", "true");
+            gb.tabs[2].querySelector(".tab-label-container").style.setProperty("max-width", "5px", "important");
+        ''')
+        overflow_script = '''
+            const win = Services.wm.getMostRecentWindow("navigator:browser");
+            return Array.from(win.gBrowser.tabs).slice(1).map(tab => {
+                const label = tab.querySelector(".tab-label-container");
+                return {overflow: label.hasAttribute("textoverflow"),
+                        direction: win.getComputedStyle(label).direction,
+                        width: label.clientWidth, scroll: label.scrollWidth};
+            });
+        '''
+        stale, narrow = session.m.script(overflow_script)
+        assert stale["overflow"] and stale["direction"] == "ltr", stale
+        assert stale["scroll"] == stale["width"], stale
+        assert narrow["scroll"] > narrow["width"] > 0, narrow
+        with tempfile.TemporaryDirectory(prefix="fxcss-startup-shot-") as td:
+            core._shot(session.m, Path(td), "rtl-labels", before=core.SYNC_TAB_LABEL_OVERFLOW)
+        corrected, narrow = session.m.script(overflow_script)
+        assert corrected["overflow"] is False and corrected["direction"] == "rtl", corrected
+        assert narrow["overflow"] is True, narrow
     print("Startup recovered unusable and discarded contexts, waited for a slow page, "
-          "finalised RTL labels, and repeated setup kept the same loaded tabs", flush=True)
+          "corrected stale RTL overflow without losing real overflow, and kept setup idempotent", flush=True)
 
 
 if __name__ == "__main__":

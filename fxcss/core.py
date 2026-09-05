@@ -488,7 +488,6 @@ class Session:
         handle = Marionette._unwrap(self.m.command("WebDriver:GetWindowHandle"))
         self.m.command("WebDriver:SwitchToWindow", {"handle": handle})
         self._wait_for_fixture_pages()
-        self.m.async_script(FINALIZE_FIXTURE_LABELS)
         result = self.m.async_script(SEED_BOOKMARKS)
         if result is not True:
             print(f"  note: bookmark seeding returned {result!r}", flush=True)
@@ -626,21 +625,6 @@ const done = arguments[arguments.length - 1];
 INITIAL_TABS = """
 const win = Services.wm.getMostRecentWindow("navigator:browser");
 return Array.from(win.gBrowser.tabs, tab => tab.linkedPanel);
-"""
-
-FINALIZE_FIXTURE_LABELS = """
-const done = arguments[arguments.length - 1];
-const win = Services.wm.getMostRecentWindow("navigator:browser");
-win.document.l10n.ready.then(() => {
-  // Pseudo-localisation can change document.dir after a page title arrives.
-  // Firefox computes label alignment when the label changes, so refresh each
-  // title through its native setter after localisation has finished.
-  for (const tab of win.gBrowser.tabs) {
-    tab.removeAttribute("label");
-    win.gBrowser.setTabTitle(tab);
-  }
-  done(true);
-});
 """
 
 SETUP_TABS = """
@@ -1054,6 +1038,20 @@ if (box && box.scrollbox) {
 return true;
 """
 
+# A loading URL may overflow its tab before the short fixture title arrives.
+# A stale overflow event can leave textoverflow set, which also forces LTR
+# text direction inside RTL chrome. Reconcile it with the current geometry
+# before each RTL frame, retaining real overflow introduced by a theme.
+SYNC_TAB_LABEL_OVERFLOW = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+for (const tab of win.gBrowser.tabs) {
+  const label = tab.querySelector(".tab-label-container");
+  if (label && label.clientWidth > 0) {
+    label.toggleAttribute("textoverflow", label.scrollWidth > label.clientWidth);
+  }
+}
+"""
+
 MANY_TABS = """
 const [url, count] = arguments;
 const win = Services.wm.getMostRecentWindow("navigator:browser");
@@ -1448,7 +1446,7 @@ def _capture_views(session: Session, outdir: Path, modes=("light", "dark"),
                  extra_prefs='user_pref("intl.l10n.pseudo", "bidi");\n') as rtl:
         rtl.setup_window()
         if rtl.m.script(GET_DIRECTION) == "rtl":
-            _shot(rtl.m, outdir, "extra-12-rtl")
+            _shot(rtl.m, outdir, "extra-12-rtl", before=SYNC_TAB_LABEL_OVERFLOW)
         else:
             print("  note: chrome did not come up RTL; skipping that view", flush=True)
 

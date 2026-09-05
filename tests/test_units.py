@@ -413,9 +413,7 @@ class SessionSetupTests(unittest.TestCase):
             call("WebDriver:GetWindowHandle"),
             call("WebDriver:SwitchToWindow", {"handle": "chrome-window"}),
         ])
-        self.assertEqual(session.m.async_script.call_args_list, [
-            call(core.FINALIZE_FIXTURE_LABELS), call(core.SEED_BOOKMARKS),
-        ])
+        session.m.async_script.assert_called_once_with(core.SEED_BOOKMARKS)
 
     def test_blank_or_incomplete_pages_are_never_ready(self):
         from fxcss import core
