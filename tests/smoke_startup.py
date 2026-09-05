@@ -45,9 +45,27 @@ def delayed_document():
 
 def main():
     theme = Path(core.__file__).parent / "templates" / "starter"
-    with delayed_document() as url, core.Session(
+
+    class BrokenFirstProcess(core.Session):
+        """A real browser whose first page document is deliberately destroyed."""
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.browser_pids = []
+
+        def _start_browser(self):
+            super()._start_browser()
+            self.browser_pids.append(self.m.script("return Services.appinfo.processID;"))
+            if len(self.browser_pids) == 1:
+                self.m.script('''
+                    const win = Services.wm.getMostRecentWindow("navigator:browser");
+                    win.gBrowser.selectedBrowser.remove();
+                ''')
+
+    with delayed_document() as url, BrokenFirstProcess(
             theme, core.find_firefox(),
             extra_prefs='user_pref("intl.l10n.pseudo", "bidi");\n') as session:
+        assert len(session.browser_pids) == 2, session.browser_pids
+        assert session.browser_pids[0] != session.browser_pids[1], session.browser_pids
         session.urls["docs.html"] = url
         # Reproduce the operation that failed indefinitely on Windows CI. The
         # original browser must never be navigated, even if it looks ready.
@@ -151,7 +169,7 @@ def main():
         assert not any(len(row) > 1 and row[1] == str(browser_pid)
                        for row in csv.reader(io.StringIO(listing.stdout))), (
                            "the Firefox browser outlived its session", listing.stdout)
-    print("Startup recovered unusable and discarded contexts, waited for a slow page, "
+    print("Startup restarted a browser missing its initial document, recovered discarded contexts, waited for a slow page, "
           "corrected stale RTL overflow without losing real overflow, and kept setup idempotent", flush=True)
 
 
