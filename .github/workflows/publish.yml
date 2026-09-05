@@ -3,9 +3,8 @@ name: Publish
 # Publishes to PyPI when a version tag is pushed, so people can
 # `pipx install fxcss` instead of cloning.
 #
-# Inactive until you opt in: set the repository variable PUBLISH_TO_PYPI to
-# "true" (Settings → Secrets and variables → Actions → Variables). Until then
-# this is a no-op rather than a job that fails on every tag.
+# Both tag pushes and manual runs must pass the same unit and Firefox smoke
+# tests as pull requests. A tag must also match the built package's version.
 #
 # It uses PyPI Trusted Publishing, so there is no API token to store. Configure
 # the publisher once at https://pypi.org/manage/account/publishing/ with:
@@ -20,6 +19,10 @@ permissions:
   contents: read
 
 jobs:
+  checks:
+    if: github.repository == 'AdamXweb/fxcss'
+    uses: ./.github/workflows/ci.yml
+
   build:
     # Guards forks rather than gating opt-in: a fork pushing a tag should not
     # try to publish to the upstream project's name.
@@ -32,13 +35,36 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install --upgrade build
       - run: python -m build
+      - name: Validate release version
+        env:
+          RELEASE_REF_TYPE: ${{ github.ref_type }}
+          RELEASE_REF_NAME: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import os
+          from email.parser import BytesParser
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          wheel_path, = Path("dist").glob("*.whl")
+          with ZipFile(wheel_path) as wheel:
+              metadata_path, = (name for name in wheel.namelist()
+                                if name.endswith(".dist-info/METADATA"))
+              version = BytesParser().parsebytes(wheel.read(metadata_path))["Version"]
+          ref_type = os.environ["RELEASE_REF_TYPE"]
+          ref_name = os.environ["RELEASE_REF_NAME"]
+          if ref_type == "tag" and ref_name != f"v{version}":
+              raise SystemExit(f"Release tag {ref_name!r} does not match "
+                               f"package version {version!r}; expected v{version}")
+          print(f"Validated fxcss {version} ({ref_type}: {ref_name})")
+          PY
       - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
 
   publish:
-    needs: build
+    needs: [build, checks]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
