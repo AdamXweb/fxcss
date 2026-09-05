@@ -1,6 +1,7 @@
 """Temporary Windows startup investigation; runs only in its branch workflow."""
 from contextlib import ExitStack
 import json
+import os
 from pathlib import Path
 import subprocess
 from unittest.mock import patch
@@ -45,8 +46,9 @@ def main():
     processes = []
     with ExitStack() as stack:
         def popen(args, **kwargs):
-            log = stack.enter_context((dest / f"firefox-{len(processes)}.log").open("wb"))
-            kwargs.update(stdout=log, stderr=subprocess.STDOUT)
+            if os.environ.get("STARTUP_LOG_MODE") != "nul":
+                log = stack.enter_context((dest / f"firefox-{len(processes)}.log").open("wb"))
+                kwargs.update(stdout=log, stderr=subprocess.STDOUT)
             process = original_popen(args, **kwargs)
             processes.append(process.pid)
             print("START", process.pid, args, flush=True)
@@ -54,7 +56,7 @@ def main():
 
         def setup(session, *args, **kwargs):
             command = session.m.command
-            print("BEFORE SETUP", json.dumps(session.m.script(STATE)), flush=True)
+            print("BEFORE SETUP", session.profile, flush=True)
 
             def trace(name, params=None):
                 try:
@@ -80,7 +82,7 @@ def main():
 
         stack.enter_context(patch.object(core.subprocess, "Popen", side_effect=popen))
         stack.enter_context(patch.object(core.Session, "setup_window", setup))
-        for attempt in range(8):
+        for attempt in range(3):
             print("ROUND", attempt + 1, flush=True)
             smoke_themes.main()
 

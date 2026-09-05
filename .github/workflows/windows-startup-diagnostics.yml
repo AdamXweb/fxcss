@@ -6,10 +6,16 @@ permissions:
   contents: read
 jobs:
   startup:
+    strategy:
+      fail-fast: false
+      matrix:
+        log-mode: [file, nul]
+        run: [1, 2, 3]
     runs-on: windows-latest
     timeout-minutes: 20
     env:
       PYTHONUTF8: '1'
+      STARTUP_LOG_MODE: ${{ matrix.log-mode }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -32,7 +38,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: windows-startup-diagnostics
+          name: windows-startup-diagnostics-${{ matrix.log-mode }}-${{ matrix.run }}
           path: |
             startup-trace.txt
             out/startup-diagnostics/
