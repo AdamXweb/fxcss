@@ -699,9 +699,13 @@ fxcss shot --out shots/before
 ```
 
 Captures the standard set of views as PNGs: browser window, focused address bar,
-find bar and the window-modal dialog in light and dark, then a tab playing
-audio, the same tab muted, container tabs, an overflowing tab strip, a private
-window, compact density, the sidebar, right-to-left chrome, and customize mode.
+find bar and the window-modal dialog in light and dark, then playing and muted
+audio tab indicators, container tabs, an overflowing tab strip, a private window,
+compact density, the sidebar, right-to-left chrome, and customize mode.
+
+Audio views set Firefox's playing and muted tab attributes directly. They test
+the appearance of those indicators without requiring a sound device or playing
+a tone. CI also verifies that CSS targeting each state changes its screenshot.
 
 The dialog view is the quit-confirmation prompt (commonDialog), opened for
 real. It is its own chrome document, painted from different rules than the

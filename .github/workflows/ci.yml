@@ -134,7 +134,7 @@ jobs:
           # libdbus-glib is the one Firefox tarballs reliably miss on Ubuntu.
           # xvfb because Firefox draws no browser chrome headless -- a headless
           # screenshot is an empty window, so a real display is required.
-          sudo apt-get install -y -qq xvfb libdbus-glib-1-2 >/dev/null
+          sudo apt-get install -y -qq xvfb x11-utils libdbus-glib-1-2 >/dev/null
           curl -sSL -o firefox.tar "https://download.mozilla.org/?product=${{ matrix.product }}&os=linux64&lang=en-US"
           mkdir -p "$RUNNER_TEMP/ff"
           tar -xf firefox.tar -C "$RUNNER_TEMP/ff"
@@ -146,12 +146,19 @@ jobs:
           set -euo pipefail
           # Comfortably larger than the 1280x480 capture window, so nothing is
           # clipped and no scrollbar appears from the screen being too small.
-          Xvfb :99 -screen 0 1600x1200x24 -nolisten tcp >/dev/null 2>&1 &
+          command -v xdpyinfo
+          Xvfb :99 -screen 0 1600x1200x24 -nolisten tcp >"$RUNNER_TEMP/xvfb.log" 2>&1 &
           for _ in $(seq 1 20); do
-            if xdpyinfo -display :99 >/dev/null 2>&1; then break; fi
+            if xdpyinfo -display :99 >/dev/null 2>&1; then
+              echo "DISPLAY=:99" >> "$GITHUB_ENV"
+              exit 0
+            fi
             sleep 0.5
           done
-          echo "DISPLAY=:99" >> "$GITHUB_ENV"
+          cat "$RUNNER_TEMP/xvfb.log"
+          xdpyinfo -display :99
+          echo '::error::Xvfb did not become ready'
+          exit 1
 
       - name: Install Firefox (Windows)
         if: runner.os == 'Windows'
@@ -170,6 +177,9 @@ jobs:
 
       - name: Representative theme layouts
         run: python -m tests.smoke_themes
+
+      - name: Audio indicators render without a sound device
+        run: python -m tests.smoke_audio
 
       - name: Optional stylesheets apply in install and try
         run: python -m tests.smoke_variants
@@ -270,18 +280,18 @@ jobs:
           print(f"upgrade --compare saw the change in: {', '.join(changed)}")
           PY
 
-      - name: The sidebar, vertical-tab and toolbar views cover new ground
+      - name: Audio, sidebar, vertical-tab and toolbar views render their own states
         shell: bash
         run: |
-          # Each rule here is unreachable from the views that existed before
-          # 0.12: nothing rendered a sidebar panel body, a vertical tab strip,
-          # or a rearranged nav bar. If one of these views regresses into
-          # capturing the plain window, this step is what notices.
+          # Each rule targets a distinct browser state. Falling back to an
+          # ordinary window must not pass the state-specific capture checks.
           cp -r fxcss/templates/starter "$RUNNER_TEMP/state-theme"
           cat >> "$RUNNER_TEMP/state-theme/chrome/userChrome.css" <<'CSS'
           #sidebar-header { background-color: #ff2d55 !important; }
           #tabbrowser-tabs[orient="vertical"] { background-color: #34c759 !important; }
           #home-button { background-color: #ff9500 !important; }
+          .tabbrowser-tab[soundplaying]:not([muted]) .tab-content { background: #e6194b !important; }
+          .tabbrowser-tab[muted] .tab-content { background: #4363d8 !important; }
           CSS
           fxcss shot --theme "$RUNNER_TEMP/state-theme" --out shots/state
           fxcss compare --base shots/a --head shots/state --out out/state \
@@ -291,14 +301,15 @@ jobs:
           summary = json.loads(pathlib.Path("out/state/summary.json").read_text())
           changed = {v["view"] for v in summary["changed_views"]}
           wanted = {"extra-10-sidebar-bookmarks", "extra-11-sidebar-history",
-                    "extra-14-vertical-tabs", "extra-15-toolbar"}
+                    "extra-14-vertical-tabs", "extra-15-toolbar",
+                    "extra-04-audio", "extra-05-muted"}
           missing = sorted(wanted - changed)
           if missing:
               print("These views did not react to a rule that only they can "
                     "render, so they are not capturing the state they claim: "
                     + ", ".join(missing))
               sys.exit(1)
-          print(f"all four state views reacted; {len(changed)} views changed")
+          print(f"all six state views reacted; {len(changed)} views changed")
           PY
 
       - name: catalogue

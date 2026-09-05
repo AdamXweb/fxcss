@@ -41,10 +41,10 @@
 
 /* Address bar ------------------------------------------------------------- */
 
-/* Note the class. Plenty of older themes style #urlbar-background by *id*,
- * but that id no longer exists in current Firefox, so those rules silently do
- * nothing. `fxcss inspect '#urlbar-background'` reports exactly that. */
-.urlbar-background {
+/* ESR uses an id; newer Firefox uses a class. Attribute selectors keep the
+ * same appearance across both without making one version's spelling required. */
+[id="urlbar-background"],
+[class~="urlbar-background"] {
   background: var(--demo-field) !important;
 }
 #urlbar {

@@ -43,7 +43,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq xvfb libdbus-glib-1-2 >/dev/null
+          sudo apt-get install -y -qq xvfb x11-utils libdbus-glib-1-2 >/dev/null
           curl --fail --location --retry 3 --output "$RUNNER_TEMP/firefox.tar" \
             "https://download.mozilla.org/?product=${PRODUCT}&os=linux64&lang=en-US"
           mkdir -p "$RUNNER_TEMP/firefox-channel"
@@ -52,7 +52,8 @@ jobs:
       - name: Start the display
         run: |
           set -euo pipefail
-          Xvfb :99 -screen 0 1600x1200x24 -nolisten tcp >/dev/null 2>&1 &
+          command -v xdpyinfo
+          Xvfb :99 -screen 0 1600x1200x24 -nolisten tcp >"$RUNNER_TEMP/xvfb.log" 2>&1 &
           for _ in $(seq 1 20); do
             if xdpyinfo -display :99 >/dev/null 2>&1; then
               echo "DISPLAY=:99" >> "$GITHUB_ENV"
@@ -60,12 +61,15 @@ jobs:
             fi
             sleep 0.5
           done
+          cat "$RUNNER_TEMP/xvfb.log"
+          xdpyinfo -display :99
           echo '::error::Xvfb did not become ready'
           exit 1
       - name: Verify theme layouts and optional stylesheet loading
         run: |
           python -m tests.smoke_themes
           python -m tests.smoke_variants
+          python -m tests.smoke_audio
       - name: Audit, complete capture coverage and repeatability
         run: |
           set -euo pipefail

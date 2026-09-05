@@ -237,6 +237,9 @@ def run(args):
                         theme=theme, firefox=str(binary), out=dest / "shots", url=[],
                         only_live=False, variants=settings["variants"], toolbar=settings["toolbar"]))
             if code:
+                if (dest / "shots" / capture.REPORT).is_file():
+                    capture.validate_coverage(dest / "shots", capture.expected_views(
+                        core.parse_variant_spec(settings["variants"], core.find_variant_sheets(theme))))
                 raise RuntimeError("capture failed; see capture.txt")
             result["coverage"] = capture.validate_coverage(dest / "shots", capture.expected_views(
                 core.parse_variant_spec(settings["variants"], core.find_variant_sheets(theme))))
@@ -266,6 +269,8 @@ def run(args):
         except (OSError, ValueError, RuntimeError, SystemExit) as exc:
             result.update(exit_code=2, error=str(exc))
         print(f"  {browser}: {('passed', 'findings', 'error')[result['exit_code']]}", flush=True)
+        if result.get("error"):
+            print(f"  {result['error']}", flush=True)
     status = max(r["exit_code"] for r in results)
     updated = False
     if args.update_baseline and status == 0:

@@ -270,31 +270,12 @@ XULSTORE = {
     }
 }
 
-def _sine_wav_data_uri(seconds=6, hz=440, rate=8000):
-    """A short sine tone as a data: URI.
-
-    Generated rather than shipped as a binary, and inlined rather than fetched,
-    so the tab-playing-audio state stays local and identical on every run.
-    """
-    import base64
-    import math
-    import struct
-    frames = b"".join(
-        struct.pack("<h", int(9000 * math.sin(2 * math.pi * hz * i / rate)))
-        for i in range(rate * seconds))
-    header = (b"RIFF" + struct.pack("<I", 36 + len(frames)) + b"WAVEfmt "
-              + struct.pack("<IHHIIHH", 16, 1, 1, rate, rate * 2, 2, 16)
-              + b"data" + struct.pack("<I", len(frames)))
-    return "data:audio/wav;base64," + base64.b64encode(header + frames).decode("ascii")
-
-
 SAMPLE_PAGES = {
     "start.html": ("Start", "<h1>Theme preview</h1><p>First tab.</p>"),
     "docs.html": ("Documentation", "<h1>Documentation</h1><p>Second tab.</p>"),
     "issues.html": ("Issue tracker", "<h1>Issues</h1><p>Third tab.</p>"),
-    "audio.html": ("Now playing", "<h1>Audio</h1><p>Plays a tone so the tab shows "
-                   "its sound indicator.</p>"
-                   "<audio src=\"__AUDIO__\" loop autoplay></audio>"),
+    "audio.html": ("Now playing", "<h1>Audio indicators</h1><p>Playing and muted "
+                   "tab states for theme screenshots.</p>"),
 }
 
 
@@ -315,11 +296,7 @@ def build_pages(dest=None):
         dest = Path(tempfile.gettempdir()) / f"fxcss-pages-{digest}"
     dest.mkdir(parents=True, exist_ok=True)
     urls = {}
-    tone = None
     for name, (title, body) in SAMPLE_PAGES.items():
-        if "__AUDIO__" in body:
-            tone = tone or _sine_wav_data_uri()
-            body = body.replace("__AUDIO__", tone)
         path = dest / name
         _write_atomic(
             path,
@@ -947,10 +924,8 @@ OPEN_AUDIO_TAB = """
 const [url] = arguments;
 const win = Services.wm.getMostRecentWindow("navigator:browser");
 const sp = Services.scriptSecurityManager.getSystemPrincipal();
-// 0 = allow autoplay. Without this the tab never starts playing and the sound
-// indicator never appears.
-Services.prefs.setIntPref("media.autoplay.default", 0);
-Services.prefs.setIntPref("media.autoplay.blocking_policy", 0);
+// This local page has no media playback. The capture fixture controls the
+// indicator attributes, so machines without an audio device render the same UI.
 const tab = win.gBrowser.addTab(url, {triggeringPrincipal: sp});
 win.gBrowser.selectedTab = tab;
 return true;
@@ -962,11 +937,38 @@ const tab = win.gBrowser.selectedTab;
 return {playing: tab.hasAttribute("soundplaying"), muted: tab.hasAttribute("muted")};
 """
 
-MUTE_TAB = """
+SET_AUDIO_STATE = """
 const win = Services.wm.getMostRecentWindow("navigator:browser");
-win.gBrowser.selectedTab.toggleMuteAudio();
-return win.gBrowser.selectedTab.hasAttribute("muted");
+const tab = win.gBrowser.selectedTab;
+if (arguments[0] === null) {
+  tab.removeAttribute("soundplaying");
+  tab.removeAttribute("muted");
+} else {
+  tab.setAttribute("soundplaying", "true");
+  tab.toggleAttribute("muted", Boolean(arguments[0]));
+}
+if (typeof win.gBrowser._tabAttrModified === "function") {
+  win.gBrowser._tabAttrModified(tab, ["soundplaying", "muted"]);
+}
+return true;
 """
+
+
+def _capture_audio_views(m, outdir):
+    """Render Firefox's indicator states without requiring an OS sound device."""
+    try:
+        for muted, name in ((False, "extra-04-audio"), (True, "extra-05-muted")):
+            m.script(SET_AUDIO_STATE, [muted])
+            time.sleep(0.8)
+            state = m.script(AUDIO_STATE) or {}
+            if not state.get("playing") or state.get("muted") is not muted:
+                raise RuntimeError(f"could not establish audio indicator state for {name}: {state}")
+            _shot(m, outdir, name)
+    finally:
+        # Audio-only theme rules must not affect later sidebar or toolbar views.
+        m.script(SET_AUDIO_STATE, [None])
+
+
 
 # After the strip overflows, Firefox scrolls the selected tab into view -- and
 # where that lands is bistable between runs (seen live: two runs settling at
@@ -1286,19 +1288,13 @@ def _capture_views(session: Session, outdir: Path, modes=("light", "dark"),
     session.set_dark(False)
     time.sleep(1.5)
 
-    # A tab playing audio, then the same tab muted -- the speaker and mute
-    # indicators are separate pieces of tab styling and themes get them wrong
-    # independently.
+    # Set the same attributes Firefox uses for playing/muted tabs. This is a
+    # CSS state fixture: OS audio devices are absent on many CI machines, and
+    # playback failure must not turn an audio screenshot into an ordinary tab.
     m.script(OPEN_AUDIO_TAB, [session.urls["audio.html"]])
-    time.sleep(4.0)
-    state = m.script(AUDIO_STATE)
-    if not state.get("playing"):
-        coverage["failed"]["extra-04-audio"] = "audio tab did not report playing sound"
-        print("  note: audio state failed; recording the image for diagnosis", flush=True)
-    _shot(m, outdir, "extra-04-audio")
-    m.script(MUTE_TAB)
-    time.sleep(1.2)
-    _shot(m, outdir, "extra-05-muted")
+    time.sleep(2.0)
+    _capture_audio_views(m, outdir)
+    info["audioIndicators"] = "controlled playing and muted tab attributes"
 
     # Container tabs: each carries an identity colour along the tab and an
     # identity label in the address bar, both of which themes style and neither

@@ -3,7 +3,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from PIL import Image
 from fxcss import capture, core
 
@@ -46,6 +46,26 @@ class CaptureCoverageTests(unittest.TestCase):
                                {"extra-14-vertical-tabs": "Firefox before 133"})
         with self.assertRaisesRegex(ValueError, "incomplete capture"):
             capture.validate_coverage(self.root)
+
+    def test_audio_capture_requires_the_actual_indicator_attributes(self):
+        m = Mock()
+        for states in (({},), ({"playing": True, "muted": False}, {"playing": False, "muted": True})):
+            with self.subTest(states=states):
+                remaining = iter(states)
+                m.script.side_effect = lambda code, *args: next(remaining) if code == core.AUDIO_STATE else True
+                with patch.object(core.time, "sleep"), patch.object(core, "_shot") as shot:
+                    with self.assertRaisesRegex(RuntimeError, "audio indicator state"):
+                        core._capture_audio_views(m, self.root)
+                    self.assertEqual(shot.call_count, len(states) - 1)
+                    m.script.assert_any_call(core.SET_AUDIO_STATE, [None])
+
+    def test_audio_capture_records_both_distinct_states(self):
+        m = Mock()
+        states = iter(({"playing": True, "muted": False}, {"playing": True, "muted": True}))
+        m.script.side_effect = lambda code, *args: next(states) if code == core.AUDIO_STATE else True
+        with patch.object(core.time, "sleep"), patch.object(core, "_shot") as shot:
+            core._capture_audio_views(m, self.root)
+        self.assertEqual([call.args[2] for call in shot.call_args_list], ["extra-04-audio", "extra-05-muted"])
 
     def test_malformed_browser_metadata_reports_a_validation_error(self):
         capture.write_coverage(self.root, {}, capture.expected_views())
