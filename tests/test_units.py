@@ -383,6 +383,24 @@ class SamplePagesTests(unittest.TestCase):
         self.assertEqual(build_pages(), build_pages())
 
 
+class SessionCleanupTests(unittest.TestCase):
+    def test_windows_timeout_kills_only_the_owned_launcher_tree_and_waits(self):
+        from unittest.mock import Mock, call, patch
+        from fxcss import core
+        session = core.Session.__new__(core.Session)
+        session.m = Mock()
+        session.proc = Mock(pid=4242)
+        session.proc.wait.side_effect = [core.subprocess.TimeoutExpired("firefox", 45), None]
+        session.keep_profile = True
+        with patch.object(core.sys, "platform", "win32"), patch.object(core.subprocess, "run") as run:
+            session.__exit__()
+        session.m.quit.assert_called_once_with()
+        run.assert_called_once_with(
+            ["taskkill", "/PID", "4242", "/T", "/F"],
+            stdout=core.subprocess.DEVNULL, stderr=core.subprocess.DEVNULL, check=False)
+        self.assertEqual(session.proc.wait.call_args_list, [call(timeout=45), call(timeout=5)])
+
+
 class SessionSetupTests(unittest.TestCase):
     def test_failed_setup_can_be_retried_without_duplicate_bookmarks(self):
         from unittest.mock import Mock, call, patch
@@ -516,10 +534,17 @@ class StartupRaceTests(unittest.TestCase):
     def test_a_missing_frameloader_is_retryable(self):
         self.assertTrue(self.is_race("TypeError: browser.frameLoader is null"))
 
+    def test_a_persistently_discarded_fixture_navigation_is_retryable(self):
+        self.assertTrue(self.is_race(
+            "WebDriver:Navigate failed: {'error': 'no such window', "
+            "'message': 'Browsing context has been discarded'}"))
+
     def test_real_failures_are_not(self):
         for message in ("WebDriver:ExecuteScript failed: timeout",
                         "TypeError: gb.addTab is not a function",
                         "ReferenceError: remoteTab is not defined",
+                        "WebDriver:TakeScreenshot failed: {'error': 'no such window', "
+                        "'message': 'Browsing context has been discarded'}",
                         "Marionette connection closed unexpectedly"):
             with self.subTest(message=message):
                 self.assertFalse(self.is_race(message))

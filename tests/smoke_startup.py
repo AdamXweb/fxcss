@@ -2,6 +2,10 @@
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+import csv
+import io
+import os
+import subprocess
 import tempfile
 import threading
 import time
@@ -56,20 +60,20 @@ def main():
             };
         ''')
         command = session.m.command
-        discarded = False
+        discarded = 0
         navigations = 0
 
         def lose_context_once(name, args=None):
             nonlocal discarded, navigations
             if name == "WebDriver:Navigate":
                 navigations += 1
-            if name == "WebDriver:Navigate" and not discarded:
-                discarded = True
+            if name == "WebDriver:Navigate" and discarded < 3:
+                discarded += 1
                 # Leave Marionette pointing at a genuinely discarded content
                 # context, as a process switch can do during Windows startup.
                 session.m.set_context("chrome")
                 throwaway = core.Marionette._unwrap(command(
-                    "WebDriver:NewWindow", {"type": "tab"}))
+                    "WebDriver:NewWindow", {"type": "tab", "focus": True}))
                 command("WebDriver:SwitchToWindow", {"handle": throwaway["handle"]})
                 session.m.script('''
                     const gb = Services.wm.getMostRecentWindow("navigator:browser").gBrowser;
@@ -100,8 +104,8 @@ def main():
         assert state["pinned"] == [True, False, False], state
         assert state["selected"] == urls[1], state
         assert state["broken"] is False, state
-        assert discarded, "the discarded-context regression was not exercised"
-        assert navigations >= 4, "the discarded context did not trigger recovery"
+        assert discarded == 3, "the persistent discarded-context regression was not exercised"
+        assert navigations >= 6, "the discarded contexts did not trigger tab replacement"
         assert state["direction"] == "rtl", state
         session.m.set_context("content")
         try:
@@ -139,6 +143,14 @@ def main():
         corrected, narrow = session.m.script(overflow_script)
         assert corrected["overflow"] is False and corrected["direction"] == "rtl", corrected
         assert narrow["overflow"] is True, narrow
+        browser_pid = session.m.script("return Services.appinfo.processID;")
+    if os.name == "nt":
+        listing = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {browser_pid}", "/NH", "/FO", "CSV"],
+            check=True, capture_output=True, text=True)
+        assert not any(len(row) > 1 and row[1] == str(browser_pid)
+                       for row in csv.reader(io.StringIO(listing.stdout))), (
+                           "the Firefox browser outlived its session", listing.stdout)
     print("Startup recovered unusable and discarded contexts, waited for a slow page, "
           "corrected stale RTL overflow without losing real overflow, and kept setup idempotent", flush=True)
 

@@ -380,12 +380,21 @@ def _is_startup_race(exc):
     still wiring itself up, and a loadURI in that gap throws from deep inside
     tabbrowser -- seen intermittently on Windows CI runners as `TypeError:
     can't access property "maybeCancelContentJSExecution",
-    this._browser.frameLoader.remoteTab is null`. That is a timing accident,
-    not a real failure, so it is the one error worth retrying; anything else
-    should surface unchanged.
+    this._browser.frameLoader.remoteTab is null`. A newly created tab can also
+    retain a discarded content context even after re-selection. Fixture setup
+    may replace its temporary tabs for these failures; unrelated errors still
+    surface unchanged.
     """
     message = str(exc)
-    return "remoteTab is null" in message or "frameLoader is null" in message
+    return ("remoteTab is null" in message or "frameLoader is null" in message
+            or _is_discarded_navigation(exc))
+
+
+def _is_discarded_navigation(exc):
+    message = str(exc)
+    return (message.startswith("WebDriver:Navigate failed:")
+            and "'error': 'no such window'" in message
+            and "Browsing context has been discarded" in message)
 
 
 # Seconds to wait before each retry of the startup race, one entry per retry.
@@ -398,7 +407,7 @@ STARTUP_RACE_DELAYS = (2.0, 4.0, 8.0, 16.0)
 
 
 def _retry_startup_race(operation, delays=STARTUP_RACE_DELAYS, sleep=time.sleep):
-    """Run operation, waiting out the initial browser's loadURI race.
+    """Run fixture setup, replacing tabs after known browser startup races.
 
     Only the failure _is_startup_race recognises is retried; anything else
     surfaces unchanged, and so does the race itself once the delays run out.
@@ -409,7 +418,7 @@ def _retry_startup_race(operation, delays=STARTUP_RACE_DELAYS, sleep=time.sleep)
         except MarionetteError as exc:
             if not _is_startup_race(exc):
                 raise
-            print(f"  note: initial browser raced loadURI, retrying in "
+            print(f"  note: fixture browser was not usable, replacing tabs in "
                   f"{delay:.0f}s ({exc})", flush=True)
             sleep(delay)
     return operation()
@@ -452,6 +461,10 @@ class Session:
         env.pop("MOZ_HEADLESS", None)
         cmd = [self.firefox, "--profile", str(self.profile), *LAUNCH_FLAGS,
                "--new-window", "about:blank"]
+        if sys.platform == "win32":
+            # firefox.exe is a launcher on Windows. Keep it alive until its
+            # browser exits so cleanup cannot race the browser's shutdown.
+            cmd.append("-wait-for-browser")
         self.proc = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL,
                                      stderr=subprocess.DEVNULL)
         self.m = Marionette(port=self.port)
@@ -468,7 +481,13 @@ class Session:
             try:
                 self.proc.wait(timeout=45)
             except subprocess.TimeoutExpired:
-                self.proc.kill()
+                if sys.platform == "win32":
+                    subprocess.run(["taskkill", "/PID", str(self.proc.pid), "/T", "/F"],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                   check=False)
+                else:
+                    self.proc.kill()
+                self.proc.wait(timeout=5)
         if not self.keep_profile:
             shutil.rmtree(self.workdir, ignore_errors=True)
 
@@ -503,8 +522,10 @@ class Session:
         self.m.command("WebDriver:SetTimeouts", {"pageLoad": 30000})
         try:
             for name in ("start.html", "docs.html", "issues.html"):
+                # Background NewWindow restores Marionette's previous tab,
+                # which may be precisely the unusable tab being replaced.
                 window = Marionette._unwrap(self.m.command(
-                    "WebDriver:NewWindow", {"type": "tab"}))
+                    "WebDriver:NewWindow", {"type": "tab", "focus": True}))
                 self._navigate_fixture_tab(window["handle"], self.urls[name])
         finally:
             self.m.set_context("chrome")
@@ -515,6 +536,8 @@ class Session:
         # between selecting a new tab and navigating it. Re-select the same
         # tab to refresh that context; never create another tab or retry an
         # arbitrary navigation error. These fixture pages have no side effects.
+        # If it stays unusable, setup_window's bounded retry replaces the
+        # temporary tabs while retaining the original window until success.
         for attempt in range(3):
             self.m.command("WebDriver:SwitchToWindow", {"handle": handle})
             self.m.set_context("content")
@@ -522,9 +545,7 @@ class Session:
                 self.m.command("WebDriver:Navigate", {"url": url})
                 return
             except MarionetteError as exc:
-                message = str(exc)
-                if (attempt == 2 or "'error': 'no such window'" not in message
-                        or "Browsing context has been discarded" not in message):
+                if attempt == 2 or not _is_discarded_navigation(exc):
                     raise
                 print("  note: new tab context changed; refreshing it before navigation",
                       flush=True)
