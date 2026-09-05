@@ -41,7 +41,9 @@ def delayed_document():
 
 def main():
     theme = Path(core.__file__).parent / "templates" / "starter"
-    with delayed_document() as url, core.Session(theme, core.find_firefox()) as session:
+    with delayed_document() as url, core.Session(
+            theme, core.find_firefox(),
+            extra_prefs='user_pref("intl.l10n.pseudo", "bidi");\n') as session:
         session.urls["docs.html"] = url
         # Reproduce the operation that failed indefinitely on Windows CI. The
         # original browser must never be navigated, even if it looks ready.
@@ -53,6 +55,44 @@ def main():
                 throw new TypeError("this._browser.frameLoader.remoteTab is null");
             };
         ''')
+        command = session.m.command
+        discarded = False
+        navigations = 0
+
+        def lose_context_once(name, args=None):
+            nonlocal discarded, navigations
+            if name == "WebDriver:Navigate":
+                navigations += 1
+            if name == "WebDriver:Navigate" and not discarded:
+                discarded = True
+                # Leave Marionette pointing at a genuinely discarded content
+                # context, as a process switch can do during Windows startup.
+                session.m.set_context("chrome")
+                throwaway = core.Marionette._unwrap(command(
+                    "WebDriver:NewWindow", {"type": "tab"}))
+                command("WebDriver:SwitchToWindow", {"handle": throwaway["handle"]})
+                session.m.script('''
+                    const gb = Services.wm.getMostRecentWindow("navigator:browser").gBrowser;
+                    gb.removeTab(gb.selectedTab, {animate: false});
+                ''')
+                session.m.set_context("content")
+            return command(name, args)
+
+        session.m.command = lose_context_once
+        wait_for_pages = session._wait_for_fixture_pages
+
+        def late_label_direction():
+            wait_for_pages()
+            # A title arriving before pseudo-localisation finishes retains LTR
+            # alignment even after the chrome switches to RTL.
+            session.m.script('''
+                const win = Services.wm.getMostRecentWindow("navigator:browser");
+                for (const tab of win.gBrowser.tabs) {
+                    tab.removeAttribute("labelendaligned");
+                }
+            ''')
+
+        session._wait_for_fixture_pages = late_label_direction
         started = time.monotonic()
         session.setup_window()
         assert time.monotonic() - started >= 5, "setup returned before the delayed page loaded"
@@ -64,6 +104,9 @@ def main():
                 ids: Array.from(gb.tabs, t => t.linkedPanel),
                 pinned: Array.from(gb.tabs, t => t.pinned),
                 selected: gb.selectedBrowser.currentURI.spec,
+                direction: win.document.dir,
+                labels: Array.from(gb.tabs, t => [t.label,
+                    t.getAttribute("labeldirection"), t.hasAttribute("labelendaligned")]),
                 broken: !!win.document.querySelector("[fxcss-broken-startup]")
             };
         '''
@@ -73,6 +116,11 @@ def main():
         assert state["pinned"] == [True, False, False], state
         assert state["selected"] == urls[1], state
         assert state["broken"] is False, state
+        assert discarded, "the discarded-context regression was not exercised"
+        assert navigations >= 4, "the discarded context did not trigger recovery"
+        assert state["direction"] == "rtl", state
+        assert state["labels"] == [[title, "ltr", True] for title in
+                                   ("Start", "Documentation", "Issue tracker")], state
         session.m.set_context("content")
         try:
             actual = session.m.script("return document.location.href;")
@@ -83,7 +131,8 @@ def main():
             session.m.set_context("chrome")
         session.setup_window()
         assert session.m.script(state_script) == state, "setup changed existing fixture tabs"
-    print("Startup replaced an unusable browser, waited for a deliberately slow page, and repeated setup kept the same loaded tabs", flush=True)
+    print("Startup recovered unusable and discarded contexts, waited for a slow page, "
+          "finalised RTL labels, and repeated setup kept the same loaded tabs", flush=True)
 
 
 if __name__ == "__main__":

@@ -488,6 +488,7 @@ class Session:
         handle = Marionette._unwrap(self.m.command("WebDriver:GetWindowHandle"))
         self.m.command("WebDriver:SwitchToWindow", {"handle": handle})
         self._wait_for_fixture_pages()
+        self.m.async_script(FINALIZE_FIXTURE_LABELS)
         result = self.m.async_script(SEED_BOOKMARKS)
         if result is not True:
             print(f"  note: bookmark seeding returned {result!r}", flush=True)
@@ -505,13 +506,32 @@ class Session:
             for name in ("start.html", "docs.html", "issues.html"):
                 window = Marionette._unwrap(self.m.command(
                     "WebDriver:NewWindow", {"type": "tab"}))
-                self.m.command("WebDriver:SwitchToWindow", {"handle": window["handle"]})
-                self.m.set_context("content")
-                self.m.command("WebDriver:Navigate", {"url": self.urls[name]})
-                self.m.set_context("chrome")
+                self._navigate_fixture_tab(window["handle"], self.urls[name])
         finally:
             self.m.set_context("chrome")
         self.m.script(SETUP_TABS, [original, pinned])
+
+    def _navigate_fixture_tab(self, handle, url):
+        # A process switch can discard the context remembered by Marionette
+        # between selecting a new tab and navigating it. Re-select the same
+        # tab to refresh that context; never create another tab or retry an
+        # arbitrary navigation error. These fixture pages have no side effects.
+        for attempt in range(3):
+            self.m.command("WebDriver:SwitchToWindow", {"handle": handle})
+            self.m.set_context("content")
+            try:
+                self.m.command("WebDriver:Navigate", {"url": url})
+                return
+            except MarionetteError as exc:
+                message = str(exc)
+                if (attempt == 2 or "'error': 'no such window'" not in message
+                        or "Browsing context has been discarded" not in message):
+                    raise
+                print("  note: new tab context changed; refreshing it before navigation",
+                      flush=True)
+            finally:
+                self.m.set_context("chrome")
+            time.sleep(0.5)
 
     def _wait_for_fixture_pages(self, timeout=30):
         # A loading page can paint the same blank frame twice, so _shot's
@@ -606,6 +626,21 @@ const done = arguments[arguments.length - 1];
 INITIAL_TABS = """
 const win = Services.wm.getMostRecentWindow("navigator:browser");
 return Array.from(win.gBrowser.tabs, tab => tab.linkedPanel);
+"""
+
+FINALIZE_FIXTURE_LABELS = """
+const done = arguments[arguments.length - 1];
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+win.document.l10n.ready.then(() => {
+  // Pseudo-localisation can change document.dir after a page title arrives.
+  // Firefox computes label alignment when the label changes, so refresh each
+  // title through its native setter after localisation has finished.
+  for (const tab of win.gBrowser.tabs) {
+    tab.removeAttribute("label");
+    win.gBrowser.setTabTitle(tab);
+  }
+  done(true);
+});
 """
 
 SETUP_TABS = """

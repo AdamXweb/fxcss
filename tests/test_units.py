@@ -413,7 +413,9 @@ class SessionSetupTests(unittest.TestCase):
             call("WebDriver:GetWindowHandle"),
             call("WebDriver:SwitchToWindow", {"handle": "chrome-window"}),
         ])
-        session.m.async_script.assert_called_once_with(core.SEED_BOOKMARKS)
+        self.assertEqual(session.m.async_script.call_args_list, [
+            call(core.FINALIZE_FIXTURE_LABELS), call(core.SEED_BOOKMARKS),
+        ])
 
     def test_blank_or_incomplete_pages_are_never_ready(self):
         from fxcss import core
@@ -458,6 +460,38 @@ class SessionSetupTests(unittest.TestCase):
         with self.assertRaisesRegex(core.MarionetteError, "navigation failed"):
             session._open_fixture_tabs(True)
         session.m.script.assert_called_once_with(core.INITIAL_TABS)
+        session.m.set_context.assert_called_with("chrome")
+
+    def test_discarded_context_refreshes_the_same_tab_without_recreating_it(self):
+        from unittest.mock import Mock, call, patch
+        from fxcss import core
+        session = core.Session.__new__(core.Session)
+        session.m = Mock()
+        session.m.command.side_effect = [None, core.MarionetteError(
+            "WebDriver:Navigate failed: {'error': 'no such window', "
+            "'message': 'Browsing context has been discarded'}"), None, None]
+        with patch.object(core.time, "sleep"):
+            session._navigate_fixture_tab("same-tab", "file:///docs.html")
+        self.assertEqual(session.m.command.call_args_list, [
+            call("WebDriver:SwitchToWindow", {"handle": "same-tab"}),
+            call("WebDriver:Navigate", {"url": "file:///docs.html"}),
+        ] * 2)
+        session.m.set_context.assert_called_with("chrome")
+
+    def test_discarded_context_retry_is_bounded(self):
+        from unittest.mock import Mock, patch
+        from fxcss import core
+        session = core.Session.__new__(core.Session)
+        session.m = Mock()
+        error = core.MarionetteError(
+            "WebDriver:Navigate failed: {'error': 'no such window', "
+            "'message': 'Browsing context has been discarded'}")
+        session.m.command.side_effect = [None, error] * 3
+        with patch.object(core.time, "sleep"):
+            with self.assertRaises(core.MarionetteError) as raised:
+                session._navigate_fixture_tab("same-tab", "file:///docs.html")
+        self.assertIs(raised.exception, error)
+        self.assertEqual(session.m.command.call_count, 6)
         session.m.set_context.assert_called_with("chrome")
 
 
