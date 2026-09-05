@@ -481,11 +481,7 @@ class Session:
         # bookmarks twice used to leave the toolbar showing each one twice.
         if self._window_ready:
             return
-        args = [[self.urls["start.html"], self.urls["docs.html"],
-                 self.urls["issues.html"]], pinned]
-        # Each attempt creates fresh browsers. A broken initial remoteTab can
-        # stay detached indefinitely, so retrying loadURI on it cannot recover.
-        _retry_startup_race(lambda: self.m.script(SETUP_TABS, args))
+        _retry_startup_race(lambda: self._open_fixture_tabs(pinned))
         # Selecting a tab through browser chrome does not update Marionette's
         # content context. Re-select this chrome window through the protocol so
         # content commands target its selected tab instead of the discarded one.
@@ -497,6 +493,25 @@ class Session:
             print(f"  note: bookmark seeding returned {result!r}", flush=True)
         time.sleep(3.0)
         self._window_ready = True
+
+    def _open_fixture_tabs(self, pinned):
+        original = self.m.script(INITIAL_TABS)
+        # NewWindow waits for the browser's initial context; Navigate waits
+        # for the page load. Direct addTab(url) calls can start navigation
+        # before that context exists and leave every tab busy at about:blank
+        # on Windows. Keep the original tabs until all replacements load.
+        self.m.command("WebDriver:SetTimeouts", {"pageLoad": 30000})
+        try:
+            for name in ("start.html", "docs.html", "issues.html"):
+                window = Marionette._unwrap(self.m.command(
+                    "WebDriver:NewWindow", {"type": "tab"}))
+                self.m.command("WebDriver:SwitchToWindow", {"handle": window["handle"]})
+                self.m.set_context("content")
+                self.m.command("WebDriver:Navigate", {"url": self.urls[name]})
+                self.m.set_context("chrome")
+        finally:
+            self.m.set_context("chrome")
+        self.m.script(SETUP_TABS, [original, pinned])
 
     def _wait_for_fixture_pages(self, timeout=30):
         # A loading page can paint the same blank frame twice, so _shot's
@@ -588,26 +603,20 @@ const done = arguments[arguments.length - 1];
 })();
 """
 
+INITIAL_TABS = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+return Array.from(win.gBrowser.tabs, tab => tab.linkedPanel);
+"""
+
 SETUP_TABS = """
-const [urls, pinned] = arguments;
-const sp = Services.scriptSecurityManager.getSystemPrincipal();
+const [originalIds, pinned] = arguments;
 const win = Services.wm.getMostRecentWindow("navigator:browser");
 const gb = win.gBrowser;
-// Do not navigate the startup browser: on Windows its remoteTab can remain
-// detached even after a long readiness wait. Create the fixture tabs first,
-// keeping the original tabs until a replacement is ready to keep the window open.
-const original = Array.from(gb.tabs);
-const fresh = [];
-try {
-  for (const url of urls) {
-    fresh.push(gb.addTab(url, {triggeringPrincipal: sp, skipAnimation: true}));
-  }
-  if (pinned) { gb.pinTab(fresh[0]); }
-  gb.selectedTab = fresh[1];
-} catch (error) {
-  for (const tab of fresh) { gb.removeTab(tab, {animate: false}); }
-  throw error;
-}
+const original = Array.from(gb.tabs).filter(tab => originalIds.includes(tab.linkedPanel));
+const fresh = Array.from(gb.tabs).filter(tab => !originalIds.includes(tab.linkedPanel));
+if (fresh.length !== 3) { throw new Error("expected three loaded fixture tabs"); }
+if (pinned) { gb.pinTab(fresh[0]); }
+gb.selectedTab = fresh[1];
 for (const tab of original) { gb.removeTab(tab, {animate: false}); }
 return gb.tabs.length;
 """

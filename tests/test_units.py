@@ -395,7 +395,8 @@ class SessionSetupTests(unittest.TestCase):
         ready = [{"url": session.urls[name], "title": core.SAMPLE_PAGES[name][0],
                   "busy": False, "loading": False, "iconReady": True}
                  for name in ("start.html", "docs.html", "issues.html")]
-        session.m.script.side_effect = [core.MarionetteError("setup failed"), 3, ready]
+        session._open_fixture_tabs = Mock(side_effect=[core.MarionetteError("setup failed"), None])
+        session.m.script.return_value = ready
         session.m.command.return_value = {"value": "chrome-window"}
         session.m.async_script.return_value = True
         with patch.object(core.time, "sleep"):
@@ -406,7 +407,8 @@ class SessionSetupTests(unittest.TestCase):
             session.setup_window()
             session.setup_window()
         self.assertTrue(session._window_ready)
-        self.assertEqual(session.m.script.call_count, 3)
+        self.assertEqual(session._open_fixture_tabs.call_count, 2)
+        self.assertEqual(session.m.script.call_count, 1)
         self.assertEqual(session.m.command.call_args_list, [
             call("WebDriver:GetWindowHandle"),
             call("WebDriver:SwitchToWindow", {"handle": "chrome-window"}),
@@ -437,6 +439,26 @@ class SessionSetupTests(unittest.TestCase):
         with patch.object(core.time, "monotonic", side_effect=[0, 31]):
             with self.assertRaisesRegex(core.MarionetteError, "sample pages.*about:blank"):
                 session._wait_for_fixture_pages()
+
+    def test_failed_navigation_keeps_original_tabs_and_restores_chrome_context(self):
+        from unittest.mock import Mock
+        from fxcss import core
+        session = core.Session.__new__(core.Session)
+        session.urls = {"start.html": "file:///start.html"}
+        session.m = Mock()
+        session.m.script.return_value = ["original-tab"]
+
+        def command(name, args):
+            if name == "WebDriver:NewWindow":
+                return {"handle": "new-tab"}
+            if name == "WebDriver:Navigate":
+                raise core.MarionetteError("navigation failed")
+
+        session.m.command.side_effect = command
+        with self.assertRaisesRegex(core.MarionetteError, "navigation failed"):
+            session._open_fixture_tabs(True)
+        session.m.script.assert_called_once_with(core.INITIAL_TABS)
+        session.m.set_context.assert_called_with("chrome")
 
 
 class StartupRaceTests(unittest.TestCase):
