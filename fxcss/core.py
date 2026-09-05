@@ -270,31 +270,12 @@ XULSTORE = {
     }
 }
 
-def _sine_wav_data_uri(seconds=6, hz=440, rate=8000):
-    """A short sine tone as a data: URI.
-
-    Generated rather than shipped as a binary, and inlined rather than fetched,
-    so the tab-playing-audio state stays local and identical on every run.
-    """
-    import base64
-    import math
-    import struct
-    frames = b"".join(
-        struct.pack("<h", int(9000 * math.sin(2 * math.pi * hz * i / rate)))
-        for i in range(rate * seconds))
-    header = (b"RIFF" + struct.pack("<I", 36 + len(frames)) + b"WAVEfmt "
-              + struct.pack("<IHHIIHH", 16, 1, 1, rate, rate * 2, 2, 16)
-              + b"data" + struct.pack("<I", len(frames)))
-    return "data:audio/wav;base64," + base64.b64encode(header + frames).decode("ascii")
-
-
 SAMPLE_PAGES = {
     "start.html": ("Start", "<h1>Theme preview</h1><p>First tab.</p>"),
     "docs.html": ("Documentation", "<h1>Documentation</h1><p>Second tab.</p>"),
     "issues.html": ("Issue tracker", "<h1>Issues</h1><p>Third tab.</p>"),
-    "audio.html": ("Now playing", "<h1>Audio</h1><p>Plays a tone so the tab shows "
-                   "its sound indicator.</p>"
-                   "<audio src=\"__AUDIO__\" loop autoplay></audio>"),
+    "audio.html": ("Now playing", "<h1>Audio indicators</h1><p>Playing and muted "
+                   "tab states for theme screenshots.</p>"),
 }
 
 
@@ -315,11 +296,7 @@ def build_pages(dest=None):
         dest = Path(tempfile.gettempdir()) / f"fxcss-pages-{digest}"
     dest.mkdir(parents=True, exist_ok=True)
     urls = {}
-    tone = None
     for name, (title, body) in SAMPLE_PAGES.items():
-        if "__AUDIO__" in body:
-            tone = tone or _sine_wav_data_uri()
-            body = body.replace("__AUDIO__", tone)
         path = dest / name
         _write_atomic(
             path,
@@ -403,12 +380,21 @@ def _is_startup_race(exc):
     still wiring itself up, and a loadURI in that gap throws from deep inside
     tabbrowser -- seen intermittently on Windows CI runners as `TypeError:
     can't access property "maybeCancelContentJSExecution",
-    this._browser.frameLoader.remoteTab is null`. That is a timing accident,
-    not a real failure, so it is the one error worth retrying; anything else
-    should surface unchanged.
+    this._browser.frameLoader.remoteTab is null`. A newly created tab can also
+    retain a discarded content context even after re-selection. Fixture setup
+    may replace its temporary tabs for these failures; unrelated errors still
+    surface unchanged.
     """
     message = str(exc)
-    return "remoteTab is null" in message or "frameLoader is null" in message
+    return ("remoteTab is null" in message or "frameLoader is null" in message
+            or _is_discarded_navigation(exc))
+
+
+def _is_discarded_navigation(exc):
+    message = str(exc)
+    return (message.startswith("WebDriver:Navigate failed:")
+            and "'error': 'no such window'" in message
+            and "Browsing context has been discarded" in message)
 
 
 # Seconds to wait before each retry of the startup race, one entry per retry.
@@ -421,7 +407,7 @@ STARTUP_RACE_DELAYS = (2.0, 4.0, 8.0, 16.0)
 
 
 def _retry_startup_race(operation, delays=STARTUP_RACE_DELAYS, sleep=time.sleep):
-    """Run operation, waiting out the initial browser's loadURI race.
+    """Run fixture setup, replacing tabs after known browser startup races.
 
     Only the failure _is_startup_race recognises is retried; anything else
     surfaces unchanged, and so does the race itself once the delays run out.
@@ -432,10 +418,19 @@ def _retry_startup_race(operation, delays=STARTUP_RACE_DELAYS, sleep=time.sleep)
         except MarionetteError as exc:
             if not _is_startup_race(exc):
                 raise
-            print(f"  note: initial browser raced loadURI, retrying in "
+            print(f"  note: fixture browser was not usable, replacing tabs in "
                   f"{delay:.0f}s ({exc})", flush=True)
             sleep(delay)
     return operation()
+
+
+def _fixture_pages_loaded(state, expected):
+    return (isinstance(state, list) and len(state) == len(expected)
+            and all(isinstance(tab, dict) and tab.get("url") == url
+                    and tab.get("title") == title
+                    and tab.get("busy") is False and tab.get("loading") is False
+                    and tab.get("iconReady") is True
+                    for tab, (url, title) in zip(state, expected)))
 
 
 class Session:
@@ -466,6 +461,10 @@ class Session:
         env.pop("MOZ_HEADLESS", None)
         cmd = [self.firefox, "--profile", str(self.profile), *LAUNCH_FLAGS,
                "--new-window", "about:blank"]
+        if sys.platform == "win32":
+            # firefox.exe is a launcher on Windows. Keep it alive until its
+            # browser exits so cleanup cannot race the browser's shutdown.
+            cmd.append("-wait-for-browser")
         self.proc = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL,
                                      stderr=subprocess.DEVNULL)
         self.m = Marionette(port=self.port)
@@ -482,7 +481,13 @@ class Session:
             try:
                 self.proc.wait(timeout=45)
             except subprocess.TimeoutExpired:
-                self.proc.kill()
+                if sys.platform == "win32":
+                    subprocess.run(["taskkill", "/PID", str(self.proc.pid), "/T", "/F"],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                   check=False)
+                else:
+                    self.proc.kill()
+                self.proc.wait(timeout=5)
         if not self.keep_profile:
             shutil.rmtree(self.workdir, ignore_errors=True)
 
@@ -495,33 +500,73 @@ class Session:
         # bookmarks twice used to leave the toolbar showing each one twice.
         if self._window_ready:
             return
-        self._window_ready = True
+        _retry_startup_race(lambda: self._open_fixture_tabs(pinned))
+        # Selecting a tab through browser chrome does not update Marionette's
+        # content context. Re-select this chrome window through the protocol so
+        # content commands target its selected tab instead of the discarded one.
+        handle = Marionette._unwrap(self.m.command("WebDriver:GetWindowHandle"))
+        self.m.command("WebDriver:SwitchToWindow", {"handle": handle})
+        self._wait_for_fixture_pages()
         result = self.m.async_script(SEED_BOOKMARKS)
         if result is not True:
             print(f"  note: bookmark seeding returned {result!r}", flush=True)
-        self._wait_for_initial_browser()
-        args = [[self.urls["start.html"], self.urls["docs.html"],
-                 self.urls["issues.html"]], pinned]
-        # The readiness poll covers the race we have seen; the retry covers
-        # the shape of it we have not. Only the startup race is retried.
-        _retry_startup_race(lambda: self.m.script(SETUP_TABS, args))
         time.sleep(3.0)
+        self._window_ready = True
 
-    def _wait_for_initial_browser(self, timeout=10):
-        # Marionette answers commands before the first window's browser has
-        # attached its remoteTab, and SETUP_TABS' loadURI in that gap fails
-        # (intermittent on Windows CI). Poll the attachment point itself
-        # rather than sleeping a guessed amount. Best-effort by design: on
-        # timeout, proceed and let the loadURI retry own whatever state this
-        # is -- a real loadURI error names the problem, where failing here
-        # would only report that a poll gave up.
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            if self.m.script(BROWSER_READY) is True:
+    def _open_fixture_tabs(self, pinned):
+        original = self.m.script(INITIAL_TABS)
+        # NewWindow waits for the browser's initial context; Navigate waits
+        # for the page load. Direct addTab(url) calls can start navigation
+        # before that context exists and leave every tab busy at about:blank
+        # on Windows. Keep the original tabs until all replacements load.
+        self.m.command("WebDriver:SetTimeouts", {"pageLoad": 30000})
+        try:
+            for name in ("start.html", "docs.html", "issues.html"):
+                # Background NewWindow restores Marionette's previous tab,
+                # which may be precisely the unusable tab being replaced.
+                window = Marionette._unwrap(self.m.command(
+                    "WebDriver:NewWindow", {"type": "tab", "focus": True}))
+                self._navigate_fixture_tab(window["handle"], self.urls[name])
+        finally:
+            self.m.set_context("chrome")
+        self.m.script(SETUP_TABS, [original, pinned])
+
+    def _navigate_fixture_tab(self, handle, url):
+        # A process switch can discard the context remembered by Marionette
+        # between selecting a new tab and navigating it. Re-select the same
+        # tab to refresh that context; never create another tab or retry an
+        # arbitrary navigation error. These fixture pages have no side effects.
+        # If it stays unusable, setup_window's bounded retry replaces the
+        # temporary tabs while retaining the original window until success.
+        for attempt in range(3):
+            self.m.command("WebDriver:SwitchToWindow", {"handle": handle})
+            self.m.set_context("content")
+            try:
+                self.m.command("WebDriver:Navigate", {"url": url})
                 return
+            except MarionetteError as exc:
+                if attempt == 2 or not _is_discarded_navigation(exc):
+                    raise
+                print("  note: new tab context changed; refreshing it before navigation",
+                      flush=True)
+            finally:
+                self.m.set_context("chrome")
+            time.sleep(0.5)
+
+    def _wait_for_fixture_pages(self, timeout=30):
+        # A loading page can paint the same blank frame twice, so _shot's
+        # visual stability check cannot establish that navigation finished.
+        expected = [(self.urls[name], SAMPLE_PAGES[name][0]) for name in
+                    ("start.html", "docs.html", "issues.html")]
+        deadline = time.monotonic() + timeout
+        while True:
+            state = self.m.script(FIXTURE_PAGES_STATE)
+            if _fixture_pages_loaded(state, expected):
+                return
+            if time.monotonic() >= deadline:
+                raise MarionetteError(
+                    f"sample pages did not finish loading in {timeout}s: {state}")
             time.sleep(0.25)
-        print(f"  note: initial browser not visibly ready after {timeout}s; "
-              f"proceeding anyway", flush=True)
 
     def apply_harness_css(self):
         """Hide artifacts of the automation harness in every window.
@@ -598,31 +643,37 @@ const done = arguments[arguments.length - 1];
 })();
 """
 
-# A remote browser cannot take a loadURI until its frameLoader has attached a
-# remoteTab (the content-process handle tabbrowser talks to). Only that gap
-# is worth waiting out. A browser with no frameLoader at all is a lazy
-# browser, which stays that way until a load forces the frameLoader into
-# existence -- polling it deadlocks, as a windows-latest run demonstrated
-# (30s of waiting and it never came; the loadURI itself is what creates it).
-BROWSER_READY = """
+INITIAL_TABS = """
 const win = Services.wm.getMostRecentWindow("navigator:browser");
-const browser = win && win.gBrowser && win.gBrowser.selectedBrowser;
-if (!browser) { return false; }
-return !browser.isRemoteBrowser || !browser.frameLoader ||
-       !!browser.frameLoader.remoteTab;
+return Array.from(win.gBrowser.tabs, tab => tab.linkedPanel);
 """
 
 SETUP_TABS = """
-const [urls, pinned] = arguments;
-const sp = Services.scriptSecurityManager.getSystemPrincipal();
+const [originalIds, pinned] = arguments;
 const win = Services.wm.getMostRecentWindow("navigator:browser");
 const gb = win.gBrowser;
-while (gb.tabs.length > 1) { gb.removeTab(gb.tabs[gb.tabs.length - 1]); }
-gb.selectedBrowser.loadURI(Services.io.newURI(urls[0]), {triggeringPrincipal: sp});
-for (let i = 1; i < urls.length; i++) { gb.addTab(urls[i], {triggeringPrincipal: sp}); }
-if (pinned) { gb.pinTab(gb.tabs[0]); }
-gb.selectedTab = gb.tabs[1];
+const original = Array.from(gb.tabs).filter(tab => originalIds.includes(tab.linkedPanel));
+const fresh = Array.from(gb.tabs).filter(tab => !originalIds.includes(tab.linkedPanel));
+if (fresh.length !== 3) { throw new Error("expected three loaded fixture tabs"); }
+if (pinned) { gb.pinTab(fresh[0]); }
+gb.selectedTab = fresh[1];
+for (const tab of original) { gb.removeTab(tab, {animate: false}); }
 return gb.tabs.length;
+"""
+
+FIXTURE_PAGES_STATE = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+const icons = Services.prefs.getBoolPref("browser.chrome.site_icons", true);
+return Array.from(win.gBrowser.tabs, tab => {
+  const browser = tab.linkedBrowser;
+  return {
+    url: browser.currentURI.spec,
+    title: browser.contentTitle,
+    busy: tab.hasAttribute("busy"),
+    loading: browser.webProgress.isLoadingDocument,
+    iconReady: !icons || !!tab.getAttribute("image"),
+  };
+});
 """
 
 # Live sheets used to load into the top browser window's windowUtils only,
@@ -947,10 +998,8 @@ OPEN_AUDIO_TAB = """
 const [url] = arguments;
 const win = Services.wm.getMostRecentWindow("navigator:browser");
 const sp = Services.scriptSecurityManager.getSystemPrincipal();
-// 0 = allow autoplay. Without this the tab never starts playing and the sound
-// indicator never appears.
-Services.prefs.setIntPref("media.autoplay.default", 0);
-Services.prefs.setIntPref("media.autoplay.blocking_policy", 0);
+// This local page has no media playback. The capture fixture controls the
+// indicator attributes, so machines without an audio device render the same UI.
 const tab = win.gBrowser.addTab(url, {triggeringPrincipal: sp});
 win.gBrowser.selectedTab = tab;
 return true;
@@ -962,11 +1011,38 @@ const tab = win.gBrowser.selectedTab;
 return {playing: tab.hasAttribute("soundplaying"), muted: tab.hasAttribute("muted")};
 """
 
-MUTE_TAB = """
+SET_AUDIO_STATE = """
 const win = Services.wm.getMostRecentWindow("navigator:browser");
-win.gBrowser.selectedTab.toggleMuteAudio();
-return win.gBrowser.selectedTab.hasAttribute("muted");
+const tab = win.gBrowser.selectedTab;
+if (arguments[0] === null) {
+  tab.removeAttribute("soundplaying");
+  tab.removeAttribute("muted");
+} else {
+  tab.setAttribute("soundplaying", "true");
+  tab.toggleAttribute("muted", Boolean(arguments[0]));
+}
+if (typeof win.gBrowser._tabAttrModified === "function") {
+  win.gBrowser._tabAttrModified(tab, ["soundplaying", "muted"]);
+}
+return true;
 """
+
+
+def _capture_audio_views(m, outdir):
+    """Render Firefox's indicator states without requiring an OS sound device."""
+    try:
+        for muted, name in ((False, "extra-04-audio"), (True, "extra-05-muted")):
+            m.script(SET_AUDIO_STATE, [muted])
+            time.sleep(0.8)
+            state = m.script(AUDIO_STATE) or {}
+            if not state.get("playing") or state.get("muted") is not muted:
+                raise RuntimeError(f"could not establish audio indicator state for {name}: {state}")
+            _shot(m, outdir, name)
+    finally:
+        # Audio-only theme rules must not affect later sidebar or toolbar views.
+        m.script(SET_AUDIO_STATE, [None])
+
+
 
 # After the strip overflows, Firefox scrolls the selected tab into view -- and
 # where that lands is bistable between runs (seen live: two runs settling at
@@ -981,6 +1057,20 @@ if (box && box.scrollbox) {
   box.scrollbox.scrollTo({left: 0, top: 0, behavior: "instant"});
 }
 return true;
+"""
+
+# A loading URL may overflow its tab before the short fixture title arrives.
+# A stale overflow event can leave textoverflow set, which also forces LTR
+# text direction inside RTL chrome. Reconcile it with the current geometry
+# before each RTL frame, retaining real overflow introduced by a theme.
+SYNC_TAB_LABEL_OVERFLOW = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+for (const tab of win.gBrowser.tabs) {
+  const label = tab.querySelector(".tab-label-container");
+  if (label && label.clientWidth > 0) {
+    label.toggleAttribute("textoverflow", label.scrollWidth > label.clientWidth);
+  }
+}
 """
 
 MANY_TABS = """
@@ -1200,6 +1290,8 @@ def _dialog_shot(session: "Session", outdir: Path, name: str, timeout=45.0):
         return
     if result.get("skip"):
         print(f"  note: {result['skip']}; skipping {name}", flush=True)
+        if result["skip"] == "no in-window modal prompts on this Firefox":
+            return "no in-window modal prompts"
         return
     png = base64.b64decode(result["shot"].split(",", 1)[1])
     if len(png) < 2000:
@@ -1210,10 +1302,31 @@ def _dialog_shot(session: "Session", outdir: Path, name: str, timeout=45.0):
 
 def capture_views(session: Session, outdir: Path, modes=("light", "dark"),
                   variants=None, toolbar=None):
+    """Capture views and require every supported state to be represented."""
+    from . import capture
+    outdir.mkdir(parents=True, exist_ok=True)
+    expected = capture.expected_views(variants or (), modes)
+    # Old generated images cannot mask a failed view on a repeated run.
+    for path in outdir.glob("*.png"):
+        if path.stem in capture.expected_views() or capture.VARIANT.fullmatch(path.stem):
+            path.unlink()
+    coverage = {"info": {}, "unsupported": {}, "failed": {}}
+    try:
+        info = _capture_views(session, outdir, modes, variants, toolbar, coverage)
+    finally:
+        capture.write_coverage(outdir, coverage["info"], expected,
+                               coverage["unsupported"], coverage["failed"])
+    capture.validate_coverage(outdir, expected)
+    return info
+
+
+def _capture_views(session: Session, outdir: Path, modes=("light", "dark"),
+                   variants=None, toolbar=None, coverage=None):
     """Capture the standard set of views. Returns the browser info dict."""
     outdir.mkdir(parents=True, exist_ok=True)
     session.setup_window()
     info = session.info()
+    coverage["info"] = info
     print(f"  firefox {info['version']} ({info['os']}), dpr={info['dpr']}, "
           f"window={info['outer']}, legacyStylesheets={info['legacyStylesheets']}",
           flush=True)
@@ -1254,25 +1367,22 @@ def capture_views(session: Session, outdir: Path, modes=("light", "dark"),
         # its body is painted by its own document, and dark is where themes
         # break it (see DIALOG_VIEW). Captured through its handoff file, not
         # _shot -- no Marionette command may run while the dialog is up.
-        _dialog_shot(session, outdir, f"{mode}-04-dialog")
+        unsupported = _dialog_shot(session, outdir, f"{mode}-04-dialog")
+        if unsupported:
+            coverage["unsupported"][f"{mode}-04-dialog"] = unsupported
 
     # Extra chrome states, captured once rather than per colour scheme: each is
     # about a distinct piece of UI appearing, not about light versus dark.
     session.set_dark(False)
     time.sleep(1.5)
 
-    # A tab playing audio, then the same tab muted -- the speaker and mute
-    # indicators are separate pieces of tab styling and themes get them wrong
-    # independently.
+    # Set the same attributes Firefox uses for playing/muted tabs. This is a
+    # CSS state fixture: OS audio devices are absent on many CI machines, and
+    # playback failure must not turn an audio screenshot into an ordinary tab.
     m.script(OPEN_AUDIO_TAB, [session.urls["audio.html"]])
-    time.sleep(4.0)
-    state = m.script(AUDIO_STATE)
-    if not state.get("playing"):
-        print("  note: audio tab is not reporting sound; capturing anyway", flush=True)
-    _shot(m, outdir, "extra-04-audio")
-    m.script(MUTE_TAB)
-    time.sleep(1.2)
-    _shot(m, outdir, "extra-05-muted")
+    time.sleep(2.0)
+    _capture_audio_views(m, outdir)
+    info["audioIndicators"] = "controlled playing and muted tab attributes"
 
     # Container tabs: each carries an identity colour along the tab and an
     # identity label in the address bar, both of which themes style and neither
@@ -1357,7 +1467,7 @@ def capture_views(session: Session, outdir: Path, modes=("light", "dark"),
                  extra_prefs='user_pref("intl.l10n.pseudo", "bidi");\n') as rtl:
         rtl.setup_window()
         if rtl.m.script(GET_DIRECTION) == "rtl":
-            _shot(rtl.m, outdir, "extra-12-rtl")
+            _shot(rtl.m, outdir, "extra-12-rtl", before=SYNC_TAB_LABEL_OVERFLOW)
         else:
             print("  note: chrome did not come up RTL; skipping that view", flush=True)
 
@@ -1391,6 +1501,9 @@ def capture_views(session: Session, outdir: Path, modes=("light", "dark"),
                 and state.get("width")):
             _shot(vt.m, outdir, "extra-14-vertical-tabs")
         else:
+            version = re.match(r"\d+", str(info.get("version", "")))
+            if version and int(version[0]) < 133:
+                coverage["unsupported"]["extra-14-vertical-tabs"] = "Firefox before 133"
             print("  note: vertical tabs unavailable on this Firefox "
                   "(needs 133+); skipping that view", flush=True)
 
@@ -1590,8 +1703,9 @@ def find_variant_sheets(theme: Path):
     Looks in the same folders `fxcss try --with` does. Keys are slugs safe for
     a filename, so a capture can be named after its variant.
     """
+    from .fetch import VARIANT_DIRS
     sheets = {}
-    for folder in ("custom", "optional", "options", "extras", "variants"):
+    for folder in VARIANT_DIRS:
         directory = theme / folder
         if directory.is_dir():
             for css in sorted(directory.glob("*.css")):

@@ -8,9 +8,8 @@ theme, which is exactly the hand-editing that used to trip people up:
 
 * the fxcss version pin (a PyPI release), set to the version doing the
   generating
-* the publish allowlist's variant names, enumerated from the theme's own
-  optional stylesheets -- an allowlist someone has to remember to extend is
-  an allowlist that silently drops views
+* a bounded filename pattern for optional stylesheet screenshots, including
+  variants added after the workflows were generated
 * the showcase URL, taken from the repository's origin remote
 """
 
@@ -20,6 +19,7 @@ from importlib import resources
 from pathlib import Path
 
 from . import __version__
+from .fetch import VARIANT_DIRS
 
 PREVIEW_FILES = ("pr-preview.yml", "pr-preview-publish.yml", "pr-preview-cleanup.yml")
 WATCH_FILE = "firefox-watch.yml"
@@ -28,17 +28,8 @@ PREVIEWS_FILE = "readme-previews.yml"
 
 
 def variant_alternation(slugs):
-    """The regex fragment that admits this theme's variant captures.
-
-    Empty when there are no variants, so the allowlist stays as tight as the
-    theme is simple.
-    """
-    names = sorted(s for s in slugs if re.fullmatch(r"[a-z0-9+-]+", s))
-    if not names:
-        return ""
-    # Only '+' needs escaping in this position; re.escape would also escape
-    # '-', which is harmless but makes the generated workflow harder to read.
-    return "|variant-(?:" + "|".join(n.replace("+", "\\+") for n in names) + ")"
+    """Admit safe variant slugs, including options introduced by future PRs."""
+    return "|variant-[a-z0-9][a-z0-9+-]{0,159}"
 
 
 def https_repo_url(remote):
@@ -69,6 +60,9 @@ def render_template(text, version, variant_alt, repo_url):
     text = text.replace("__FXCSS_VERSION__", version)
     text = text.replace("__FXCSS_VARIANT_ALT__", variant_alt)
     text = text.replace("__FXCSS_REPO_URL__", repo_url or "https://example.com")
+    paths = ["chrome", "configuration", *VARIANT_DIRS]
+    text = text.replace("__FXCSS_THEME_PATHS__", "\n".join(
+        f"      - '{folder}/**'" for folder in paths))
     return text
 
 
@@ -150,12 +144,8 @@ def next_steps(written, skipped, variant_slugs, watch, showcase, previews=False)
     if skipped:
         lines.append("Left alone (already exist; rerun with --force to replace):")
         lines += [f"  {p}" for p in skipped]
-    if variant_slugs:
-        lines.append("")
-        lines.append(f"Publish allowlist covers {len(variant_slugs)} variant "
-                     f"stylesheet(s): {', '.join(sorted(variant_slugs))}.")
-        lines.append("Adding a variant later? Re-run `fxcss init --force`, or add it "
-                     "to the NAME regex by hand.")
+    lines.append("New optional stylesheets are included automatically; variant filenames "
+                 "and PNG headers are validated before publishing.")
     lines += [
         "",
         "Worth knowing before the first pull request:",

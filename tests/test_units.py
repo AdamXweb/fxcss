@@ -383,6 +383,134 @@ class SamplePagesTests(unittest.TestCase):
         self.assertEqual(build_pages(), build_pages())
 
 
+class SessionCleanupTests(unittest.TestCase):
+    def test_windows_timeout_kills_only_the_owned_launcher_tree_and_waits(self):
+        from unittest.mock import Mock, call, patch
+        from fxcss import core
+        session = core.Session.__new__(core.Session)
+        session.m = Mock()
+        session.proc = Mock(pid=4242)
+        session.proc.wait.side_effect = [core.subprocess.TimeoutExpired("firefox", 45), None]
+        session.keep_profile = True
+        with patch.object(core.sys, "platform", "win32"), patch.object(core.subprocess, "run") as run:
+            session.__exit__()
+        session.m.quit.assert_called_once_with()
+        run.assert_called_once_with(
+            ["taskkill", "/PID", "4242", "/T", "/F"],
+            stdout=core.subprocess.DEVNULL, stderr=core.subprocess.DEVNULL, check=False)
+        self.assertEqual(session.proc.wait.call_args_list, [call(timeout=45), call(timeout=5)])
+
+
+class SessionSetupTests(unittest.TestCase):
+    def test_failed_setup_can_be_retried_without_duplicate_bookmarks(self):
+        from unittest.mock import Mock, call, patch
+        from fxcss import core
+        session = core.Session.__new__(core.Session)
+        session._window_ready = False
+        session.urls = {name: f"file:///{name}" for name in
+                        ("start.html", "docs.html", "issues.html")}
+        session.m = Mock()
+        ready = [{"url": session.urls[name], "title": core.SAMPLE_PAGES[name][0],
+                  "busy": False, "loading": False, "iconReady": True}
+                 for name in ("start.html", "docs.html", "issues.html")]
+        session._open_fixture_tabs = Mock(side_effect=[core.MarionetteError("setup failed"), None])
+        session.m.script.return_value = ready
+        session.m.command.return_value = {"value": "chrome-window"}
+        session.m.async_script.return_value = True
+        with patch.object(core.time, "sleep"):
+            with self.assertRaisesRegex(core.MarionetteError, "setup failed"):
+                session.setup_window()
+            self.assertFalse(session._window_ready)
+            session.m.async_script.assert_not_called()
+            session.setup_window()
+            session.setup_window()
+        self.assertTrue(session._window_ready)
+        self.assertEqual(session._open_fixture_tabs.call_count, 2)
+        self.assertEqual(session.m.script.call_count, 1)
+        self.assertEqual(session.m.command.call_args_list, [
+            call("WebDriver:GetWindowHandle"),
+            call("WebDriver:SwitchToWindow", {"handle": "chrome-window"}),
+        ])
+        session.m.async_script.assert_called_once_with(core.SEED_BOOKMARKS)
+
+    def test_blank_or_incomplete_pages_are_never_ready(self):
+        from fxcss import core
+        expected = [("file:///docs.html", "Documentation")]
+        ready = {"url": expected[0][0], "title": expected[0][1],
+                 "busy": False, "loading": False, "iconReady": True}
+        self.assertTrue(core._fixture_pages_loaded([ready], expected))
+        for change in ({"url": "about:blank"}, {"title": ""}, {"busy": True},
+                       {"loading": True}, {"iconReady": False}):
+            with self.subTest(change=change):
+                self.assertFalse(core._fixture_pages_loaded([dict(ready, **change)], expected))
+        for incomplete in (None, [], [ready, ready]):
+            self.assertFalse(core._fixture_pages_loaded(incomplete, expected))
+
+    def test_page_wait_is_bounded_and_reports_the_loading_state(self):
+        from unittest.mock import Mock, patch
+        from fxcss import core
+        session = core.Session.__new__(core.Session)
+        session.urls = {name: f"file:///{name}" for name in
+                        ("start.html", "docs.html", "issues.html")}
+        session.m = Mock()
+        session.m.script.return_value = [{"url": "about:blank", "busy": True}]
+        with patch.object(core.time, "monotonic", side_effect=[0, 31]):
+            with self.assertRaisesRegex(core.MarionetteError, "sample pages.*about:blank"):
+                session._wait_for_fixture_pages()
+
+    def test_failed_navigation_keeps_original_tabs_and_restores_chrome_context(self):
+        from unittest.mock import Mock
+        from fxcss import core
+        session = core.Session.__new__(core.Session)
+        session.urls = {"start.html": "file:///start.html"}
+        session.m = Mock()
+        session.m.script.return_value = ["original-tab"]
+
+        def command(name, args):
+            if name == "WebDriver:NewWindow":
+                return {"handle": "new-tab"}
+            if name == "WebDriver:Navigate":
+                raise core.MarionetteError("navigation failed")
+
+        session.m.command.side_effect = command
+        with self.assertRaisesRegex(core.MarionetteError, "navigation failed"):
+            session._open_fixture_tabs(True)
+        session.m.script.assert_called_once_with(core.INITIAL_TABS)
+        session.m.set_context.assert_called_with("chrome")
+
+    def test_discarded_context_refreshes_the_same_tab_without_recreating_it(self):
+        from unittest.mock import Mock, call, patch
+        from fxcss import core
+        session = core.Session.__new__(core.Session)
+        session.m = Mock()
+        session.m.command.side_effect = [None, core.MarionetteError(
+            "WebDriver:Navigate failed: {'error': 'no such window', "
+            "'message': 'Browsing context has been discarded'}"), None, None]
+        with patch.object(core.time, "sleep"):
+            session._navigate_fixture_tab("same-tab", "file:///docs.html")
+        self.assertEqual(session.m.command.call_args_list, [
+            call("WebDriver:SwitchToWindow", {"handle": "same-tab"}),
+            call("WebDriver:Navigate", {"url": "file:///docs.html"}),
+        ] * 2)
+        session.m.set_context.assert_called_with("chrome")
+
+    def test_discarded_context_retry_is_bounded(self):
+        from unittest.mock import Mock, patch
+        from fxcss import core
+        session = core.Session.__new__(core.Session)
+        session.m = Mock()
+        error = core.MarionetteError(
+            "WebDriver:Navigate failed: {'error': 'no such window', "
+            "'message': 'Browsing context has been discarded'}")
+        session.m.command.side_effect = [None, error] * 3
+        with patch.object(core.time, "sleep"):
+            with self.assertRaises(core.MarionetteError) as raised:
+                session._navigate_fixture_tab("same-tab", "file:///docs.html")
+        self.assertIs(raised.exception, error)
+        self.assertEqual(session.m.command.call_count, 6)
+        session.m.set_context.assert_called_with("chrome")
+
+
 class StartupRaceTests(unittest.TestCase):
     """Only the initial-browser race may be retried; real failures must not.
 
@@ -406,10 +534,17 @@ class StartupRaceTests(unittest.TestCase):
     def test_a_missing_frameloader_is_retryable(self):
         self.assertTrue(self.is_race("TypeError: browser.frameLoader is null"))
 
+    def test_a_persistently_discarded_fixture_navigation_is_retryable(self):
+        self.assertTrue(self.is_race(
+            "WebDriver:Navigate failed: {'error': 'no such window', "
+            "'message': 'Browsing context has been discarded'}"))
+
     def test_real_failures_are_not(self):
         for message in ("WebDriver:ExecuteScript failed: timeout",
                         "TypeError: gb.addTab is not a function",
                         "ReferenceError: remoteTab is not defined",
+                        "WebDriver:TakeScreenshot failed: {'error': 'no such window', "
+                        "'message': 'Browsing context has been discarded'}",
                         "Marionette connection closed unexpectedly"):
             with self.subTest(message=message):
                 self.assertFalse(self.is_race(message))
@@ -600,12 +735,11 @@ class FindVariantSheetsTests(unittest.TestCase):
 class ScaffoldTests(unittest.TestCase):
     def test_variant_alternation(self):
         from fxcss.scaffold import variant_alternation
-        self.assertEqual(variant_alternation([]), "")
-        self.assertEqual(variant_alternation(["b-2", "a"]), "|variant-(?:a|b-2)")
-        # Anything that could break out of the regex is dropped, not escaped:
-        # the allowlist is a security boundary and only boring names belong.
-        self.assertEqual(variant_alternation(["ok", "Bad.Name", "x|y"]),
-                         "|variant-(?:ok)")
+        pattern = re.compile("^(?:" + variant_alternation([]).lstrip("|") + ")$")
+        for name in ("variant-new-option", "variant-a+b", "variant-compact-tabs"):
+            self.assertRegex(name, pattern)
+        for name in ("variant-../bad", "variant-<script>", "variant-x/y", "variant-" + "a" * 161):
+            self.assertIsNone(pattern.fullmatch(name))
 
     def test_https_repo_url(self):
         from fxcss.scaffold import https_repo_url
@@ -631,7 +765,7 @@ class ScaffoldTests(unittest.TestCase):
             self.assertEqual(skipped, [])
             publish = (theme / ".github" / "workflows"
                        / "pr-preview-publish.yml").read_text()
-            self.assertIn("|variant-(?:my-variant)", publish)
+            self.assertIn("|variant-[a-z0-9][a-z0-9+-]{0,159}", publish)
             self.assertNotIn("__FXCSS_", publish)
             preview = (theme / ".github" / "workflows" / "pr-preview.yml").read_text()
             self.assertIn("FXCSS_VERSION: 9.9.9", preview)
@@ -917,8 +1051,7 @@ class VariantSpecTests(unittest.TestCase):
 
     def test_combo_slug_is_regex_escaped_in_allowlist(self):
         from fxcss.scaffold import variant_alternation
-        self.assertEqual(variant_alternation(["a+b", "plain"]),
-                         "|variant-(?:a\\+b|plain)")
+        self.assertRegex("variant-a+b", "^(?:" + variant_alternation([]).lstrip("|") + ")$")
 
 
 class TweaksMarkdownTests(unittest.TestCase):

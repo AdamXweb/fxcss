@@ -22,6 +22,7 @@ the profile, copy the optional sheets that were asked for, and make sure
 supported place for a value that must survive).
 """
 
+import contextlib
 import hashlib
 import json
 import os
@@ -711,7 +712,10 @@ def read_manifest(profile):
     someone has mangled degrades to "fxcss cannot say", never to a confident
     wrong answer.
     """
-    path = Path(profile) / "chrome" / MANIFEST_NAME
+    return _read_manifest(Path(profile) / "chrome" / MANIFEST_NAME)
+
+
+def _read_manifest(path):
     if not path.is_file():
         return None
     try:
@@ -745,11 +749,18 @@ def _manifest_paths(profile, data):
     """
     safe = []
     for entry in data.get("files", []):
+        if not isinstance(entry, str):
+            continue
         parts = Path(entry).parts
         if not parts or parts[0] != "chrome" or ".." in parts \
                 or Path(entry).is_absolute():
             continue
-        safe.append(Path(profile).joinpath(*parts))
+        candidate = Path(profile).joinpath(*parts)
+        # A symlink in a managed path must never lead removal outside chrome/.
+        if any(parent.is_symlink() for parent in (candidate, *candidate.parents)
+               if parent != Path(profile) and Path(profile) in parent.parents):
+            continue
+        safe.append(candidate)
     return safe
 
 
@@ -815,19 +826,84 @@ def list_backups(profile):
     return sorted(found, key=lambda b: b["key"], reverse=True)
 
 
-def rollback_to(profile, backup, stamp=None):
-    """Put a backup back, keeping what is there now as a backup of its own.
+class _RecoveryError(RuntimeError):
+    """The transaction's working directory must survive for manual recovery."""
 
-    The reverse of an upgrade, and symmetrical with it: nothing is deleted,
-    the outgoing chrome/ becomes the newest ``chrome.backup-*`` so the move
-    can itself be undone, and user.js follows whatever the restored version
-    recorded.
 
-    Rolling back to a directory with no manifest means arriving at the user's
-    own pre-fxcss chrome/, so the user.js block goes away entirely -- there is
-    no fxcss theme installed at that point and leaving its prefs behind would
-    be wrong.
+_REMOVE_PREFS = object()
+
+
+@contextlib.contextmanager
+def _profile_work(profile, operation):
+    work = Path(tempfile.mkdtemp(prefix=f".fxcss-{operation}-", dir=profile))
+    preserve = False
+    try:
+        yield work
+    except _RecoveryError:
+        preserve = True
+        raise
+    except OSError as exc:
+        raise RuntimeError(f"could not {operation} theme in {profile}: {exc}") from exc
+    finally:
+        if not preserve:
+            shutil.rmtree(work, ignore_errors=True)
+
+
+def _stage_prefs(work, user_js, text):
+    staged = work / "user.js"
+    if user_js.is_file():
+        shutil.copy2(user_js, staged)
+    staged.write_text(text, encoding="utf-8")
+    return staged
+
+
+def _clean_prefs(work, profile, manifest):
+    user_js = profile / "user.js"
+    if not user_js.is_file():
+        return None
+    text = user_js.read_text(encoding="utf-8", errors="replace")
+    stripped = strip_user_js_block(text)
+    if stripped == text:
+        return None
+    if not stripped.strip() and (manifest or {}).get("user_js_created"):
+        return _REMOVE_PREFS
+    return _stage_prefs(work, user_js, stripped)
+
+
+def _swap_profile(profile, replacement, outgoing, prefs, work):
+    """Activate prepared files; preferences are the final atomic operation.
+
+    Every moved directory retains its original name until the entire operation
+    succeeds. If restoring either directory fails, retain staging as well.
     """
+    active = profile / "chrome"
+    moved = activated = False
+    try:
+        if active.exists() or active.is_symlink():
+            active.rename(outgoing)
+            moved = True
+        if replacement is not None:
+            replacement.rename(active)
+            activated = True
+        if prefs is _REMOVE_PREFS:
+            (profile / "user.js").unlink()
+        elif prefs is not None:
+            prefs.replace(profile / "user.js")
+    except BaseException:
+        try:
+            if activated:
+                active.rename(replacement)
+            if moved:
+                outgoing.rename(active)
+        except BaseException as exc:
+            raise _RecoveryError(
+                f"could not restore profile after failure; recovery files are "
+                f"preserved at {work} and {outgoing}") from exc
+        raise
+
+
+def rollback_to(profile, backup, stamp=None):
+    """Restore a backup and its preferences, undoing failed swaps or Ctrl-C."""
     profile = Path(profile)
     name = safe_backup_name(backup)
     if not name:
@@ -835,50 +911,32 @@ def rollback_to(profile, backup, stamp=None):
                            "restore; it must be a chrome.backup-* directory "
                            "in the profile itself")
     target = profile / name
-    if not target.is_dir():
-        raise RuntimeError(f"no such backup in {profile}: {name}")
-
-    chrome = profile / "chrome"
+    if not target.is_dir() or target.is_symlink():
+        raise RuntimeError(f"no such backup directory in {profile}: {name}")
     outgoing = read_manifest(profile)
-    stamp = stamp or _timestamp()
-    summary = {"restored": name, "moved_aside": None, "theme": None,
-               "user_js": "untouched",
+    restored = _read_manifest(target / MANIFEST_NAME)
+    moved = _spare_name(profile, f"chrome.backup-{stamp or _timestamp()}")
+    summary = {"restored": name, "moved_aside": None,
+               "theme": (restored or {}).get("theme"), "user_js": "untouched",
                "was": (outgoing or {}).get("theme")}
-
-    if chrome.exists():
-        moved = _spare_name(profile, f"chrome.backup-{stamp}")
-        shutil.move(str(chrome), str(moved))
-        summary["moved_aside"] = moved.name
-    shutil.move(str(target), str(chrome))
-
-    restored = read_manifest(profile)
-    summary["theme"] = (restored or {}).get("theme")
-
-    user_js = profile / "user.js"
-    block = (restored or {}).get("user_js_block")
-    if restored is None:
-        # Back to the user's own chrome/: take the prefs out with the theme.
-        if user_js.is_file():
-            text = user_js.read_text(encoding="utf-8", errors="replace")
-            stripped = strip_user_js_block(text)
-            if stripped != text:
-                if not stripped.strip() and (outgoing or {}).get(
-                        "user_js_created"):
-                    user_js.unlink()
-                else:
-                    user_js.write_text(stripped, encoding="utf-8")
+    with _profile_work(profile, "rollback") as work:
+        prefs = None
+        block = (restored or {}).get("user_js_block")
+        if restored is None:
+            prefs = _clean_prefs(work, profile, outgoing)
+            if prefs is not None:
                 summary["user_js"] = "removed"
-    elif isinstance(block, str):
-        existing = user_js.read_text(encoding="utf-8", errors="replace") \
-            if user_js.is_file() else ""
-        user_js.write_text(user_js_with_block(existing, block),
-                           encoding="utf-8")
-        summary["user_js"] = "restored"
-    else:
-        # A manifest from before user_js_block was recorded. Rewriting the
-        # block from nothing would be inventing prefs; leaving it is the
-        # smaller error, and it gets reported rather than passed over.
-        summary["user_js"] = "unknown"
+        elif isinstance(block, str):
+            user_js = profile / "user.js"
+            existing = user_js.read_text(encoding="utf-8", errors="replace") \
+                if user_js.is_file() else ""
+            prefs = _stage_prefs(work, user_js, user_js_with_block(existing, block))
+            summary["user_js"] = "restored"
+        else:
+            summary["user_js"] = "unknown"
+        if (profile / "chrome").exists() or (profile / "chrome").is_symlink():
+            summary["moved_aside"] = moved.name
+        _swap_profile(profile, target, moved, prefs, work)
     return summary
 
 
@@ -918,73 +976,56 @@ def _prune_empty_dirs(chrome):
 
 
 def uninstall_theme(profile, stamp=None):
-    """Undo an install. Returns a summary dict.
+    """Prepare removal without touching active files, then swap atomically.
 
-    With a manifest: delete only files whose recorded digest still matches,
-    keeping modified files and those without a digest. Then put the recorded
-    backup back if the way is clear. The backup restored is `origin_backup` --
-    what was in the profile before fxcss first arrived -- so that a profile
-    upgraded several times still comes back to where it started rather than to
-    an intermediate version of the theme. On a profile installed once the two
-    are the same name. Without one: never delete -- the current
-    chrome/ (which fxcss cannot prove it wrote) is moved aside, and the newest
-    chrome.backup-* is restored. No manifest and no backup means there is
-    nothing fxcss can safely claim, and that is an error.
+    Only unchanged, digest-verified files are removed. Added, edited and
+    unverifiable files remain, and block restoration of the origin backup.
+    A failed swap restores both directories and leaves preferences unchanged.
     """
     profile = Path(profile)
     chrome = profile / "chrome"
     manifest = read_manifest(profile)
-    backups = sorted(p for p in profile.glob("chrome.backup-*") if p.is_dir())
+    backups = [b for b in list_backups(profile) if not b["path"].is_symlink()]
     stamp = stamp or _timestamp()
     summary = {"removed": 0, "restored": None, "moved_aside": None,
                "kept": [], "theme": manifest.get("theme") if manifest else None}
-
-    if manifest:
-        for path in _manifest_paths(profile, manifest):
-            if path.is_file():
-                expected = manifest["digests"].get(path.relative_to(profile).as_posix())
-                if not isinstance(expected, str) or _digest(path) != expected:
-                    continue
-                path.unlink()
-                summary["removed"] += 1
-        manifest_file = chrome / MANIFEST_NAME
-        if manifest_file.exists():
-            manifest_file.unlink()
-        _prune_empty_dirs(chrome)
-        if chrome.exists():
-            # Added, modified and unverifiable files survive. The backup
-            # stays where it is rather than clobbering those files.
-            summary["kept"] = sorted(
-                p.relative_to(profile).as_posix()
-                for p in chrome.rglob("*") if p.is_file())
-        # read_manifest supplies the legacy fallback only when the key is
-        # absent. An explicit None means the original profile was empty.
-        recorded = safe_backup_name(manifest.get("origin_backup"))
-        if recorded and (profile / recorded).is_dir() and not chrome.exists():
-            shutil.move(str(profile / recorded), str(chrome))
-            summary["restored"] = recorded
-    elif backups:
-        if chrome.exists():
-            moved = _spare_name(profile, f"chrome.removed-{stamp}")
-            shutil.move(str(chrome), str(moved))
-            summary["moved_aside"] = moved.name
-        newest = backups[-1]
-        shutil.move(str(newest), str(chrome))
-        summary["restored"] = newest.name
-    else:
+    if not manifest and not backups:
         raise RuntimeError(
             f"nothing fxcss installed in {profile}: no "
             f"chrome/{MANIFEST_NAME} and no chrome.backup-* to restore")
-
-    user_js = profile / "user.js"
-    if user_js.is_file():
-        text = user_js.read_text(encoding="utf-8", errors="replace")
-        stripped = strip_user_js_block(text)
-        if stripped != text:
-            if not stripped.strip() and manifest \
-                    and manifest.get("user_js_created"):
-                user_js.unlink()
-            else:
-                user_js.write_text(stripped, encoding="utf-8")
+    with _profile_work(profile, "uninstall") as work:
+        prefs = _clean_prefs(work, profile, manifest)
+        if prefs is not None:
             summary["user_js_cleaned"] = True
+        outgoing = work / "previous"
+        if manifest:
+            # Preserve links as links; never traverse them while removing files.
+            shutil.copytree(chrome, work / "chrome", symlinks=True)
+            staged = work / "chrome"
+            for path in _manifest_paths(work, manifest):
+                if path.is_file():
+                    expected = manifest["digests"].get(path.relative_to(work).as_posix())
+                    if isinstance(expected, str) and _digest(path) == expected:
+                        path.unlink()
+                        summary["removed"] += 1
+            (staged / MANIFEST_NAME).unlink()
+            _prune_empty_dirs(staged)
+            replacement = staged if staged.exists() else None
+            if replacement:
+                summary["kept"] = sorted(
+                    p.relative_to(work).as_posix()
+                    for p in staged.rglob("*") if p.is_file() or p.is_symlink())
+            recorded = safe_backup_name(manifest.get("origin_backup"))
+            if replacement is None and recorded:
+                backup = profile / recorded
+                if backup.is_dir() and not backup.is_symlink():
+                    replacement = backup
+                    summary["restored"] = recorded
+        else:
+            replacement = backups[0]["path"]
+            summary["restored"] = replacement.name
+            outgoing = _spare_name(profile, f"chrome.removed-{stamp}")
+            if chrome.exists() or chrome.is_symlink():
+                summary["moved_aside"] = outgoing.name
+        _swap_profile(profile, replacement, outgoing, prefs, work)
     return summary

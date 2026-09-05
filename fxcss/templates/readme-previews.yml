@@ -28,8 +28,7 @@ on:
   push:
     branches: [master, main]
     paths:
-      - 'chrome/**'
-      - 'custom/**'
+__FXCSS_THEME_PATHS__
       - '.github/workflows/readme-previews.yml'
 
 permissions:
@@ -99,7 +98,7 @@ jobs:
           git checkout --orphan previews
           git rm -rf --cached . >/dev/null 2>&1 || true
           find . -maxdepth 1 -mindepth 1 \
-            ! -name .git ! -name shots -exec rm -rf {} +
+            ! -name .git ! -name shots ! -name crops -exec rm -rf {} +
           printf '%s\n' \
             '# Preview images' '' \
             'Rendered by the README previews workflow from the theme on the' \
@@ -109,7 +108,10 @@ jobs:
           cp shots/*.png .
           # Crops alongside the full windows; TWEAKS.md is for committing into
           # a repo, which is not what this branch is for.
-          cp crops/*-diff.png . 2>/dev/null || echo "no crops (no optional stylesheets?)"
+          for crop in crops/*-diff.png; do
+            [ -f "$crop" ] || continue
+            cp "$crop" .
+          done
           rm -rf shots crops
           git add -A
           git commit -q -m "previews: ${GITHUB_SHA}"

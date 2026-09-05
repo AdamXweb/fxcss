@@ -63,8 +63,14 @@ jobs:
           name: dist
           path: dist/
 
+  package-checks:
+    needs: build
+    uses: ./.github/workflows/package-check.yml
+    with:
+      artifact-name: dist
+
   publish:
-    needs: [build, checks]
+    needs: [build, checks, package-checks]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:

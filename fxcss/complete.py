@@ -21,7 +21,7 @@ from pathlib import Path
 # completion than by anything invented here.
 PATH_OPTIONS = frozenset({
     "--theme", "--out", "--base", "--head", "--keep", "--patch", "--shot",
-    "--baseline", "--profile",
+    "--baseline", "--profile", "--config",
 })
 
 # Options taking a comma-separated list of the theme's optional stylesheets.

@@ -1,0 +1,86 @@
+name: Firefox compatibility
+
+# Early warning for browser changes between fxcss releases. Stable and ESR also
+# run in pull-request CI; Beta and Nightly failures remain visible here.
+on:
+  schedule:
+    - cron: '37 6 * * 1,4'
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUTF8: '1'
+
+jobs:
+  channels:
+    name: Firefox ${{ matrix.channel }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - channel: stable
+            product: firefox-latest-ssl
+          - channel: esr
+            product: firefox-esr-latest-ssl
+          - channel: beta
+            product: firefox-beta-latest-ssl
+          - channel: nightly
+            product: firefox-nightly-latest-ssl
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: python -m pip install '.[images]'
+      - name: Install the selected Firefox and display dependencies
+        env:
+          PRODUCT: ${{ matrix.product }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb x11-utils libdbus-glib-1-2 >/dev/null
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/firefox.tar" \
+            "https://download.mozilla.org/?product=${PRODUCT}&os=linux64&lang=en-US"
+          mkdir -p "$RUNNER_TEMP/firefox-channel"
+          tar -xf "$RUNNER_TEMP/firefox.tar" -C "$RUNNER_TEMP/firefox-channel"
+          echo "FIREFOX_BIN=$RUNNER_TEMP/firefox-channel/firefox/firefox" >> "$GITHUB_ENV"
+      - name: Start the display
+        run: |
+          set -euo pipefail
+          command -v xdpyinfo
+          Xvfb :99 -screen 0 1600x1200x24 -nolisten tcp >"$RUNNER_TEMP/xvfb.log" 2>&1 &
+          for _ in $(seq 1 20); do
+            if xdpyinfo -display :99 >/dev/null 2>&1; then
+              echo "DISPLAY=:99" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 0.5
+          done
+          cat "$RUNNER_TEMP/xvfb.log"
+          xdpyinfo -display :99
+          echo '::error::Xvfb did not become ready'
+          exit 1
+      - name: Verify theme layouts and optional stylesheet loading
+        run: |
+          python -m tests.smoke_themes
+          python -m tests.smoke_startup
+          python -m tests.smoke_variants
+          python -m tests.smoke_audio
+      - name: Audit, complete capture coverage and repeatability
+        run: |
+          set -euo pipefail
+          fxcss check --theme fxcss/templates/starter --firefox "$FIREFOX_BIN" \
+            --out "$GITHUB_WORKSPACE/out" --baseline "$RUNNER_TEMP/baseline" --update-baseline
+          fxcss check --theme fxcss/templates/starter --firefox "$FIREFOX_BIN" \
+            --out "$GITHUB_WORKSPACE/out" --baseline "$RUNNER_TEMP/baseline" --max-changed-percent 0
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: firefox-${{ matrix.channel }}
+          path: out/
+          retention-days: 14
