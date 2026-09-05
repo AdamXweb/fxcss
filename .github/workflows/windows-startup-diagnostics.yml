@@ -1,0 +1,39 @@
+name: Windows startup diagnostics
+on:
+  push:
+    branches: [codex/windows-startup-diagnostics]
+permissions:
+  contents: read
+jobs:
+  startup:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: python -m pip install '.[images]'
+      - name: Install current Firefox
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $env:RUNNER_TEMP 'firefox-setup.exe'
+          Invoke-WebRequest -Uri 'https://download.mozilla.org/?product=firefox-latest-ssl&os=win64&lang=en-US' -OutFile $installer
+          Start-Process -FilePath $installer -ArgumentList '/S' -Wait
+          "FIREFOX_BIN=C:\Program Files\Mozilla Firefox\firefox.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Trace repeated theme startup
+        shell: pwsh
+        run: |
+          python -m tests.startup_diagnostics 2>&1 | Tee-Object -FilePath startup-trace.txt
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: windows-startup-diagnostics
+          path: |
+            startup-trace.txt
+            out/startup-diagnostics/
+          retention-days: 3
