@@ -980,8 +980,8 @@ def cmd_uninstall(args):
         print(f"  moved the current chrome/ to {result['moved_aside']} "
               "(fxcss could not prove it wrote it, so nothing is deleted)")
     if result["kept"]:
-        print(f"  left {len(result['kept'])} file(s) fxcss did not write in "
-              "chrome/; the backup stays put alongside them")
+        print(f"  left {len(result['kept'])} added, modified or unverifiable "
+              "file(s) in chrome/; any backup stays put alongside them")
     print("\n  Restart Firefox to see the change.")
     return 0
 

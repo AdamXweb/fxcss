@@ -322,10 +322,10 @@ wins, as before, with a one-line note that `--commit` exists.
 
 The install is what a theme's install script does, done carefully:
 
-- your existing `chrome/` is moved to a timestamped `chrome.backup-*` sibling
-  first — nothing is overwritten in place;
-- the theme's `chrome/` is copied in, along with any `--with` optional sheets
-  (placed where the theme's own `@import`s expect them);
+- the complete replacement is prepared before your existing `chrome/` moves
+  to a timestamped `chrome.backup-*` sibling; a failed swap restores it;
+- any `--with` optional sheets go where the theme's own `@import`s expect
+  them, or load after the base theme through an import-only wrapper;
 - `toolkit.legacyUserProfileCustomizations.stylesheets` is enabled in
   `user.js` — inside a clearly marked block, so it can be removed cleanly —
   together with any `configuration/user.js` the theme ships;
@@ -333,9 +333,12 @@ The install is what a theme's install script does, done carefully:
   sha256, and where the theme came from — which repo, which ref, and whether
   that ref was a release or a branch.
 
-`fxcss uninstall` reads that manifest, removes exactly the files it lists,
-restores the backup, and strips the `user.js` block. Files it cannot prove
-fxcss wrote are never deleted — they are kept, or moved aside, never removed.
+`fxcss uninstall` removes recorded files only when their hashes still match,
+restores the original backup, and strips the `user.js` block. Added, edited,
+unreadable files and files from older installs without hashes are kept in
+`chrome/`; any backup stays alongside them so it cannot overwrite your work.
+If the profile originally had no `chrome/`, uninstalling after an upgrade
+returns it to that state instead of restoring an older version of the theme.
 Restart Firefox after either command; it reads `userChrome.css` at startup.
 
 > **Changed in 0.13:** before 0.13, `fxcss install` was an alias for `try`

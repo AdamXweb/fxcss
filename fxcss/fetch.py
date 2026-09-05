@@ -390,18 +390,15 @@ def apply_variants(profile: Path, chosen):
 
     Themes disagree about where an optional sheet belongs -- some expect it
     inside their own folder, some rely on their installer editing an import
-    list. Appending an absolute @import to the profile's userChrome.css works
-    for all of them, and relative url()s inside the sheet still resolve because
-    the file stays where it was unpacked.
+    list. An import-only wrapper loads the base before the optional sheets,
+    and relative url()s inside each sheet still resolve because the files stay
+    where they were unpacked.
     """
     user_chrome = profile / "chrome" / "userChrome.css"
     if not user_chrome.exists() or not chosen:
         return []
-    lines = ["", "/* optional sheets layered on by fxcss try --with */"]
-    for sheet in chosen:
-        lines.append(f'@import url("{sheet.resolve().as_uri()}");')
-    with user_chrome.open("a", encoding="utf-8") as handle:
-        handle.write("\n".join(lines) + "\n")
+    from .core import layer_stylesheets
+    layer_stylesheets(user_chrome, [sheet.resolve().as_uri() for sheet in chosen])
     return chosen
 
 
