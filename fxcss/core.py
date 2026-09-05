@@ -1562,6 +1562,28 @@ def default_toolbar_ops():
     return parse_toolbar_spec(DEFAULT_TOOLBAR)
 
 
+def layer_stylesheets(user_chrome: Path, urls):
+    """Load the base sheet, then optional sheets, through an import-only entry.
+
+    Appending @import after style rules or @namespace makes it invalid.
+    Prepending it would reverse the intended cascade. Keep the original in
+    the same directory so its relative imports and image URLs still resolve,
+    and give each stylesheet its own namespace and charset scope.
+    """
+    if not urls:
+        return
+    base = user_chrome.with_name("fxcss-base-userChrome.css")
+    counter = 2
+    while base.exists() or base.is_symlink():
+        base = user_chrome.with_name(f"fxcss-base-userChrome-{counter}.css")
+        counter += 1
+    user_chrome.rename(base)
+    lines = ["/* Base theme, then optional sheets layered on by fxcss. */",
+             f'@import "{base.name}";']
+    lines.extend(f"@import {json.dumps(url, ensure_ascii=False)};" for url in urls)
+    user_chrome.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def find_variant_sheets(theme: Path):
     """Optional stylesheets a theme ships for users to layer on.
 

@@ -5,12 +5,13 @@ Everything else in fxcss works in throwaway profiles; this module is the one
 deliberate exception. Because it touches a profile someone lives in, it is
 built around three rules:
 
-* **Nothing is destroyed.** An existing chrome/ folder is moved aside to a
-  timestamped ``chrome.backup-*`` sibling before the theme is copied in, and
-  user.js is only ever edited inside a clearly marked block.
+* **Nothing is destroyed.** The replacement is prepared before the existing
+  chrome/ moves to a timestamped backup. Failed swaps restore the original,
+  and user.js is only edited inside a clearly marked block.
 * **Everything written is recorded.** A small manifest
   (``chrome/fxcss-install.json``) lists every file the install created, so
-  uninstalling removes exactly those files and nothing a user added since.
+  uninstalling removes only unchanged files, preserving anything edited or
+  added since and any file whose original contents cannot be verified.
 * **No prompts here.** This module is pure filesystem logic; questions are the
   CLI's job, and the CLI never asks them in CI or without a terminal.
 
@@ -27,6 +28,7 @@ import os
 import re
 import shutil
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -572,47 +574,12 @@ def adopt_theme(profile, theme_id, source, match, stamp=None):
     return manifest
 
 
-def install_theme(theme_root, profile, theme_id, sheets=(), stamp=None,
-                  source=None, origin_backup=_UNSET):
-    """Copy a theme into a real profile. Returns a summary dict.
+def _prepare_chrome(theme_root, chrome, sheets):
+    """Build a complete replacement in staging, without touching live files."""
+    from urllib.parse import quote
+    from .core import layer_stylesheets
 
-    Pure filesystem, no prompts: the caller has already decided which profile
-    and confirmed with the user. `sheets` are paths to optional stylesheets
-    (the theme's custom/*.css) to install alongside.
-
-    `source` is what the caller knows about where the theme came from; it is
-    recorded verbatim because the caller resolved it and this module would
-    only be guessing. Omitted, it is recovered from `theme_id` as best it can
-    be.
-
-    `origin_backup` names the chrome/ that was there before fxcss first
-    touched this profile. It exists for upgrades: each one moves the previous
-    install aside into a fresh ``chrome.backup-*``, so after three upgrades
-    the newest backup holds *the theme*, not what the user had to begin with.
-    Passing the old manifest's value through keeps `uninstall` able to mean
-    what it says. Left out, this install is the first one and its own backup
-    is the origin.
-    """
-    theme_root, profile = Path(theme_root), Path(profile)
-    tree = theme_root / "chrome"
-    if not (tree / "userChrome.css").is_file():
-        raise RuntimeError(f"no chrome/userChrome.css under {theme_root}")
-    if not profile.is_dir():
-        raise RuntimeError(f"profile directory does not exist: {profile}")
-
-    stamp = stamp or _timestamp()
-    chrome = profile / "chrome"
-
-    backup = None
-    if chrome.exists():
-        backup = _spare_name(profile, f"chrome.backup-{stamp}")
-        shutil.move(str(chrome), str(backup))
-        backup = backup.name
-
-    shutil.copytree(tree, chrome)
-    files = sorted(p.relative_to(profile).as_posix()
-                   for p in chrome.rglob("*") if p.is_file())
-
+    shutil.copytree(theme_root / "chrome", chrome)
     # Some themes @import customChrome.css without shipping it; an empty file
     # keeps the import resolving (same courtesy core.build_profile extends).
     placeholder = chrome / "customChrome.css"
@@ -621,63 +588,113 @@ def install_theme(theme_root, profile, theme_id, sheets=(), stamp=None,
                                                   errors="replace"):
         placeholder.write_text("/* placeholder created by fxcss */\n",
                                encoding="utf-8")
-        files.append(placeholder.relative_to(profile).as_posix())
-
-    installed_sheets = []
+    installed_sheets, extra_imports = [], []
     for sheet in sheets:
         sheet = Path(sheet)
         dest = variant_destination(chrome, sheet.name)
         if dest is None:
-            # No stylesheet asks for it by name: copy it in and import it,
-            # the way `fxcss try --with` layers sheets on.
+            # No import site exists: load it after the base through a wrapper.
             dest = chrome / "custom" / sheet.name
-            user_chrome = chrome / "userChrome.css"
-            with user_chrome.open("a", encoding="utf-8") as handle:
-                handle.write("\n/* optional sheet installed by fxcss "
-                             f"--with */\n@import \"custom/{sheet.name}\";\n")
+            extra_imports.append(quote(dest.relative_to(chrome).as_posix()))
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(sheet, dest)
-        relative = dest.relative_to(profile).as_posix()
-        if relative not in files:
-            files.append(relative)
         installed_sheets.append(sheet.stem)
+    layer_stylesheets(chrome / "userChrome.css", extra_imports)
+    return installed_sheets
 
-    user_js = profile / "user.js"
-    user_js_created = not user_js.exists()
-    existing = "" if user_js_created else user_js.read_text(encoding="utf-8",
-                                                            errors="replace")
-    block = user_js_body(theme_root)
-    user_js.write_text(user_js_with_block(existing, block), encoding="utf-8")
 
+def install_theme(theme_root, profile, theme_id, sheets=(), stamp=None,
+                  source=None, origin_backup=_UNSET):
+    """Prepare a theme, then swap it into the profile with a way back.
+
+    All copies, optional imports, prefs and the manifest are prepared on the
+    profile's filesystem before its active chrome/ moves. If a swap fails,
+    restore the previous chrome/. user.js is replaced atomically last, so a
+    failure before that point leaves the original prefs unchanged.
+
+    `origin_backup` is carried through upgrades, including None for a profile
+    that originally had no chrome/. `source` records how to fetch the theme
+    again; older callers can still supply that information in `theme_id`.
+    """
     from . import __version__
 
-    files = sorted(files)
-    manifest = {
-        "schema": MANIFEST_SCHEMA,
-        "fxcss": __version__,
-        # Kept as it always was: it is the one field a human reads straight
-        # out of the file, and anything older than schema 2 only has this.
-        "theme": str(theme_id),
-        "source": dict(source) if source else parse_theme_id(theme_id),
-        "installed": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "backup": backup,
-        "origin_backup": backup if origin_backup is _UNSET else origin_backup,
-        "user_js_created": user_js_created,
-        # The prefs this version asked for, kept verbatim so a rollback can
-        # put them back: the theme tree they came from is gone by then.
-        "user_js_block": block,
-        "sheets": installed_sheets,
-        "files": files,
-        # sha256 per file, so a later upgrade can tell "the theme as installed"
-        # from "the theme as the user has since edited it" and refuse to
-        # quietly overwrite the difference.
-        "digests": {name: digest for name, digest in
-                    ((name, _digest(profile / name)) for name in files)
-                    if digest},
-    }
-    (chrome / MANIFEST_NAME).write_text(
-        json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
-    return manifest
+    theme_root, profile = Path(theme_root), Path(profile)
+    if not (theme_root / "chrome" / "userChrome.css").is_file():
+        raise RuntimeError(f"no chrome/userChrome.css under {theme_root}")
+    if not profile.is_dir():
+        raise RuntimeError(f"profile directory does not exist: {profile}")
+
+    active = profile / "chrome"
+    user_js = profile / "user.js"
+    previous = read_manifest(profile)
+    backup = (_spare_name(profile, f"chrome.backup-{stamp or _timestamp()}").name
+              if active.exists() or active.is_symlink() else None)
+    try:
+        with tempfile.TemporaryDirectory(prefix=".fxcss-install-", dir=profile) as td:
+            staging = Path(td)
+            chrome = staging / "chrome"
+            installed_sheets = _prepare_chrome(theme_root, chrome, sheets)
+            created = not user_js.exists()
+            existing = "" if created else user_js.read_text(
+                encoding="utf-8", errors="replace")
+            block = user_js_body(theme_root)
+            staged_prefs = staging / "user.js"
+            if not created:
+                shutil.copy2(user_js, staged_prefs)
+            staged_prefs.write_text(user_js_with_block(existing, block),
+                                    encoding="utf-8")
+            # Whether fxcss created user.js is part of the original state,
+            # not something an upgrade should reset just because it exists.
+            if origin_backup is not _UNSET and previous:
+                created = previous.get("user_js_created", created)
+            files = sorted(p.relative_to(staging).as_posix()
+                           for p in chrome.rglob("*")
+                           if p.is_file() and p != chrome / MANIFEST_NAME)
+            manifest = {
+                "schema": MANIFEST_SCHEMA,
+                "fxcss": __version__,
+                "theme": str(theme_id),
+                "source": dict(source) if source else parse_theme_id(theme_id),
+                "installed": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "backup": backup,
+                "origin_backup": backup if origin_backup is _UNSET else origin_backup,
+                "user_js_created": created,
+                "user_js_block": block,
+                "sheets": installed_sheets,
+                "files": files,
+                "digests": {name: digest for name, digest in
+                            ((name, _digest(staging / name)) for name in files)
+                            if digest},
+            }
+            (chrome / MANIFEST_NAME).write_text(
+                json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
+
+            moved_original = activated = False
+            try:
+                if backup:
+                    active.rename(profile / backup)
+                    moved_original = True
+                chrome.rename(active)
+                activated = True
+                staged_prefs.replace(user_js)
+            except BaseException:
+                # Also restore the profile if Ctrl-C interrupts the swap.
+                try:
+                    if activated:
+                        active.rename(chrome)
+                    if moved_original:
+                        (profile / backup).rename(active)
+                except OSError as exc:
+                    recovery = (f"the previous theme is kept at {profile / backup}"
+                                if moved_original else
+                                f"the incomplete replacement is at {active}")
+                    raise RuntimeError(
+                        f"install failed and could not restore chrome/; {recovery}"
+                    ) from exc
+                raise
+            return manifest
+    except OSError as exc:
+        raise RuntimeError(f"could not install theme into {profile}: {exc}") from exc
 
 
 # --- uninstall --------------------------------------------------------------
@@ -903,7 +920,8 @@ def _prune_empty_dirs(chrome):
 def uninstall_theme(profile, stamp=None):
     """Undo an install. Returns a summary dict.
 
-    With a manifest: delete exactly the files it lists, then put the recorded
+    With a manifest: delete only files whose recorded digest still matches,
+    keeping modified files and those without a digest. Then put the recorded
     backup back if the way is clear. The backup restored is `origin_backup` --
     what was in the profile before fxcss first arrived -- so that a profile
     upgraded several times still comes back to where it started rather than to
@@ -924,6 +942,9 @@ def uninstall_theme(profile, stamp=None):
     if manifest:
         for path in _manifest_paths(profile, manifest):
             if path.is_file():
+                expected = manifest["digests"].get(path.relative_to(profile).as_posix())
+                if not isinstance(expected, str) or _digest(path) != expected:
+                    continue
                 path.unlink()
                 summary["removed"] += 1
         manifest_file = chrome / MANIFEST_NAME
@@ -931,13 +952,14 @@ def uninstall_theme(profile, stamp=None):
             manifest_file.unlink()
         _prune_empty_dirs(chrome)
         if chrome.exists():
-            # Files fxcss did not write are still in there; they survive, and
-            # the backup stays where it is rather than clobbering them.
+            # Added, modified and unverifiable files survive. The backup
+            # stays where it is rather than clobbering those files.
             summary["kept"] = sorted(
                 p.relative_to(profile).as_posix()
                 for p in chrome.rglob("*") if p.is_file())
-        recorded = safe_backup_name(
-            manifest.get("origin_backup") or manifest.get("backup"))
+        # read_manifest supplies the legacy fallback only when the key is
+        # absent. An explicit None means the original profile was empty.
+        recorded = safe_backup_name(manifest.get("origin_backup"))
         if recorded and (profile / recorded).is_dir() and not chrome.exists():
             shutil.move(str(profile / recorded), str(chrome))
             summary["restored"] = recorded

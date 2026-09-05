@@ -111,6 +111,9 @@ jobs:
       - name: doctor
         run: fxcss doctor --theme fxcss/templates/starter
 
+      - name: Optional stylesheets apply in install and try
+        run: python -m tests.smoke_variants
+
       # Three, not two. The flakes this has caught were intermittent, so a
       # single pair passed often enough to be misleading.
       - name: Capture three times

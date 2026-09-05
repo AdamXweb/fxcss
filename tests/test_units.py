@@ -1586,6 +1586,262 @@ class UninstallThemeTests(unittest.TestCase):
             self.assertTrue(outside.is_file())
 
 
+class UninstallSafetyTests(unittest.TestCase):
+    def test_an_edited_file_survives_without_a_backup(self):
+        from fxcss import install
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            profile = root / "profile"
+            profile.mkdir()
+            install.install_theme(_make_theme(root), profile, "o/n@v1")
+            edited = profile / "chrome" / "userChrome.css"
+            edited.write_text("/* my edits */", encoding="utf-8")
+            result = install.uninstall_theme(profile)
+            self.assertEqual(edited.read_text(), "/* my edits */")
+            self.assertIn("chrome/userChrome.css", result["kept"])
+            self.assertIsNone(result["restored"])
+
+    def test_modified_files_prevent_a_backup_from_clobbering_them(self):
+        from fxcss import install
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            profile = _make_profile(root)
+            first = install.install_theme(_make_theme(root), profile, "o/n@v1")
+            edited = profile / "chrome" / "WhiteSur" / "theme.css"
+            edited.write_text("/* changed by hand */", encoding="utf-8")
+            result = install.uninstall_theme(profile)
+            self.assertEqual(edited.read_text(), "/* changed by hand */")
+            self.assertIsNone(result["restored"])
+            self.assertTrue((profile / first["backup"]).is_dir())
+
+    def test_files_without_hashes_are_preserved(self):
+        from fxcss import install
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            profile = _make_profile(root)
+            install.install_theme(_make_theme(root), profile, "o/n@v1")
+            path = profile / "chrome" / install.MANIFEST_NAME
+            manifest = json.loads(path.read_text())
+            del manifest["digests"]
+            path.write_text(json.dumps(manifest), encoding="utf-8")
+            result = install.uninstall_theme(profile)
+            self.assertEqual(result["removed"], 0)
+            self.assertEqual(sorted(result["kept"]), sorted(manifest["files"]))
+
+    def test_unreadable_recorded_files_are_preserved(self):
+        from unittest.mock import patch
+        from fxcss import install
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            profile = _make_profile(root)
+            install.install_theme(_make_theme(root), profile, "o/n@v1")
+            with patch("fxcss.install._digest", return_value=None):
+                result = install.uninstall_theme(profile)
+            self.assertEqual(result["removed"], 0)
+            self.assertIn("chrome/userChrome.css", result["kept"])
+
+    def test_upgrades_do_not_restore_a_theme_to_an_originally_empty_profile(self):
+        from fxcss import install
+        for existing_prefs in (None, 'user_pref("mine", 1);\n'):
+            with self.subTest(existing_prefs=existing_prefs):
+                with tempfile.TemporaryDirectory() as td:
+                    root = Path(td)
+                    theme = _make_theme(root)
+                    profile = root / "profile"
+                    profile.mkdir()
+                    if existing_prefs is not None:
+                        (profile / "user.js").write_text(existing_prefs)
+                    manifest = install.install_theme(theme, profile, "o/n@v1")
+                    for version in ("v2", "v3"):
+                        manifest = install.install_theme(
+                            theme, profile, f"o/n@{version}",
+                            origin_backup=manifest["origin_backup"])
+                    result = install.uninstall_theme(profile)
+                    self.assertIsNone(result["restored"])
+                    self.assertFalse((profile / "chrome").exists())
+                    self.assertEqual(len(install.list_backups(profile)), 2)
+                    if existing_prefs is None:
+                        self.assertFalse((profile / "user.js").exists())
+                    else:
+                        self.assertEqual((profile / "user.js").read_text(),
+                                         existing_prefs)
+
+    def test_absent_origin_key_still_uses_the_legacy_backup(self):
+        from fxcss import install
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            profile = _make_profile(root)
+            manifest = install.install_theme(_make_theme(root), profile, "o/n@v1")
+            path = profile / "chrome" / install.MANIFEST_NAME
+            del manifest["origin_backup"]
+            path.write_text(json.dumps(manifest), encoding="utf-8")
+            result = install.uninstall_theme(profile)
+            self.assertEqual(result["restored"], manifest["backup"])
+            self.assertEqual((profile / "chrome" / "userChrome.css").read_text(),
+                             "/* the user's own */\n")
+
+
+class InstallFailureTests(unittest.TestCase):
+    """Failures during preparation or activation must leave the profile intact."""
+
+    def snapshot(self, root):
+        return {path.relative_to(root).as_posix():
+                path.read_bytes() if path.is_file() else None
+                for path in root.rglob("*")}
+
+    def test_partial_copy_failure_leaves_the_original_untouched(self):
+        from unittest.mock import patch
+        from fxcss import install
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            theme, profile = _make_theme(root), _make_profile(root)
+            before = self.snapshot(profile)
+
+            def fail_copy(source, destination):
+                destination.mkdir()
+                (destination / "partial.css").write_text("partial")
+                raise OSError("simulated copy failure")
+
+            with patch("fxcss.install.shutil.copytree", side_effect=fail_copy):
+                with self.assertRaisesRegex(RuntimeError, "simulated copy failure"):
+                    install.install_theme(theme, profile, "o/n@v2")
+            self.assertEqual(self.snapshot(profile), before)
+
+    def test_optional_sheet_copy_failure_leaves_the_original_untouched(self):
+        from unittest.mock import patch
+        from fxcss import install
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            theme, profile = _make_theme(root), _make_profile(root)
+            before = self.snapshot(profile)
+            with patch("fxcss.install.shutil.copy2", side_effect=OSError("copy failed")):
+                with self.assertRaises(RuntimeError):
+                    install.install_theme(theme, profile, "o/n@v2", sheets=[
+                        theme / "custom" / "loose-sheet.css"])
+            self.assertEqual(self.snapshot(profile), before)
+
+    def test_prefs_and_manifest_write_failures_leave_the_original_untouched(self):
+        from unittest.mock import patch
+        from fxcss import install
+        write_text = Path.write_text
+        for filename in ("user.js", install.MANIFEST_NAME):
+            with self.subTest(filename=filename), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                theme, profile = _make_theme(root), _make_profile(root)
+                before = self.snapshot(profile)
+
+                def fail_write(path, *args, **kwargs):
+                    if path.name == filename:
+                        raise OSError("simulated write failure")
+                    return write_text(path, *args, **kwargs)
+
+                with patch.object(Path, "write_text", fail_write):
+                    with self.assertRaisesRegex(RuntimeError, "simulated write failure"):
+                        install.install_theme(theme, profile, "o/n@v2")
+                self.assertEqual(self.snapshot(profile), before)
+
+    def test_failed_activation_restores_the_previous_chrome(self):
+        from unittest.mock import patch
+        from fxcss import install
+        rename = Path.rename
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            theme, profile = _make_theme(root), _make_profile(root)
+            before = self.snapshot(profile)
+
+            def fail_activation(path, destination):
+                if path.name == "chrome" and path.parent.name.startswith(".fxcss-install-"):
+                    raise OSError("simulated activation failure")
+                return rename(path, destination)
+
+            with patch.object(Path, "rename", fail_activation):
+                with self.assertRaisesRegex(RuntimeError, "simulated activation failure"):
+                    install.install_theme(theme, profile, "o/n@v2")
+            self.assertEqual(self.snapshot(profile), before)
+
+    def test_failed_prefs_swap_restores_both_empty_and_existing_profiles(self):
+        from unittest.mock import patch
+        from fxcss import install
+        for empty in (False, True):
+            for error in (OSError("simulated prefs failure"), KeyboardInterrupt()):
+                with self.subTest(empty=empty, error=type(error).__name__):
+                    with tempfile.TemporaryDirectory() as td:
+                        root = Path(td)
+                        theme = _make_theme(root)
+                        profile = root / "profile" if empty else _make_profile(root)
+                        profile.mkdir(exist_ok=True)
+                        before = self.snapshot(profile)
+                        expected = RuntimeError if isinstance(error, OSError) else KeyboardInterrupt
+                        with patch.object(Path, "replace", side_effect=error):
+                            with self.assertRaises(expected):
+                                install.install_theme(theme, profile, "o/n@v2")
+                        self.assertEqual(self.snapshot(profile), before)
+
+    def test_a_failed_restore_keeps_the_original_backup_and_names_it(self):
+        from unittest.mock import patch
+        from fxcss import install
+        rename = Path.rename
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            theme, profile = _make_theme(root), _make_profile(root)
+            original_prefs = (profile / "user.js").read_bytes()
+
+            def fail_restore(path, destination):
+                if path.name.startswith("chrome.backup-"):
+                    raise OSError("simulated restore failure")
+                return rename(path, destination)
+
+            with patch.object(Path, "rename", fail_restore), patch.object(
+                    Path, "replace", side_effect=OSError("prefs swap failed")):
+                with self.assertRaisesRegex(RuntimeError, "previous theme is kept at"):
+                    install.install_theme(theme, profile, "o/n@v2", stamp="123")
+            self.assertEqual(
+                (profile / "chrome.backup-123" / "userChrome.css").read_text(),
+                "/* the user's own */\n")
+            self.assertEqual((profile / "user.js").read_bytes(), original_prefs)
+
+
+class LayeredStylesheetTests(unittest.TestCase):
+    def test_base_contents_and_relative_paths_survive_wrapping(self):
+        from fxcss.core import layer_stylesheets
+        with tempfile.TemporaryDirectory() as td:
+            entry = Path(td) / "userChrome.css"
+            contents = (b'@charset "UTF-8";\r\n@import "nested/base.css";\r\n'
+                        b'@namespace xul url("urn:xul");\r\n'
+                        b':root { background: url("images/bg.svg"); }\r\n')
+            entry.write_bytes(contents)
+            layer_stylesheets(entry, ["custom/a.css", "custom/b.css"])
+            self.assertEqual((entry.parent / "fxcss-base-userChrome.css").read_bytes(), contents)
+            self.assertEqual(re.findall(r'@import "([^"]+)";', entry.read_text()),
+                             ["fxcss-base-userChrome.css", "custom/a.css", "custom/b.css"])
+            self.assertNotIn("@namespace", entry.read_text())
+
+    def test_existing_base_filename_is_never_overwritten(self):
+        from fxcss.core import layer_stylesheets
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "fxcss-base-userChrome.css").write_text("/* belongs to theme */")
+            entry = root / "userChrome.css"
+            entry.write_text("/* base */")
+            layer_stylesheets(entry, ["option.css"])
+            self.assertEqual((root / "fxcss-base-userChrome.css").read_text(),
+                             "/* belongs to theme */")
+            self.assertEqual((root / "fxcss-base-userChrome-2.css").read_text(), "/* base */")
+
+    def test_install_records_the_wrapper_base_and_optional_sheet(self):
+        from fxcss import install
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            theme, profile = _make_theme(root), _make_profile(root)
+            before = (theme / "chrome" / "userChrome.css").read_bytes()
+            manifest = install.install_theme(theme, profile, "o/n@v1", sheets=[
+                theme / "custom" / "loose-sheet.css"])
+            self.assertIn("chrome/fxcss-base-userChrome.css", manifest["files"])
+            self.assertIn("chrome/custom/loose-sheet.css", manifest["files"])
+            self.assertEqual(install.drift(profile)["modified"], [])
+            self.assertEqual((theme / "chrome" / "userChrome.css").read_bytes(), before)
+
+
 class ParseThemeIdTests(unittest.TestCase):
     """A schema-1 manifest's only record of the theme is one string.
 
