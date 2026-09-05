@@ -39,6 +39,10 @@ class MarionetteError(RuntimeError):
     pass
 
 
+class BrowserStartupError(MarionetteError):
+    """Firefox opened its chrome window without an initial page document."""
+
+
 def free_port():
     """Pick an unused port for this session's Marionette listener.
 
@@ -454,6 +458,24 @@ class Session:
         self._window_ready = False
 
     def __enter__(self):
+        try:
+            for attempt in range(2):
+                self._start_browser()
+                try:
+                    self._wait_for_initial_document()
+                    return self
+                except BrowserStartupError as exc:
+                    self._stop_browser()
+                    if attempt:
+                        raise
+                    print(f"  note: {exc}; restarting the temporary Firefox process",
+                          flush=True)
+        except BaseException:
+            # A context manager does not call __exit__ when __enter__ fails.
+            self.__exit__()
+            raise
+
+    def _start_browser(self):
         env = dict(os.environ)
         env["MOZ_DISABLE_AUTO_SAFE_MODE"] = "1"
         env["MOZ_CRASHREPORTER_DISABLE"] = "1"
@@ -472,24 +494,43 @@ class Session:
         self.m.set_context("chrome")
         self.m.script(RESIZE, [WINDOW_WIDTH, WINDOW_HEIGHT])
         self.apply_harness_css()
-        return self
 
     def __exit__(self, *exc):
-        if self.m:
-            self.m.quit()
-        if self.proc:
+        self._stop_browser()
+        if not self.keep_profile:
+            shutil.rmtree(self.workdir, ignore_errors=True)
+
+    def _stop_browser(self):
+        m, self.m = self.m, None
+        proc, self.proc = self.proc, None
+        if m:
+            m.quit()
+        if proc:
             try:
-                self.proc.wait(timeout=45)
+                proc.wait(timeout=45)
             except subprocess.TimeoutExpired:
                 if sys.platform == "win32":
-                    subprocess.run(["taskkill", "/PID", str(self.proc.pid), "/T", "/F"],
+                    subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                    check=False)
                 else:
-                    self.proc.kill()
-                self.proc.wait(timeout=5)
-        if not self.keep_profile:
-            shutil.rmtree(self.workdir, ignore_errors=True)
+                    proc.kill()
+                proc.wait(timeout=5)
+
+    def _wait_for_initial_document(self, timeout=5):
+        # A Windows startup can leave every browser connected but without a
+        # WindowGlobal or child process. Its chrome accepts commands, yet new
+        # tabs never load. Detect this before adding fixture tabs so startup
+        # can retry with a fresh process and the same prepared theme profile.
+        deadline = time.monotonic() + timeout
+        while True:
+            state = self.m.script(INITIAL_DOCUMENT_STATE)
+            if state.get("ready") is True:
+                return
+            if time.monotonic() >= deadline:
+                raise BrowserStartupError(
+                    f"Firefox did not create an initial page document in {timeout}s: {state}")
+            time.sleep(0.25)
 
     def info(self):
         return self.m.script(BROWSER_INFO)
@@ -623,6 +664,20 @@ const win = Services.wm.getMostRecentWindow("navigator:browser");
 win.moveTo(0, 0);
 win.resizeTo(arguments[0], arguments[1]);
 return [win.outerWidth, win.outerHeight];
+"""
+
+INITIAL_DOCUMENT_STATE = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+const browser = win.gBrowser.selectedBrowser;
+const context = browser?.browsingContext;
+return {
+  ready: !!(browser?.isConnected && context && !context.isDiscarded &&
+            context.currentWindowGlobal),
+  remoteType: browser?.remoteType,
+  connected: !!browser?.isConnected,
+  discarded: context?.isDiscarded,
+  document: context?.currentWindowGlobal?.documentURI?.spec ?? null
+};
 """
 
 SEED_BOOKMARKS = """

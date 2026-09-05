@@ -388,17 +388,54 @@ class SessionCleanupTests(unittest.TestCase):
         from unittest.mock import Mock, call, patch
         from fxcss import core
         session = core.Session.__new__(core.Session)
-        session.m = Mock()
-        session.proc = Mock(pid=4242)
-        session.proc.wait.side_effect = [core.subprocess.TimeoutExpired("firefox", 45), None]
+        session.m = m = Mock()
+        session.proc = proc = Mock(pid=4242)
+        proc.wait.side_effect = [core.subprocess.TimeoutExpired("firefox", 45), None]
         session.keep_profile = True
         with patch.object(core.sys, "platform", "win32"), patch.object(core.subprocess, "run") as run:
             session.__exit__()
-        session.m.quit.assert_called_once_with()
+        m.quit.assert_called_once_with()
         run.assert_called_once_with(
             ["taskkill", "/PID", "4242", "/T", "/F"],
             stdout=core.subprocess.DEVNULL, stderr=core.subprocess.DEVNULL, check=False)
-        self.assertEqual(session.proc.wait.call_args_list, [call(timeout=45), call(timeout=5)])
+        self.assertEqual(proc.wait.call_args_list, [call(timeout=45), call(timeout=5)])
+        self.assertIsNone(session.proc)
+        self.assertIsNone(session.m)
+
+    def test_persistent_missing_document_stops_after_one_restart_and_cleans_up(self):
+        from unittest.mock import Mock
+        from fxcss import core
+        session = core.Session.__new__(core.Session)
+        session._start_browser = Mock()
+        session._stop_browser = Mock()
+        session._wait_for_initial_document = Mock(side_effect=core.BrowserStartupError("no document"))
+        session.__exit__ = Mock()
+        with self.assertRaisesRegex(core.BrowserStartupError, "no document"):
+            session.__enter__()
+        self.assertEqual(session._start_browser.call_count, 2)
+        self.assertEqual(session._stop_browser.call_count, 2)
+        session.__exit__.assert_called_once_with()
+
+    def test_unrelated_startup_error_is_cleaned_up_without_retry(self):
+        from unittest.mock import Mock
+        from fxcss import core
+        session = core.Session.__new__(core.Session)
+        session._start_browser = Mock(side_effect=core.MarionetteError("connection failed"))
+        session.__exit__ = Mock()
+        with self.assertRaisesRegex(core.MarionetteError, "connection failed"):
+            session.__enter__()
+        session._start_browser.assert_called_once_with()
+        session.__exit__.assert_called_once_with()
+
+    def test_initial_document_wait_is_bounded(self):
+        from unittest.mock import Mock, patch
+        from fxcss import core
+        session = core.Session.__new__(core.Session)
+        session.m = Mock()
+        session.m.script.return_value = {"ready": False, "document": None}
+        with patch.object(core.time, "monotonic", side_effect=[0, 6]):
+            with self.assertRaisesRegex(core.BrowserStartupError, "initial page document.*None"):
+                session._wait_for_initial_document()
 
 
 class SessionSetupTests(unittest.TestCase):
