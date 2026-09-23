@@ -187,7 +187,8 @@ class ProjectCheckTests(unittest.TestCase):
         self.assertIn("Selector audit: **passed**", report)
         self.assertIn("Screenshot capture: **complete**", report)
         self.assertIn("audit.txt", report)
-        self.assertIn("Browser captures", report)
+        self.assertIn("Captured views (20)", report)
+        self.assertIn("[Browser window (light) (`light-01-window`)](stable/shots/light-01-window.png)", report)
         self.assertTrue(self.audit_args[0].strict)
 
     def test_baseline_creation_then_identical_comparison(self):
@@ -198,6 +199,21 @@ class ProjectCheckTests(unittest.TestCase):
         reports = [json.loads(p.read_text()) for p in self.summaries()]
         current, = [r for r in reports if not r["baseline_updated"]]
         self.assertFalse(current["browsers"][0]["comparison"]["any_change"])
+
+    def test_comparison_shows_baseline_and_current_capture_environments(self):
+        self.config(baseline=".fxcss/baseline")
+        self.assertEqual(self.run_check("--update-baseline"), 0)
+        baseline_coverage = self.theme / ".fxcss/baseline/stable/capture-coverage.json"
+        data = json.loads(baseline_coverage.read_text())
+        data["browser"]["version"] = "149"
+        baseline_coverage.write_text(json.dumps(data))
+        self.assertEqual(self.run_check(), 0)
+        current, = [p for p in self.summaries()
+                    if not json.loads(p.read_text())["baseline_updated"]]
+        report = current.with_name("report.md").read_text()
+        self.assertIn("Baseline: Firefox 149 on test", report)
+        self.assertIn("Current: Firefox 150 on test", report)
+        self.assertIn("Capture environments differ in Firefox version", report)
 
     def test_visual_policy_and_command_line_overrides(self):
         self.config(baseline=".fxcss/baseline", max_changed_percent=0, strict_vars=True)
@@ -279,11 +295,18 @@ class ProjectCheckTests(unittest.TestCase):
         report = path.with_name("report.md").read_text()
         self.assertIn("Failed view `light-02-urlbar`", report)
         self.assertIn("Firefox lost its window", report)
-        self.assertIn("Browser captures (partial)", report)
+        self.assertIn("Captured views (1, partial run)", report)
+        self.assertIn("(stable/shots/light-01-window.png)", report)
 
     def test_interruption_writes_report_and_stops_other_browsers(self):
         self.config(firefox=["stable", "beta"], baseline=".fxcss/baseline")
-        with patch.object(cli, "cmd_shot", side_effect=KeyboardInterrupt):
+        def interrupt_after_first_view(args):
+            args.out.mkdir()
+            Image.new("RGB", (16, 8), "grey").save(args.out / "light-01-window.png")
+            capture.write_coverage(args.out, {"version": "150", "os": "test"},
+                                   capture.expected_views(), interrupted=True)
+            raise KeyboardInterrupt
+        with patch.object(cli, "cmd_shot", side_effect=interrupt_after_first_view):
             self.assertEqual(self.run_check("--update-baseline"), 2)
         path, = self.summaries()
         summary = json.loads(path.read_text())
@@ -291,6 +314,10 @@ class ProjectCheckTests(unittest.TestCase):
         self.assertEqual([r["firefox"] for r in summary["browsers"]], ["stable"])
         report = path.with_name("report.md").read_text()
         self.assertIn("Result: **interrupted**", report)
+        self.assertIn("partial (1 captured, 19 unfinished)", report)
+        self.assertIn("19 views did not finish", report)
+        self.assertNotIn("Failed view", report)
+        self.assertIn("(stable/shots/light-01-window.png)", report)
         self.assertIn("Run `fxcss check` again", report)
         self.assertFalse((self.theme / ".fxcss/baseline").exists())
 
@@ -314,9 +341,30 @@ class ProjectCheckTests(unittest.TestCase):
             with contextlib.redirect_stdout(output):
                 self.assertEqual(cli.main(["check", "--theme", str(self.theme)]), 0)
         self.assertIn("selector audit: running", output.getvalue())
-        self.assertIn("capture 1/20: light-01-window", output.getvalue())
+        self.assertIn("view 1/20: light-01-window captured", output.getvalue())
+        self.assertIn("20/20 views accounted for; 20 captured", output.getvalue())
         path, = self.summaries()
         self.assertIn("captured light-01-window", (path.parent / "stable/capture.txt").read_text())
+
+    def test_unsupported_views_advance_progress_and_are_counted_at_completion(self):
+        def capture_with_unsupported(args):
+            args.out.mkdir()
+            missing = {"light-04-dialog", "dark-04-dialog"}
+            for view in capture.expected_views():
+                if view not in missing:
+                    Image.new("RGB", (16, 8), "grey").save(args.out / f"{view}.png")
+            capture.write_coverage(args.out, {"version": "150", "os": "test"},
+                                   capture.expected_views(),
+                                   {name: "no in-window modal prompts" for name in missing})
+            print("  captured light-01-window.png (1 KB)", flush=True)
+            print("  unsupported light-04-dialog: no in-window modal prompts", flush=True)
+            return 0
+        output = io.StringIO()
+        with patch.object(cli, "cmd_shot", side_effect=capture_with_unsupported):
+            with contextlib.redirect_stdout(output):
+                self.assertEqual(cli.main(["check", "--theme", str(self.theme)]), 0)
+        self.assertIn("view 2/20: light-04-dialog unsupported", output.getvalue())
+        self.assertIn("20/20 views accounted for; 18 captured, 2 unsupported", output.getvalue())
 
     def test_invalid_config_fails_before_launching(self):
         cases = [dict(unknown=True), dict(firefox=[]), dict(firefox=["stable", "release"]),

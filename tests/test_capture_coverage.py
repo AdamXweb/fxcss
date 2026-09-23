@@ -28,9 +28,16 @@ class CaptureCoverageTests(unittest.TestCase):
         self.assertFalse((self.root / "dark-01-window.png").exists())
         self.assertTrue((self.root / capture.REPORT).is_file())
 
-    def test_interruption_still_records_failed_views(self):
-        with patch.object(core, "_capture_views", side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
+    def test_interruption_records_unfinished_views_without_accepting_the_capture(self):
+        def interrupt(session, out, modes, variants, toolbar, coverage):
+            self.png("light-01-window")
+            raise KeyboardInterrupt
+        with patch.object(core, "_capture_views", side_effect=interrupt), self.assertRaises(KeyboardInterrupt):
             core.capture_views(None, self.root)
+        views = json.loads((self.root / capture.REPORT).read_text())["views"]
+        self.assertEqual(views["light-01-window"]["status"], "captured")
+        self.assertEqual(views["light-02-urlbar"]["status"], "not_completed")
+        self.assertNotIn("failed", {view["status"] for view in views.values()})
         with self.assertRaisesRegex(ValueError, "incomplete capture"):
             capture.validate_coverage(self.root)
 

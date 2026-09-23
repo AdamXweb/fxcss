@@ -632,10 +632,14 @@ configuration file, it uses installed Stable, captures all optional
 stylesheets and fails on actionable selector findings. Visual comparison is
 enabled when you supply a baseline.
 
-The terminal shows the current phase and each completed screenshot while the
-full details stay in the run logs. The report distinguishes a check with no
-visual baseline from one with advisory image changes. If you interrupt a run,
-`check` still writes a report pointing to any completed captures; rerun the
+The terminal shows the current phase and each accounted-for view, including
+views Firefox explicitly does not support, while the full details stay in the
+run logs. The report links directly to each captured screenshot and distinguishes
+a check with no visual baseline from one with advisory image changes. When
+comparing captures, it shows the baseline and current Firefox environments so
+you can spot version, OS, display-scale or window-size differences. If you
+interrupt a run, `check` still writes a report pointing to completed captures;
+views left unfinished are marked separately from failures. Rerun the
 command to finish. If interruption occurs during a baseline update, inspect
 the baseline directory before running another update.
 
