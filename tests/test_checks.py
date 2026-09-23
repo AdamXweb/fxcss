@@ -3,6 +3,7 @@
 import contextlib
 import io
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -97,6 +98,20 @@ class ComparisonIntegrityTests(unittest.TestCase):
         self.assertFalse((self.out / "variant-old.png").exists())
         self.assertFalse((self.out / "full/variant-old.png").exists())
 
+    def test_local_diff_panels_use_baseline_and_current_labels(self):
+        self.image(self.base)
+        self.image(self.head, colour="red")
+        self.out.mkdir()
+        labels = []
+        def record_panels(panels, width):
+            labels.extend(item[0][0] for item in panels)
+            return Image.new("RGB", (width, 8))
+        with patch.object(compare, "stack", side_effect=record_panels):
+            compare.compare_view("light-01-window", self.base / "light-01-window.png",
+                                 self.head / "light-01-window.png", self.out)
+        self.assertIn("BEFORE  ·  baseline", labels)
+        self.assertIn("AFTER  ·  current capture", labels)
+
     def test_failed_upgrade_comparison_does_not_install(self):
         from fxcss import install
         theme, profile = self.root / "theme", self.root / "profile"
@@ -168,6 +183,9 @@ class ProjectCheckTests(unittest.TestCase):
         data = json.loads(path.read_text())
         self.assertEqual(data["browsers"][0]["comparison_note"], "no baseline configured")
         report = path.with_name("report.md").read_text()
+        self.assertIn("Result: **passed; visual comparison not run**", report)
+        self.assertIn("Selector audit: **passed**", report)
+        self.assertIn("Screenshot capture: **complete**", report)
         self.assertIn("audit.txt", report)
         self.assertIn("Browser captures", report)
         self.assertTrue(self.audit_args[0].strict)
@@ -195,6 +213,10 @@ class ProjectCheckTests(unittest.TestCase):
         self.assertEqual(self.run_check("--update-baseline"), 0)
         self.colour = "red"
         self.assertEqual(self.run_check(), 0)
+        reports = [p.with_name("report.md").read_text() for p in self.summaries()]
+        self.assertTrue(any("Result: **passed; visual changes to review**" in r
+                            and "(advisory; no configured limit was exceeded)" in r
+                            for r in reports))
 
     def test_missing_views_fail_even_without_a_pixel_threshold(self):
         self.config(baseline=".fxcss/baseline")
@@ -242,6 +264,59 @@ class ProjectCheckTests(unittest.TestCase):
             self.assertEqual(self.run_check(), 2)
         path, = self.summaries()
         self.assertIn("capture failed", path.with_name("report.md").read_text())
+
+    def test_failed_capture_reports_cause_failed_views_and_available_images(self):
+        def fail_after_first_view(args):
+            args.out.mkdir()
+            Image.new("RGB", (16, 8), "grey").save(args.out / "light-01-window.png")
+            capture.write_coverage(args.out, {"version": "150", "os": "test"},
+                                   capture.expected_views())
+            print("error: Firefox lost its window", file=sys.stderr)
+            return 2
+        with patch.object(cli, "cmd_shot", side_effect=fail_after_first_view):
+            self.assertEqual(self.run_check(), 2)
+        path, = self.summaries()
+        report = path.with_name("report.md").read_text()
+        self.assertIn("Failed view `light-02-urlbar`", report)
+        self.assertIn("Firefox lost its window", report)
+        self.assertIn("Browser captures (partial)", report)
+
+    def test_interruption_writes_report_and_stops_other_browsers(self):
+        self.config(firefox=["stable", "beta"], baseline=".fxcss/baseline")
+        with patch.object(cli, "cmd_shot", side_effect=KeyboardInterrupt):
+            self.assertEqual(self.run_check("--update-baseline"), 2)
+        path, = self.summaries()
+        summary = json.loads(path.read_text())
+        self.assertTrue(summary["interrupted"])
+        self.assertEqual([r["firefox"] for r in summary["browsers"]], ["stable"])
+        report = path.with_name("report.md").read_text()
+        self.assertIn("Result: **interrupted**", report)
+        self.assertIn("Run `fxcss check` again", report)
+        self.assertFalse((self.theme / ".fxcss/baseline").exists())
+
+    def test_interrupted_baseline_update_reports_uncertain_state(self):
+        self.config(baseline=".fxcss/baseline")
+        with patch.object(check, "update_baseline", side_effect=KeyboardInterrupt):
+            self.assertEqual(self.run_check("--update-baseline"), 2)
+        path, = self.summaries()
+        report = path.with_name("report.md").read_text()
+        self.assertIn("Result: **interrupted**", report)
+        self.assertIn("Inspect the baseline directory", report)
+        self.assertNotIn("The baseline was left unchanged", report)
+
+    def test_check_streams_capture_progress_and_keeps_detail_log(self):
+        def capture_with_progress(args):
+            result = self.capture(args)
+            print("  captured light-01-window.png (1 KB)", flush=True)
+            return result
+        output = io.StringIO()
+        with patch.object(cli, "cmd_shot", side_effect=capture_with_progress):
+            with contextlib.redirect_stdout(output):
+                self.assertEqual(cli.main(["check", "--theme", str(self.theme)]), 0)
+        self.assertIn("selector audit: running", output.getvalue())
+        self.assertIn("capture 1/20: light-01-window", output.getvalue())
+        path, = self.summaries()
+        self.assertIn("captured light-01-window", (path.parent / "stable/capture.txt").read_text())
 
     def test_invalid_config_fails_before_launching(self):
         cases = [dict(unknown=True), dict(firefox=[]), dict(firefox=["stable", "release"]),

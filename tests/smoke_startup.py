@@ -101,6 +101,19 @@ def main():
             return command(name, args)
 
         session.m.command = lose_context_once
+        wait_for_pages = session._wait_for_fixture_pages
+
+        def late_label_direction():
+            wait_for_pages()
+            # Model titles set before pseudo-localisation changes document.dir.
+            session.m.script('''
+                const win = Services.wm.getMostRecentWindow("navigator:browser");
+                for (const tab of win.gBrowser.tabs) {
+                    tab.removeAttribute("labelendaligned");
+                }
+            ''')
+
+        session._wait_for_fixture_pages = late_label_direction
         started = time.monotonic()
         session.setup_window()
         assert time.monotonic() - started >= 5, "setup returned before the delayed page loaded"
@@ -113,6 +126,8 @@ def main():
                 pinned: Array.from(gb.tabs, t => t.pinned),
                 selected: gb.selectedBrowser.currentURI.spec,
                 direction: win.document.dir,
+                labels: Array.from(gb.tabs, t => [t.label,
+                    t.getAttribute("labeldirection"), t.hasAttribute("labelendaligned")]),
                 broken: !!win.document.querySelector("[fxcss-broken-startup]")
             };
         '''
@@ -125,6 +140,8 @@ def main():
         assert discarded == 3, "the persistent discarded-context regression was not exercised"
         assert navigations >= 6, "the discarded contexts did not trigger tab replacement"
         assert state["direction"] == "rtl", state
+        assert state["labels"] == [[title, "ltr", True] for title in
+                                   ("Start", "Documentation", "Issue tracker")], state
         session.m.set_context("content")
         try:
             actual = session.m.script("return document.location.href;")
@@ -170,7 +187,7 @@ def main():
                        for row in csv.reader(io.StringIO(listing.stdout))), (
                            "the Firefox browser outlived its session", listing.stdout)
     print("Startup restarted a browser missing its initial document, recovered discarded contexts, waited for a slow page, "
-          "corrected stale RTL overflow without losing real overflow, and kept setup idempotent", flush=True)
+          "finalised RTL labels and overflow, and kept setup idempotent", flush=True)
 
 
 if __name__ == "__main__":

@@ -632,6 +632,13 @@ configuration file, it uses installed Stable, captures all optional
 stylesheets and fails on actionable selector findings. Visual comparison is
 enabled when you supply a baseline.
 
+The terminal shows the current phase and each completed screenshot while the
+full details stay in the run logs. The report distinguishes a check with no
+visual baseline from one with advisory image changes. If you interrupt a run,
+`check` still writes a report pointing to any completed captures; rerun the
+command to finish. If interruption occurs during a baseline update, inspect
+the baseline directory before running another update.
+
 Save settings in `.fxcss.json` at the theme's root to use the same checks
 locally and in CI:
 
@@ -681,9 +688,9 @@ operating systems separate. `--firefox beta` overrides the list for one run.
 | `--config FILE` | Read a different JSON settings file. Command-line options override saved values. |
 
 Exit codes are **0** for completed checks within the configured policy,
-**1** for findings, and **2** for configuration, browser, capture or comparison
-errors. A configured baseline that is missing is an error, not an unchanged
-result. Invalid settings fail before Firefox is started.
+**1** for findings, and **2** for interruption or configuration, browser,
+capture or comparison errors. A configured baseline that is missing is an
+error, not an unchanged result. Invalid settings fail before Firefox is started.
 
 For a custom GitHub workflow with Firefox and a display already available,
 run `fxcss check` and upload `.fxcss/checks/` even when the check fails. Keep the

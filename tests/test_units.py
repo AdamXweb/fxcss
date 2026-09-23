@@ -468,7 +468,9 @@ class SessionSetupTests(unittest.TestCase):
             call("WebDriver:GetWindowHandle"),
             call("WebDriver:SwitchToWindow", {"handle": "chrome-window"}),
         ])
-        session.m.async_script.assert_called_once_with(core.SEED_BOOKMARKS)
+        self.assertEqual(session.m.async_script.call_args_list, [
+            call(core.FINALIZE_FIXTURE_LABELS), call(core.SEED_BOOKMARKS),
+        ])
 
     def test_blank_or_incomplete_pages_are_never_ready(self):
         from fxcss import core
@@ -739,7 +741,13 @@ class TitleForTests(unittest.TestCase):
 
     def test_extra_views(self):
         self.assertEqual(self.title("extra-09-compact"), ("Compact density", "extra"))
-        self.assertEqual(self.title("extra-12-customize"), ("Customize mode", "extra"))
+        self.assertEqual(self.title("extra-13-customize"), ("Customize mode", "extra"))
+
+    def test_every_standard_view_has_a_readable_title(self):
+        from fxcss import capture
+        for name in capture.expected_views():
+            with self.subTest(name=name):
+                self.assertNotEqual(self.title(name)[0], name)
 
     def test_variant_views_are_generic(self):
         self.assertEqual(self.title("variant-tabs-swapclose"),
