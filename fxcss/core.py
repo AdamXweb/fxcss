@@ -548,6 +548,7 @@ class Session:
         handle = Marionette._unwrap(self.m.command("WebDriver:GetWindowHandle"))
         self.m.command("WebDriver:SwitchToWindow", {"handle": handle})
         self._wait_for_fixture_pages()
+        self.m.async_script(FINALIZE_FIXTURE_LABELS)
         result = self.m.async_script(SEED_BOOKMARKS)
         if result is not True:
             print(f"  note: bookmark seeding returned {result!r}", flush=True)
@@ -701,6 +702,20 @@ const done = arguments[arguments.length - 1];
 INITIAL_TABS = """
 const win = Services.wm.getMostRecentWindow("navigator:browser");
 return Array.from(win.gBrowser.tabs, tab => tab.linkedPanel);
+"""
+
+FINALIZE_FIXTURE_LABELS = """
+const done = arguments[arguments.length - 1];
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+win.document.l10n.ready.then(() => {
+  // A title set before pseudo-localisation changes document.dir keeps the
+  // earlier labelendaligned value until the title changes again.
+  for (const tab of win.gBrowser.tabs) {
+    tab.removeAttribute("label");
+    win.gBrowser.setTabTitle(tab);
+  }
+  done(true);
+});
 """
 
 SETUP_TABS = """

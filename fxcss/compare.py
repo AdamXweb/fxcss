@@ -33,15 +33,19 @@ FRIENDLY_NAMES = {
     "01-window": "Browser window",
     "02-urlbar": "Address bar focused",
     "03-findbar": "Find bar",
+    "04-dialog": "Quit confirmation",
     "04-audio": "Tab playing audio",
     "05-muted": "Tab muted",
     "06-containers": "Container tabs",
     "07-many-tabs": "Tab strip overflowing",
     "08-private": "Private window",
     "09-compact": "Compact density",
-    "10-sidebar": "Sidebar open",
-    "11-rtl": "Right-to-left UI",
-    "12-customize": "Customize mode",
+    "10-sidebar-bookmarks": "Bookmarks sidebar",
+    "11-sidebar-history": "History sidebar",
+    "12-rtl": "Right-to-left UI",
+    "13-customize": "Customize mode",
+    "14-vertical-tabs": "Vertical tabs",
+    "15-toolbar": "Custom toolbar",
 }
 
 
@@ -155,8 +159,8 @@ def compare_view(name, base_path, head_path, outdir):
 
     comparison = stack(
         [
-            (("BEFORE  ·  base branch", (90, 96, 104)), base),
-            (("AFTER  ·  this PR", (32, 113, 62)), head),
+            (("BEFORE  ·  baseline", (90, 96, 104)), base),
+            (("AFTER  ·  current capture", (32, 113, 62)), head),
             ((f"CHANGED  ·  {pct:.2f}% of pixels", (176, 21, 92)), render_diff_panel(base, mask)),
         ],
         base.width,
