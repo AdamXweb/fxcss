@@ -1,0 +1,51 @@
+{
+  "generatedAt": "2026-09-05T11:46:22.889484+00:00",
+  "fxcssVersion": "0.22.0",
+  "browser": {
+    "version": "153.0.4",
+    "buildID": "20260810162159",
+    "os": "Darwin",
+    "dpr": 2,
+    "outer": [
+      1280,
+      480
+    ],
+    "legacyStylesheets": true,
+    "nativeContextMenus": {
+      "macos": true,
+      "gtk": false,
+      "windows": null
+    },
+    "audioIndicators": "controlled playing and muted tab attributes"
+  },
+  "theme": "fxcss bundled starter",
+  "change": {
+    "property": "--demo-accent",
+    "before": "#4f6ef2",
+    "after": "#ff7139",
+    "mode": "light"
+  },
+  "comparison": {
+    "view": "light-01-window",
+    "title": "Browser window",
+    "mode": "light",
+    "changed_pixels": 303,
+    "total_pixels": 345600,
+    "percent": 0.0877,
+    "image": "light-01-window.png"
+  },
+  "dimensions": {
+    "width": 2560,
+    "height": 960
+  },
+  "noiseThreshold": 24,
+  "assets": {
+    "before.png": "b427be41c14aeb3970f475d9a4b96a2c65b7c61d607b4f4caa7b963b95e453fe",
+    "after.png": "17d34920785fdcd9683b8b6006af84655ef1a4e194a2f8514a7638e813151999",
+    "dark.png": "bbf8789053fc8dcd04d73420961352d3af30334c8329c983dbc1e0f4815fdc90",
+    "difference.png": "9d8a69fafe9999b8ed14beb6517fc66baf8923f9a7dd992146f88ec9600da438",
+    "comparison.png": "02c39d0819e7e873dc387b2fcf54334bd69211f1dc3eb37f2590c1b18e1c1f01",
+    "before.css": "88a7426acbf703a361be5744db276053359a510ef84723bac350953e6e586949",
+    "after.css": "0a1fa4cffe441a7124c37445a2348eb70aac43ed47b8cf222f06bb81660e206b"
+  }
+}

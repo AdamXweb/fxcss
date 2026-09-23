@@ -1,0 +1,619 @@
+{
+  "version": "0.22.0",
+  "sourceSha256": "fc35879e4d339446aa8ebb826c74d74224f202e1d118b6490e763cd27518880d",
+  "pages": [
+    {
+      "slug": "using-and-managing-themes",
+      "title": "Using and managing themes",
+      "chapter": "Using and managing themes",
+      "group": "guide",
+      "description": "Start with a preview, then install into the profile you choose. fxcss records what it installs, checks for local edits before upgrades and keeps backups when replacing an existing theme. Alr",
+      "html": "<p>Start with a preview, then install into the profile you choose. fxcss records\nwhat it installs, checks for local edits before upgrades and keeps backups\nwhen replacing an existing theme. Already have a manually installed theme?\nUse <code>adopt</code> to bring it under management.</p>\n<p>Looking for a theme? Browse the <a href=\"https://firefoxcss-store.github.io/\" target=\"_blank\" rel=\"noreferrer noopener\">Firefox CSS Store</a>\nor <a href=\"https://www.reddit.com/r/FirefoxCSS/\" target=\"_blank\" rel=\"noreferrer noopener\">r/FirefoxCSS</a>, then pass its GitHub\nrepository to <code>fxcss try</code>.</p>\n",
+      "codes": [],
+      "headings": [],
+      "sourceAnchor": "using-and-managing-themes"
+    },
+    {
+      "slug": "try",
+      "title": "fxcss try",
+      "chapter": "Using and managing themes",
+      "group": "command",
+      "description": "Test-drive a theme before committing to it. Downloads it, installs it into a throwaway profile, and opens Firefox so you can actually use it. Your own profile is never touched — close the wi",
+      "html": "<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>fxcss try adamXweb/WhiteSurFirefoxThemeMacOS\nfxcss try github.com/owner/theme --with compact-tabs\nfxcss try owner/theme --info            # report what's there, launch nothing</code></pre></div><p><strong>Test-drive a theme before committing to it.</strong> Downloads it, installs it into a\nthrowaway profile, and opens Firefox so you can actually use it. Your own profile\nis never touched — close the window and nothing remains.</p>\n<p>It reports what it found before doing anything:</p>\n<div class=\"doc-code\"><div class=\"doc-code-header\"><span>example</span><button type=\"button\" data-copy-index=\"1\" aria-label=\"Copy code example 2\">Copy</button></div><pre><code>  adamxweb/whitesurfirefoxthememacos  ★614  MIT\n    MacOS Big Sur like theme for Firefox on MacOS &amp; Windows.\n    latest release   v1.6.3  (2025-07-26)\n    latest commit    b10c574  (2025-07-26)  Merge pull request #167 …\n\n  fetching release v1.6.3 …\n  theme found at the repository root  (39 stylesheets, 134 KB)\n\n  This theme ships install.sh. fxcss does not run it —\n  it installs the files itself, which is all those scripts do.\n\n  Options its README documents:\n    -c     Left hand side tab close button\n    -p     Makes tabs height compact like current Safari\n    …\n\n  Optional stylesheets you can layer on with --with:\n    compact-tabs, hideextension, noidentity, tabs-swapclose, …</code></pre></div><p>Releases are preferred over branch tips, since that is what the author blessed;\n<code>--commit</code> takes the latest commit instead, and <code>--ref</code> takes any tag, branch or\nSHA. <code>--with name,name</code> layers on the theme's optional stylesheets so you can see\na variant without hunting through install flags. <code>--shot dir</code> captures the\nstandard screenshots instead of opening a window, and <code>--keep dir</code> leaves the\ndownload behind so you can start editing it with <code>watch</code>.</p>\n<h2 id=\"it-does-not-run-the-themes-install-script\">It does not run the theme's install script</h2><p>fxcss installs the theme's files and supported preferences itself. It reports\nany installer it finds and reads the options documented in the theme's README.\nA theme that requires additional setup outside those files and preferences may\nstill need manual steps.</p>\n<p>What is left is the theme's own content: CSS, SVG, and occasionally a <code>.js</code> file.\nFirefox does not execute a <code>.js</code> file sitting in a profile's chrome folder; that\nrequires an autoconfig hook in the <em>application</em> directory, which fxcss does not\ncreate. Archives are size-capped and path-checked on extraction, and symlinks in\nthem are skipped.</p>\n<p>If you decide you want the theme permanently, <code>fxcss install</code> is the same\nresolution and the same file copying — pointed, deliberately, at your real\nprofile.</p>\n",
+      "codes": [
+        "fxcss try adamXweb/WhiteSurFirefoxThemeMacOS\nfxcss try github.com/owner/theme --with compact-tabs\nfxcss try owner/theme --info            # report what's there, launch nothing",
+        "  adamxweb/whitesurfirefoxthememacos  ★614  MIT\n    MacOS Big Sur like theme for Firefox on MacOS & Windows.\n    latest release   v1.6.3  (2025-07-26)\n    latest commit    b10c574  (2025-07-26)  Merge pull request #167 …\n\n  fetching release v1.6.3 …\n  theme found at the repository root  (39 stylesheets, 134 KB)\n\n  This theme ships install.sh. fxcss does not run it —\n  it installs the files itself, which is all those scripts do.\n\n  Options its README documents:\n    -c     Left hand side tab close button\n    -p     Makes tabs height compact like current Safari\n    …\n\n  Optional stylesheets you can layer on with --with:\n    compact-tabs, hideextension, noidentity, tabs-swapclose, …"
+      ],
+      "headings": [
+        {
+          "id": "it-does-not-run-the-themes-install-script",
+          "text": "It does not run the theme's install script"
+        }
+      ],
+      "sourceAnchor": "fxcss-try"
+    },
+    {
+      "slug": "install",
+      "title": "fxcss install",
+      "chapter": "Using and managing themes",
+      "group": "command",
+      "description": "Put a theme into the Firefox profile you actually use — the cross-platform replacement for each theme's own install.sh (and the answer for themes whose install script never covered Windows).",
+      "html": "<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>fxcss install owner/theme                      # into your default profile\nfxcss install owner/theme --with compact-tabs  # optional sheets, permanently\nfxcss install ~/src/my-theme                   # a local checkout works too\nfxcss install --list-profiles                  # see what it found first</code></pre></div><p><strong>Put a theme into the Firefox profile you actually use</strong> — the cross-platform\nreplacement for each theme's own <code>install.sh</code> (and the answer for themes whose\ninstall script never covered Windows). Resolution is the same as <code>try</code>:\na GitHub <code>owner/name</code> or URL with <code>--ref</code>/<code>--commit</code>, or a local directory.\nAs with <code>try</code>, the theme's own install script is never executed.</p>\n<p>It finds your real profiles by parsing <code>profiles.ini</code> in the platform's\nFirefox directory (macOS <code>~/Library/Application Support/Firefox</code>, Windows\n<code>%APPDATA%\\Mozilla\\Firefox</code>, Linux <code>~/.mozilla/firefox</code> plus the snap and\nflatpak locations) and installs into the profile Firefox itself would open.\n<code>--profile &lt;name-or-path&gt;</code> overrides; with several profiles and no clear\ndefault, interactive runs get a picker and scripts get an error — CI is never\nprompted. Profiles kept somewhere unusual can be added to the search with\n<code>FXCSS_PROFILE_ROOTS=/path/to/dir</code>, mirroring <code>FXCSS_FIREFOX_ROOTS</code>.</p>\n<p>Firefox's default profile decides only for <code>install</code>, which is choosing where\nto <em>put</em> a theme. Every command that acts on one already installed —\n<code>uninstall</code>, <code>upgrade</code>, <code>rollback</code> — looks for the profile that <strong>has</strong> it,\nso a theme installed deliberately into your Developer Edition profile is\nstill found by a bare <code>fxcss uninstall</code>. <code>adopt</code> looks for the opposite: a\n<code>chrome/</code> folder fxcss did not install. Firefox's default breaks the tie only\nwhen more than one profile qualifies, and <code>--profile</code> always wins.</p>\n<p>The picker and <code>--list-profiles</code> say which Firefox each profile belongs to,\nbecause <code>default-release</code> and <code>dev-edition-default</code> are one word apart in a\nlist of hashed directory names — and installing into the wrong one looks\nexactly like the theme not working:</p>\n<div class=\"doc-code\"><div class=\"doc-code-header\"><span>example</span><button type=\"button\" data-copy-index=\"1\" aria-label=\"Copy code example 2\">Copy</button></div><pre><code>Several Firefox profiles exist:\n  1. default-release        [Release]              …/Profiles/8f2b1a.default-release  (Enter)\n  2. dev-edition-default    [Developer Edition]    …/Profiles/c41d9e.dev-edition-default\n  3. work                   [unrecognised]         …/Profiles/7ab3.work</code></pre></div><p>The label comes from the directory suffix Firefox itself assigns, so a profile\nyou named yourself reads <code>[unrecognised]</code> rather than being guessed at.</p>\n<p>Run it without <code>--with</code> and it offers the theme's optional stylesheets rather\nthan leaving you to find them in the repository:</p>\n<div class=\"doc-code\"><div class=\"doc-code-header\"><span>example</span><button type=\"button\" data-copy-index=\"2\" aria-label=\"Copy code example 3\">Copy</button></div><pre><code>  This theme ships optional stylesheets:\n    1. compact-tabs\n    2. theme-dracula\n    …\n    Numbers separated by commas, `all`, or Enter for none.\n  Include:</code></pre></div><h2 id=\"options-that-cancel-each-other-out\">Options that cancel each other out</h2><p>Some of a theme's optional sheets are alternatives rather than additions.\nInstalling two colour themes is two <code>@import</code>s, and nothing about that warns\nyou — the later one silently wins outright, leaving a browser that looks like\nneither the one you picked nor the one before it. <code>install</code> measures for this\nand stops:</p>\n<div class=\"doc-code\"><div class=\"doc-code-header\"><span>console</span><button type=\"button\" data-copy-index=\"3\" aria-label=\"Copy code example 4\">Copy</button></div><pre><code>$ fxcss install AdamXweb/WhiteSurFirefoxThemeMacOS --with theme-nord,theme-dracula\n\n  theme-dracula and theme-nord are alternatives, not additions: both set the\n  same 122 declaration(s), so whichever loads last replaces the other entirely\n    :root { --gnome-browser-before-load-background: #282a36 }  vs  { …: #2e3440 }\n\n  Refusing to install stylesheets that cancel each other out — only one\n  of them would have any effect, and which one is decided by import\n  order rather than by you. Pick one, or pass --force.</code></pre></div><p>It is a measurement, not a guess about names. Two sheets are alternatives when\nthey set <strong>the same properties on the same selectors</strong> — provable from their\ntext, and true whatever they are called. Matching on a <code>theme-</code> prefix would\nbe a convention rather than a fact: it would tell a theme shipping <code>theme-blue</code>\nand <code>theme-compact</code> that those clash when they compose perfectly well, and\nmiss a pair named <code>dark.css</code> and <code>nord.css</code>. Sheets that agree exactly are not\nin conflict, because two options setting the same border radius the same way\ncompete for nothing.</p>\n<p><code>try</code> reports the same thing and continues — a throwaway profile is a fine\nplace to watch two colour themes cancel out — and <code>tweaks</code> says so before\nscreenshotting a <code>--combo</code> that cannot take effect.</p>\n<blockquote>\n<p><strong>What this does not see.</strong> It compares declarations, so it catches sheets\nfighting over the same property. Two sheets that rearrange the same area\nthrough <em>different</em> selectors — WhiteSur's <code>tabs-swapclose</code> and\n<code>windows-swapclose</code> both move a close button and share no declarations at\nall — are invisible to it. <code>fxcss tweaks --combo a+b</code> proves those from\nthe rendered pixels — and says so itself: a combo that renders identically\nto one of its parts alone is called out in TWEAKS.md as not a real\ncombination on that Firefox. Silence from the static check is \"nothing\nmeasurable\", never \"verified compatible\"; the pixels are the judge.</p>\n</blockquote>\n<p>When the theme's default branch has moved on since its newest release, that\nchoice is put to you as well — a tag can be a year behind a fix you are\nlooking for, and equally the branch can be mid-rewrite, so neither is right to\nassume:</p>\n<div class=\"doc-code\"><div class=\"doc-code-header\"><span>example</span><button type=\"button\" data-copy-index=\"4\" aria-label=\"Copy code example 5\">Copy</button></div><pre><code>  The default branch has moved on since the latest release:\n    1. release v2.0                 2025-01-03  what the author last published  (Enter)\n    2. latest commit on master      2026-08-14  newer than the release — fix tab colours\n  Install [1-2]:</code></pre></div><p>Scripts and CI never see any of these prompts: without a terminal the release\nwins, as before, with a one-line note that <code>--commit</code> exists.</p>\n<p>The install is what a theme's install script does, done carefully:</p>\n<ul>\n<li>the complete replacement is prepared before your existing <code>chrome/</code> moves\nto a timestamped <code>chrome.backup-*</code> sibling; a failed swap restores it;</li>\n<li>any <code>--with</code> optional sheets go where the theme's own <code>@import</code>s expect\nthem, or load after the base theme through an import-only wrapper;</li>\n<li><code>toolkit.legacyUserProfileCustomizations.stylesheets</code> is enabled in\n<code>user.js</code> — inside a clearly marked block, so it can be removed cleanly —\ntogether with any <code>configuration/user.js</code> the theme ships;</li>\n<li>a manifest (<code>chrome/fxcss-install.json</code>) records every file written, its\nsha256, and where the theme came from — which repo, which ref, and whether\nthat ref was a release or a branch.</li>\n</ul>\n<p>Restart Firefox after installation; it reads <code>userChrome.css</code> at startup.\nSee <a href=\"/docs/uninstall\">uninstall</a> to remove a theme later.</p>\n",
+      "codes": [
+        "fxcss install owner/theme                      # into your default profile\nfxcss install owner/theme --with compact-tabs  # optional sheets, permanently\nfxcss install ~/src/my-theme                   # a local checkout works too\nfxcss install --list-profiles                  # see what it found first",
+        "Several Firefox profiles exist:\n  1. default-release        [Release]              …/Profiles/8f2b1a.default-release  (Enter)\n  2. dev-edition-default    [Developer Edition]    …/Profiles/c41d9e.dev-edition-default\n  3. work                   [unrecognised]         …/Profiles/7ab3.work",
+        "  This theme ships optional stylesheets:\n    1. compact-tabs\n    2. theme-dracula\n    …\n    Numbers separated by commas, `all`, or Enter for none.\n  Include:",
+        "$ fxcss install AdamXweb/WhiteSurFirefoxThemeMacOS --with theme-nord,theme-dracula\n\n  theme-dracula and theme-nord are alternatives, not additions: both set the\n  same 122 declaration(s), so whichever loads last replaces the other entirely\n    :root { --gnome-browser-before-load-background: #282a36 }  vs  { …: #2e3440 }\n\n  Refusing to install stylesheets that cancel each other out — only one\n  of them would have any effect, and which one is decided by import\n  order rather than by you. Pick one, or pass --force.",
+        "  The default branch has moved on since the latest release:\n    1. release v2.0                 2025-01-03  what the author last published  (Enter)\n    2. latest commit on master      2026-08-14  newer than the release — fix tab colours\n  Install [1-2]:"
+      ],
+      "headings": [
+        {
+          "id": "options-that-cancel-each-other-out",
+          "text": "Options that cancel each other out"
+        }
+      ],
+      "sourceAnchor": "fxcss-install"
+    },
+    {
+      "slug": "adopt",
+      "title": "fxcss adopt",
+      "chapter": "Using and managing themes",
+      "group": "command",
+      "description": "Most themed profiles were not themed by fxcss — someone ran the theme's install.sh, or copied a chrome/ folder in by hand, long before any of this. fxcss profiles can describe those, but not",
+      "html": "<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>fxcss adopt owner/theme              # identify what is already installed\nfxcss adopt                          # …if chrome/ says where it came from\nfxcss adopt owner/theme --ref v2.0.0 # check against one version only</code></pre></div><p>Most themed profiles were not themed by fxcss — someone ran the theme's\n<code>install.sh</code>, or copied a <code>chrome/</code> folder in by hand, long before any of this.\n<code>fxcss profiles</code> can <em>describe</em> those, but nothing can act on them: there is no\nrecord of what the theme is. <code>adopt</code> writes that record, and then <code>upgrade</code>,\n<code>rollback</code> and <code>uninstall</code> all work.</p>\n<p><strong>It identifies the theme by its contents.</strong> Every file under <code>chrome/</code> is\nhashed exactly the way git hashes a blob and compared against the repository's\nown tree at each recent version. A version where every file matches is not a\nguess — it is the same bytes:</p>\n<div class=\"doc-code\"><div class=\"doc-code-header\"><span>console</span><button type=\"button\" data-copy-index=\"1\" aria-label=\"Copy code example 2\">Copy</button></div><pre><code>$ fxcss adopt AdamXweb/WhiteSurFirefoxThemeMacOS\n\n  profile: default-release  (~/Library/…/8f2h1kqp.default-release)\n\n  comparing 148 file(s) against AdamXweb/WhiteSurFirefoxThemeMacOS …\n    v2.0.0: 129/135 files match, 6 edited, 7 added\n    v1.6.3: 114/132 files match, 18 edited, 10 added\n\n  best match: v2.0.0: 129/135 files match, 6 edited, 7 added\n  Recorded as that version plus local differences, so an upgrade knows\n  not to overwrite them without being told.</code></pre></div><p>Comparison uses GitHub's git-tree API rather than downloading anything, so\nchecking ten versions costs ten small requests instead of ten archives — and\narchives are the first thing GitHub rate-limits.</p>\n<p>Naming the repository is usually necessary. <code>adopt</code> checks <code>chrome/</code> for a git\nremote (definitive — someone cloned it there) and for GitHub URLs in the\ntheme's own files (a hint worth confirming), but plenty of themes leave no\ntrace at all once installed: WhiteSur's <code>chrome/</code> contains no URL anywhere.\nThat is normal, not a failure, and the message says so.</p>\n<p><strong>Nothing is installed or replaced.</strong> The <code>chrome/</code> already there is <em>copied</em>\nto a <code>chrome.backup-*</code> and then described, so <code>uninstall</code> has somewhere to put\nthings back to — verified as a byte-identical round trip. <code>user.js</code> is left\nexactly as it is: the pref that turns <code>userChrome.css</code> on is evidently already\nset, since the theme is working, and writing an fxcss block to say so again\nwould edit a file for no gain. The next <code>upgrade</code> writes one properly, from the\ntheme it fetches.</p>\n<p>Files that already differed from the release are recorded, and\n<a href=\"/docs/upgrade\"><code>upgrade</code></a> treats them exactly like edits made after an\ninstall — it will not overwrite them without <code>--force</code>. That matters here more\nthan anywhere: a theme someone has been hand-editing for a year is the most\nlikely thing to be adopted.</p>\n<blockquote>\n<p>Two versions can also be identical in content while differing in line\nendings, which is what a Windows clone with <code>core.autocrlf</code> produces.\nThat is reported as a match, noting the difference, rather than as\n\"nothing matches\".</p>\n</blockquote>\n",
+      "codes": [
+        "fxcss adopt owner/theme              # identify what is already installed\nfxcss adopt                          # …if chrome/ says where it came from\nfxcss adopt owner/theme --ref v2.0.0 # check against one version only",
+        "$ fxcss adopt AdamXweb/WhiteSurFirefoxThemeMacOS\n\n  profile: default-release  (~/Library/…/8f2h1kqp.default-release)\n\n  comparing 148 file(s) against AdamXweb/WhiteSurFirefoxThemeMacOS …\n    v2.0.0: 129/135 files match, 6 edited, 7 added\n    v1.6.3: 114/132 files match, 18 edited, 10 added\n\n  best match: v2.0.0: 129/135 files match, 6 edited, 7 added\n  Recorded as that version plus local differences, so an upgrade knows\n  not to overwrite them without being told."
+      ],
+      "headings": [],
+      "sourceAnchor": "fxcss-adopt"
+    },
+    {
+      "slug": "profiles",
+      "title": "fxcss profiles",
+      "chapter": "Using and managing themes",
+      "group": "command",
+      "description": "Read-only. Firefox keeps its profiles in directories named after a hash, so \"which profile has the theme in it\" is a genuinely hard question to answer by looking: Three states, kept distinct",
+      "html": "<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>fxcss profiles                       # what is themed where\nfxcss profiles --check               # …and whether anything newer exists\nfxcss profiles --json                # machine-readable</code></pre></div><p>Read-only. Firefox keeps its profiles in directories named after a hash, so\n\"which profile has the theme in it\" is a genuinely hard question to answer by\nlooking:</p>\n<div class=\"doc-code\"><div class=\"doc-code-header\"><span>console</span><button type=\"button\" data-copy-index=\"1\" aria-label=\"Copy code example 2\">Copy</button></div><pre><code>$ fxcss profiles --check\n\n  Firefox profiles on this machine\n\n  ● default-release          [Release]\n    ~/Library/Application Support/Firefox/Profiles/8f2h1kqp.default-release\n    theme    AdamXweb/WhiteSurFirefoxThemeMacOS @ v1.0.0\n             installed 2026-08-14 09:12:44  (tracking the release)\n    sheets   theme-nord\n    files    137 file(s), 1 edited since install, 1 added by hand\n    update   v2.0.0 available  — 2026-08-16\n\n    dev-edition-default      [Developer Edition]\n    ~/Library/Application Support/Firefox/Profiles/p93kd0zx.dev-edition-default\n    chrome/  41 file(s), not installed by fxcss\n             `fxcss install` here would back this up first\n\n  ● the profile Firefox opens by default</code></pre></div><p>Three states, kept distinct on purpose: a profile fxcss installed into and can\nspeak for, a profile with a <code>chrome/</code> folder someone put there by hand, and a\nprofile with no theme at all. Only the first can be described in detail; for\nthe second, all fxcss honestly knows is that files are there and that\ninstalling would move them aside.</p>\n<p><code>--check</code> asks GitHub once per theme, not once per profile, and compares like\nfor like: an install tracking releases is measured against the newest tag, one\ntracking a branch against the commit that branch points at now. An install\npinned with <code>--ref</code> reports as pinned rather than as behind. Where the\nmanifest predates fxcss recording which of those applied, it says so instead\nof guessing — \"up to date\" is never printed unless it was actually checked.</p>\n<p>The same reservation covers local edits: installs from before 0.16 recorded no\nfile hashes, so <code>fxcss profiles</code> reports them as <em>not checked for edits</em>\nrather than as unmodified. Reinstalling records them.</p>\n",
+      "codes": [
+        "fxcss profiles                       # what is themed where\nfxcss profiles --check               # …and whether anything newer exists\nfxcss profiles --json                # machine-readable",
+        "$ fxcss profiles --check\n\n  Firefox profiles on this machine\n\n  ● default-release          [Release]\n    ~/Library/Application Support/Firefox/Profiles/8f2h1kqp.default-release\n    theme    AdamXweb/WhiteSurFirefoxThemeMacOS @ v1.0.0\n             installed 2026-08-14 09:12:44  (tracking the release)\n    sheets   theme-nord\n    files    137 file(s), 1 edited since install, 1 added by hand\n    update   v2.0.0 available  — 2026-08-16\n\n    dev-edition-default      [Developer Edition]\n    ~/Library/Application Support/Firefox/Profiles/p93kd0zx.dev-edition-default\n    chrome/  41 file(s), not installed by fxcss\n             `fxcss install` here would back this up first\n\n  ● the profile Firefox opens by default"
+      ],
+      "headings": [],
+      "sourceAnchor": "fxcss-profiles"
+    },
+    {
+      "slug": "upgrade",
+      "title": "fxcss upgrade",
+      "chapter": "Using and managing themes",
+      "group": "command",
+      "description": "upgrade updates the installed theme, not Firefox itself. It re-installs the theme the profile already has, at whatever is newest of the kind it tracks: an install that took a release moves t",
+      "html": "<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>fxcss upgrade                        # take the newest version of what you have\nfxcss upgrade --check                # report only; exit code says what it found\nfxcss upgrade --audit                # check the new version against your Firefox first\nfxcss upgrade --compare              # see it before deciding: installed vs new, rendered\nfxcss upgrade --ref v2.1.0           # somewhere specific\nfxcss rollback                       # …and back again</code></pre></div><p><code>upgrade</code> updates the installed theme, not Firefox itself. It re-installs the theme the profile already has, at whatever is newest\n<em>of the kind it tracks</em>: an install that took a release moves to the newest\ntag, one that followed a branch moves to that branch's current commit, and one\npinned with <code>--ref</code> does not move at all unless you say so.</p>\n<p>It stops rather than surprise you, in three places:</p>\n<ul>\n<li><strong>Files you edited yourself.</strong> Every install records a sha256 per file, so\nan upgrade knows which ones you have since changed and refuses to write over\nthem until <code>--force</code>. Files you <em>added</em> are never touched either way.</li>\n<li><strong>Options that vanished.</strong> If you installed <code>--with theme-nord</code> and the new\nversion renamed or dropped that sheet, the <code>@import</code> would simply stop\nresolving and the option would turn itself off. <code>upgrade</code> names the loss and\nmakes you choose instead.</li>\n<li><strong>Selectors the new version needs and your Firefox lacks</strong> — with <code>--audit</code>,\nwhich runs the same check as <a href=\"/docs/audit\"><code>fxcss audit</code></a> against the\nfetched copy <em>before</em> anything is installed.</li>\n</ul>\n<p><code>--compare</code> renders what is installed and what the upgrade would install —\nthe profile's own <code>chrome/</code>, local edits and carried-over sheets included, not\na re-fetch of what the manifest says — and diffs them before the confirmation\nprompt, printing where the before/after images landed. It completes the three\nquestions an upgrade can answer about a theme with no API: do the selectors\nstill exist (<code>--audit</code>), has the user edited anything (always checked), and\nwhat actually changes on screen (<code>--compare</code>). Needs Pillow and a local\nFirefox, like <code>shot</code>.</p>\n<p><code>--check</code> changes nothing and answers with its exit code, for cron, launchd or\nCI: <strong>0</strong> up to date, <strong>1</strong> an upgrade is available, <strong>2</strong> it cannot be told\n(no install here, an unreachable repo, or a manifest too old to say what it\ntracked). fxcss deliberately ships no scheduler of its own — this is the piece\nyou point yours at.</p>\n<div class=\"doc-code\"><div class=\"doc-code-header\"><span>console</span><button type=\"button\" data-copy-index=\"1\" aria-label=\"Copy code example 2\">Copy</button></div><pre><code>$ fxcss upgrade\n\n  profile: default-release  (~/Library/…/8f2h1kqp.default-release)\n  installed: AdamXweb/WhiteSurFirefoxThemeMacOS @ v1.6.3\n  upstream:  v2.0.0  — 2026-08-16\n\n  fetching v2.0.0 …\n  keeping optional sheets: theme-nord\n\n  Upgrade to v2.0.0? [Y/n]\n\n  upgraded to v2.0.0\n  the previous version is kept as chrome.backup-20260817014202\n\n  Restart Firefox to see it. `fxcss rollback` puts the previous version back.</code></pre></div>",
+      "codes": [
+        "fxcss upgrade                        # take the newest version of what you have\nfxcss upgrade --check                # report only; exit code says what it found\nfxcss upgrade --audit                # check the new version against your Firefox first\nfxcss upgrade --compare              # see it before deciding: installed vs new, rendered\nfxcss upgrade --ref v2.1.0           # somewhere specific\nfxcss rollback                       # …and back again",
+        "$ fxcss upgrade\n\n  profile: default-release  (~/Library/…/8f2h1kqp.default-release)\n  installed: AdamXweb/WhiteSurFirefoxThemeMacOS @ v1.6.3\n  upstream:  v2.0.0  — 2026-08-16\n\n  fetching v2.0.0 …\n  keeping optional sheets: theme-nord\n\n  Upgrade to v2.0.0? [Y/n]\n\n  upgraded to v2.0.0\n  the previous version is kept as chrome.backup-20260817014202\n\n  Restart Firefox to see it. `fxcss rollback` puts the previous version back."
+      ],
+      "headings": [],
+      "sourceAnchor": "fxcss-upgrade"
+    },
+    {
+      "slug": "rollback",
+      "title": "fxcss rollback",
+      "chapter": "Using and managing themes",
+      "group": "command",
+      "description": "Restore the newest backup, or choose one by name: Installs and upgrades that replace an existing chrome/ keep it as a chrome.backup-. Managed backups include the installation record, so the ",
+      "html": "<p>Restore the newest backup, or choose one by name:</p>\n<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>fxcss rollback\nfxcss rollback --list\nfxcss rollback --to chrome.backup-20260817014202</code></pre></div><p>Installs and upgrades that replace an existing <code>chrome/</code> keep it as a\n<code>chrome.backup-*</code>. Managed backups include the installation record, so the\nlist can show what each one holds:</p>\n<div class=\"doc-code\"><div class=\"doc-code-header\"><span>console</span><button type=\"button\" data-copy-index=\"1\" aria-label=\"Copy code example 2\">Copy</button></div><pre><code>$ fxcss rollback --list\n\n  Backups, newest first:\n\n    chrome.backup-20260817014202\n      AdamXweb/WhiteSurFirefoxThemeMacOS@v1.6.3\n    chrome.backup-20260817014143  (the original)\n      your own chrome/, from before fxcss</code></pre></div><p><code>fxcss rollback</code> restores the most recent, or <code>--to &lt;name&gt;</code> any of them.\nWhat was installed becomes a backup in its turn, so a rollback can itself be\nrolled back, and <code>user.js</code> follows: each version records the prefs it asked\nfor, and rolling back to the original — the one backup with no manifest in it,\nbecause it is <em>your</em> chrome folder from before any of this — takes the fxcss\npref block out with it.</p>\n<p>That original is the reason upgrades chain rather than stack blindly. After\nfive upgrades the newest backup holds <em>the theme</em>, not your files, so the\nmanifest carries the original's name forward and <code>fxcss uninstall</code> still\nrestores what you had before you ever ran fxcss. <code>--keep N</code> (default 3) prunes\nolder backups; the original is never one of them.</p>\n",
+      "codes": [
+        "fxcss rollback\nfxcss rollback --list\nfxcss rollback --to chrome.backup-20260817014202",
+        "$ fxcss rollback --list\n\n  Backups, newest first:\n\n    chrome.backup-20260817014202\n      AdamXweb/WhiteSurFirefoxThemeMacOS@v1.6.3\n    chrome.backup-20260817014143  (the original)\n      your own chrome/, from before fxcss"
+      ],
+      "headings": [],
+      "sourceAnchor": "fxcss-rollback"
+    },
+    {
+      "slug": "uninstall",
+      "title": "fxcss uninstall",
+      "chapter": "Using and managing themes",
+      "group": "command",
+      "description": "Removes the managed theme and its user.js preference block. Recorded files are removed only when their hashes still match; added, edited, unreadable or unverifiable files are kept. If nothin",
+      "html": "<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>fxcss uninstall\nfxcss uninstall --profile default-release</code></pre></div><p>Removes the managed theme and its <code>user.js</code> preference block. Recorded files\nare removed only when their hashes still match; added, edited, unreadable or\nunverifiable files are kept. If nothing needs to be retained, the original\n<code>chrome/</code> backup is restored. Otherwise the backup stays alongside the retained\nfiles so it cannot overwrite your work.</p>\n<p>If the profile originally had no <code>chrome/</code>, uninstalling after an upgrade\nreturns it to that state when no files need to be kept. Restart Firefox to see\nthe result.</p>\n",
+      "codes": [
+        "fxcss uninstall\nfxcss uninstall --profile default-release"
+      ],
+      "headings": [],
+      "sourceAnchor": "fxcss-uninstall"
+    },
+    {
+      "slug": "building-and-inspecting-themes",
+      "title": "Building and inspecting themes",
+      "chapter": "Building and inspecting themes",
+      "group": "guide",
+      "description": "Work on Firefox's tabs, toolbars and other browser UI with a live preview. Use the picker to find an element, then inspect the rules behind it. All of these browser sessions use disposable p",
+      "html": "<p>Work on Firefox's tabs, toolbars and other browser UI with a live preview.\nUse the picker to find an element, then inspect the rules behind it. All of\nthese browser sessions use disposable profiles.</p>\n",
+      "codes": [],
+      "headings": [],
+      "sourceAnchor": "building-and-inspecting-themes"
+    },
+    {
+      "slug": "new",
+      "title": "fxcss new",
+      "chapter": "Building and inspecting themes",
+      "group": "command",
+      "description": "Creates a small working theme you can edit immediately. Save changes to chrome/userChrome.css while watch is running to see them in Firefox. Stop with Ctrl-C when you want to run another com",
+      "html": "<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>fxcss new my-theme\ncd my-theme\nfxcss watch</code></pre></div><p>Creates a small working theme you can edit immediately. Save changes to\n<code>chrome/userChrome.css</code> while <code>watch</code> is running to see them in Firefox. Stop\nwith Ctrl-C when you want to run another command. The starter is also used by\nfxcss's own browser tests; an existing non-empty directory is left alone.</p>\n",
+      "codes": [
+        "fxcss new my-theme\ncd my-theme\nfxcss watch"
+      ],
+      "headings": [],
+      "sourceAnchor": "fxcss-new"
+    },
+    {
+      "slug": "watch",
+      "title": "fxcss watch",
+      "chapter": "Building and inspecting themes",
+      "group": "command",
+      "description": "Opens Firefox with your theme applied and watches chrome/ and custom/. Save a CSS file in your editor and the running window reloads it automatically. The window is yours to drive — open men",
+      "html": "<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>fxcss watch</code></pre></div><p>Opens Firefox with your theme applied and watches <code>chrome/</code> and <code>custom/</code>. Save\na CSS file in your editor and the running window reloads it automatically.</p>\n<p>The window is yours to drive — open menus, resize it, type in the address bar,\nright-click things. Nothing is scripted.</p>\n<p>Reloads reach every chrome document, not just the browser window: new windows,\nand separate documents like the window-modal dialog (the quit prompt), pick up\nyour edits too — the same reach an installed <code>userChrome.css</code> has.</p>\n<p></p><p><a href=\"/docs/watch#captured-browser\">See light and dark captures of the starter theme</a>.</p><p></p>\n<table class=\"doc-table\">\n<thead>\n<tr>\n<th>flag</th>\n<th>effect</th>\n</tr>\n</thead>\n<tbody><tr>\n<td><code>--dark</code></td>\n<td>start in dark mode, for testing <code>prefers-color-scheme</code> rules</td>\n</tr>\n<tr>\n<td><code>--native-menus=false</code></td>\n<td>make right-click menus themeable (see <a href=\"/docs/context-menus-are-native-on-macos\">Context menus</a>)</td>\n</tr>\n<tr>\n<td><code>--shot out.png</code></td>\n<td>write a screenshot after every reload</td>\n</tr>\n<tr>\n<td><code>--no-devtools</code></td>\n<td>don't enable the Browser Toolbox</td>\n</tr>\n</tbody></table>\n",
+      "codes": [
+        "fxcss watch"
+      ],
+      "headings": [],
+      "sourceAnchor": "fxcss-watch"
+    },
+    {
+      "slug": "pick",
+      "title": "fxcss pick",
+      "chapter": "Building and inspecting themes",
+      "group": "command",
+      "description": "The answer to \"what is this thing called?\" Move the mouse over the browser window and the element under the cursor is outlined, with its selector shown in a label: The picker outlining the a",
+      "html": "<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>fxcss pick</code></pre></div><p><strong>The answer to \"what is this thing called?\"</strong> Move the mouse over the browser\nwindow and the element under the cursor is outlined, with its selector shown in\na label:</p>\n<p></p><figure class=\"doc-figure\"><a href=\"/catalogue/light/urlbar.png\" target=\"_blank\" rel=\"noreferrer\"><img src=\"/catalogue/light/urlbar.png\" alt=\"Address bar captured by the fxcss catalogue, corresponding to the #urlbar selector\" loading=\"lazy\" decoding=\"async\" /></a><figcaption>Fresh capture from the bundled starter theme. <a href=\"/docs/screenshot-evidence\">Capture details</a>.</figcaption></figure><p></p>\n<p>Click it and your terminal prints everything you need:</p>\n<div class=\"doc-code\"><div class=\"doc-code-header\"><span>example</span><button type=\"button\" data-copy-index=\"1\" aria-label=\"Copy code example 2\">Copy</button></div><pre><code>  toolbarbutton  →  #back-button\n  classes   toolbarbutton-1 chromeclass-toolbar-additional\n  box       32×36 at (88, 8)\n  styles\n    color: rgba(46, 52, 54, 0.35)\n    border-radius: 8px\n    list-style-image: url(\"chrome://browser/skin/back.svg\")\n  styled by 11 rules in this theme\n    chrome/parts/buttons-fixes.css:5    :root:not([uidensity=compact]) #back-button {\n    chrome/parts/custom-icons.css:6     #nav-bar #back-button .toolbarbutton-icon {\n    chrome/parts/headerbar.css:76       #nav-bar #back-button:not(#hack) {</code></pre></div><p>That last section is the useful part: not just what the element is, but which of\nyour files already style it, with line numbers. Keep clicking to pick more; Esc\nin the browser or Ctrl-C in the terminal stops.</p>\n",
+      "codes": [
+        "fxcss pick",
+        "  toolbarbutton  →  #back-button\n  classes   toolbarbutton-1 chromeclass-toolbar-additional\n  box       32×36 at (88, 8)\n  styles\n    color: rgba(46, 52, 54, 0.35)\n    border-radius: 8px\n    list-style-image: url(\"chrome://browser/skin/back.svg\")\n  styled by 11 rules in this theme\n    chrome/parts/buttons-fixes.css:5    :root:not([uidensity=compact]) #back-button {\n    chrome/parts/custom-icons.css:6     #nav-bar #back-button .toolbarbutton-icon {\n    chrome/parts/headerbar.css:76       #nav-bar #back-button:not(#hack) {"
+      ],
+      "headings": [],
+      "sourceAnchor": "fxcss-pick"
+    },
+    {
+      "slug": "inspect",
+      "title": "fxcss inspect",
+      "chapter": "Building and inspecting themes",
+      "group": "command",
+      "description": "The same report, for a selector you already have. Useful for checking whether a selector still matches anything after a Firefox update — a common cause of themes quietly breaking. If it matc",
+      "html": "<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>fxcss inspect '#urlbar'\nfxcss inspect '.tab-close-button' --dark</code></pre></div><p>The same report, for a selector you already have. Useful for checking whether a\nselector still matches anything after a Firefox update — a common cause of\nthemes quietly breaking.</p>\n<p>If it matches nothing, it says so:</p>\n<div class=\"doc-code\"><div class=\"doc-code-header\"><span>example</span><button type=\"button\" data-copy-index=\"1\" aria-label=\"Copy code example 2\">Copy</button></div><pre><code>$ fxcss inspect '#urlbar-background'\nno elements match '#urlbar-background' in this Firefox</code></pre></div><p>That is a real example, not a contrived one: this repo's own example theme\nstyled <code>#urlbar-background</code> by id, which many older themes still do. The id was\nreplaced by a class, so the rule silently did nothing and the address bar\nrendered unstyled. One command found it; the fix was <code>.urlbar-background</code>.</p>\n",
+      "codes": [
+        "fxcss inspect '#urlbar'\nfxcss inspect '.tab-close-button' --dark",
+        "$ fxcss inspect '#urlbar-background'\nno elements match '#urlbar-background' in this Firefox"
+      ],
+      "headings": [],
+      "sourceAnchor": "fxcss-inspect"
+    },
+    {
+      "slug": "inspecting-the-ui-with-devtools",
+      "title": "Inspecting the UI with devtools",
+      "chapter": "Building and inspecting themes",
+      "group": "guide",
+      "description": "Firefox's normal inspector only sees page content. The Browser Toolbox is the version that can inspect the browser's own UI, and it's off by default behind four prefs. fxcss turns them on in",
+      "html": "<p>Firefox's normal inspector only sees page content. The <strong>Browser Toolbox</strong> is\nthe version that can inspect the browser's own UI, and it's off by default\nbehind four prefs. fxcss turns them on in its throwaway profile, so in <code>watch</code>\nand <code>pick</code> you can just press:</p>\n<ul>\n<li><strong>macOS</strong> — <code>Cmd+Opt+Shift+I</code></li>\n<li><strong>Windows / Linux</strong> — <code>Ctrl+Alt+Shift+I</code></li>\n</ul>\n<p>You get a full inspector over the browser chrome: hover to highlight, read\ncomputed styles, and live-edit rules to try things before committing them to\nyour CSS. <code>fxcss pick</code> is the fast path for \"what is this called\"; the Browser\nToolbox is the thorough one for \"why is this rule not winning\".</p>\n",
+      "codes": [],
+      "headings": [],
+      "sourceAnchor": "inspecting-the-ui-with-devtools"
+    },
+    {
+      "slug": "testing-appearance",
+      "title": "Testing appearance",
+      "chapter": "Testing appearance",
+      "group": "guide",
+      "description": "Use fxcss check for an audit, screenshots and a combined report. Use shot and compare separately when you want to control each step. Capture the same browser states before and after a theme ",
+      "html": "<p>Use <a href=\"/docs/check\"><code>fxcss check</code></a> for an audit, screenshots and a combined\nreport. Use <code>shot</code> and <code>compare</code> separately when you want to control each step.</p>\n<p>Capture the same browser states before and after a theme change, then inspect\nwhat moved or changed colour:</p>\n<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>fxcss shot --out shots/before --variants all\n# Edit your theme, then capture it again.\nfxcss shot --out shots/after --variants all\nfxcss compare --base shots/before --head shots/after --out diff/</code></pre></div><p>Keep the Firefox build, operating system and capture settings the same when\nreviewing a CSS change. For a Firefox update, keep the theme unchanged and\ncapture each browser build with <code>--firefox</code>.</p>\n",
+      "codes": [
+        "fxcss shot --out shots/before --variants all\n# Edit your theme, then capture it again.\nfxcss shot --out shots/after --variants all\nfxcss compare --base shots/before --head shots/after --out diff/"
+      ],
+      "headings": [],
+      "sourceAnchor": "testing-appearance"
+    },
+    {
+      "slug": "check",
+      "title": "fxcss check",
+      "chapter": "Testing appearance",
+      "group": "command",
+      "description": "Runs a compatibility audit and captures the theme in a disposable Firefox profile. It writes a Markdown report, a machine-readable summary.json, logs and screenshots into a fresh run folder ",
+      "html": "<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>fxcss check</code></pre></div><p>Runs a compatibility audit and captures the theme in a disposable Firefox\nprofile. It writes a Markdown report, a machine-readable <code>summary.json</code>, logs\nand screenshots into a fresh run folder under <code>.fxcss/checks/</code>. Without a\nconfiguration file, it uses installed Stable, captures all optional\nstylesheets and fails on actionable selector findings. Visual comparison is\nenabled when you supply a baseline.</p>\n<p>The terminal shows the current phase and each accounted-for view, including\nviews Firefox explicitly does not support, while the full details stay in the\nrun logs. The report links directly to each captured screenshot and distinguishes\na check with no visual baseline from one with advisory image changes. When\ncomparing captures, it shows the baseline and current Firefox environments so\nyou can spot version, OS, display-scale or window-size differences. If you\ninterrupt a run, <code>check</code> still writes a report pointing to completed captures;\nviews left unfinished are marked separately from failures. Rerun the\ncommand to finish. If interruption occurs during a baseline update, inspect\nthe baseline directory before running another update.</p>\n<p>Save settings in <code>.fxcss.json</code> at the theme's root to use the same checks\nlocally and in CI:</p>\n<div class=\"doc-code\"><div class=\"doc-code-header\"><span>json</span><button type=\"button\" data-copy-index=\"1\" aria-label=\"Copy code example 2\">Copy</button></div><pre><code>{\n  \"firefox\": [\"stable\"],\n  \"variants\": \"all\",\n  \"baseline\": \".fxcss/baseline\",\n  \"out\": \".fxcss/checks\",\n  \"strict\": true,\n  \"strict_vars\": false,\n  \"max_changed_percent\": 0.1\n}</code></pre></div><p>Create a baseline explicitly, then compare later runs against it:</p>\n<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"2\" aria-label=\"Copy code example 3\">Copy</button></div><pre><code>fxcss check --update-baseline\n# Edit the theme, then review the combined report.\nfxcss check</code></pre></div><p><code>--update-baseline</code> accepts new captures only when every configured browser's\naudit and capture succeed under your settings. It skips comparison with the\nold baseline during that run. Existing baselines are preserved on a failed\ncheck; normal runs never replace them. Review the new captures when accepting\na baseline. Existing directories not created by <code>check</code> are not replaced.\nEvery standard view and selected option must be accounted for in\n<code>capture-coverage.json</code>: captured, explicitly unsupported, or failed. A missing\nview or failed browser state prevents baseline updates, even on the first run.\nBaselines made before coverage reports were added must be captured again.</p>\n<p>Add installed channels such as <code>\"beta\"</code> or <code>\"nightly\"</code> to the browser list;\neach gets a separate baseline. Missing browsers are reported as errors while\nthe remaining browsers are still checked. Keep baselines for different\noperating systems separate. <code>--firefox beta</code> overrides the list for one run.</p>\n<table class=\"doc-table\">\n<thead>\n<tr>\n<th>Setting or option</th>\n<th>Behavior</th>\n</tr>\n</thead>\n<tbody><tr>\n<td><code>strict</code> / <code>--strict</code></td>\n<td>Fail on actionable selector findings; <code>--no-strict</code> makes them advisory.</td>\n</tr>\n<tr>\n<td><code>strict_vars</code> / <code>--strict-vars</code></td>\n<td>Also fail on dead custom properties; deliberate <code>fxcss-keep</code> overrides remain exempt.</td>\n</tr>\n<tr>\n<td><code>max_changed_percent</code> / <code>--max-changed-percent</code></td>\n<td>Fail when any view exceeds this percentage, or a new view has no baseline. Set the saved value to <code>null</code> for advisory pixel differences. Missing baseline views always need attention.</td>\n</tr>\n<tr>\n<td><code>variants</code> / <code>--variants</code></td>\n<td>Capture <code>all</code>, named stylesheets or combinations such as <code>compact+dark</code>. Set the saved value to <code>null</code> to capture the base theme only.</td>\n</tr>\n<tr>\n<td><code>toolbar</code> / <code>--toolbar</code></td>\n<td>Apply a toolbar arrangement to the toolbar capture.</td>\n</tr>\n<tr>\n<td><code>baseline</code>, <code>out</code></td>\n<td>Paths relative to the theme root; absolute paths also work. <code>baseline: null</code> runs audits and captures without visual comparison.</td>\n</tr>\n<tr>\n<td><code>--config FILE</code></td>\n<td>Read a different JSON settings file. Command-line options override saved values.</td>\n</tr>\n</tbody></table>\n<p>Exit codes are <strong>0</strong> for completed checks within the configured policy,\n<strong>1</strong> for findings, and <strong>2</strong> for interruption or configuration, browser,\ncapture or comparison errors. A configured baseline that is missing is an\nerror, not an unchanged result. Invalid settings fail before Firefox is started.</p>\n<p>For a custom GitHub workflow with Firefox and a display already available,\nrun <code>fxcss check</code> and upload <code>.fxcss/checks/</code> even when the check fails. Keep the\nbaseline available in the checkout or download it before checking; update it\nexplicitly when accepting a theme change. Use <code>--firefox \"$FIREFOX_BIN\"</code> when a\nrunner installs Firefox outside the usual locations. Add generated check reports to your\ntheme repository's <code>.gitignore</code> if you do not intend to commit them.</p>\n",
+      "codes": [
+        "fxcss check",
+        "{\n  \"firefox\": [\"stable\"],\n  \"variants\": \"all\",\n  \"baseline\": \".fxcss/baseline\",\n  \"out\": \".fxcss/checks\",\n  \"strict\": true,\n  \"strict_vars\": false,\n  \"max_changed_percent\": 0.1\n}",
+        "fxcss check --update-baseline\n# Edit the theme, then review the combined report.\nfxcss check"
+      ],
+      "headings": [],
+      "sourceAnchor": "fxcss-check"
+    },
+    {
+      "slug": "shot",
+      "title": "fxcss shot",
+      "chapter": "Testing appearance",
+      "group": "command",
+      "description": "Captures the standard set of views as PNGs: browser window, focused address bar, find bar and the window-modal dialog in light and dark, then playing and muted audio tab indicators, containe",
+      "html": "<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>fxcss shot --out shots/before</code></pre></div><p>Captures the standard set of views as PNGs: browser window, focused address bar,\nfind bar and the window-modal dialog in light and dark, then playing and muted\naudio tab indicators, container tabs, an overflowing tab strip, a private window,\ncompact density, the sidebar, right-to-left chrome, and customize mode.</p>\n<p>Audio views set Firefox's playing and muted tab attributes directly. They test\nthe appearance of those indicators without requiring a sound device or playing\na tone. CI also verifies that CSS targeting each state changes its screenshot.</p>\n<p>The dialog view is the quit-confirmation prompt (commonDialog), opened for\nreal. It is its own chrome document, painted from different rules than the\nwindow around it, which is why themes break it without noticing — a dark theme\nwhose dialog body renders white shows up here and nowhere else.</p>\n<p>The captures land <strong>flat</strong> in <code>--out</code>, one file per view (<code>shots/before/light-01-window.png</code>);\n<code>--url</code> captures go to <code>&lt;out&gt;/live/</code>. This is the directory to publish from if\nyou want plain screenshots — <code>fxcss compare</code> writes a different shape, below.</p>\n<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"1\" aria-label=\"Copy code example 2\">Copy</button></div><pre><code>fxcss shot --out shots --variants all</code></pre></div><p><code>--variants</code> additionally captures one view per optional stylesheet the theme\nships (<code>custom/</code>, <code>optional/</code>, <code>variants/</code>…), each loaded on its own and removed\nagain — so <code>tabs-swapclose</code> or <code>compact-tabs</code> are checked by CI without a\nseparate install. Name specific ones (<code>--variants a,b</code>) or take them all.</p>\n<h2 id=\"browser-states-it-captures\">Browser states it captures</h2><p><code>fxcss shot</code> renders a standard set of views, so a change is judged against the\nstates people actually use rather than one idle window: light and dark, the\nfocused address bar, find bar, modal dialog, audio and muted tabs, container\ntabs, an overflowing tab strip, a private window, compact density,\nright-to-left chrome, Customize\nmode — and three that a theme is most likely to have never been tested in:</p>\n<ul>\n<li><strong>Sidebar — bookmarks and history.</strong> Both panels, with their trees expanded,\nbecause a fresh profile shows them collapsed and a collapsed panel has almost\nnothing in it to style.</li>\n<li><strong>Vertical tabs.</strong> Firefox 133+ does not restyle the tab strip here, it\n<em>moves</em> it: <code>#tabbrowser-tabs</code> leaves <code>#TabsToolbar</code> for <code>#vertical-tabs</code>, so\nevery <code>#TabsToolbar &gt; …</code> rule a theme owns silently stops matching while its\nunscoped <code>.tabbrowser-tab</code> rules keep applying horizontal geometry to a\nvertical column. Older builds without vertical tabs skip the view.</li>\n<li><strong>Customised toolbar.</strong> The nav bar with widgets moved into it — by default\nincluding the new tab button, which is the rearrangement plenty of theme\nREADMEs ask users to make by hand and which nothing could test until now.</li>\n</ul>\n<p>Set your own arrangement with <code>--toolbar</code>, on <code>shot</code>, <code>watch</code> or <code>try</code>:</p>\n<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"2\" aria-label=\"Copy code example 3\">Copy</button></div><pre><code>fxcss watch --toolbar \"new-tab-button&gt;nav-bar, -downloads-button\"\nfxcss shot  --toolbar \"home-button&gt;nav-bar@0\" --out shots/</code></pre></div><p><code>widget&gt;area</code> moves a widget (optionally <code>@position</code>), <code>-widget</code> removes one.\nAreas are <code>nav-bar</code>, <code>TabsToolbar</code>, <code>PersonalToolbar</code>, <code>vertical-tabs</code>,\n<code>unified-extensions-area</code>. A widget id Firefox does not recognise is reported\nrather than ignored — Firefox itself accepts any string and then quietly\nrenders nothing.</p>\n<p>Some states depend on the Firefox build; unavailable states are reported and\nskipped rather than treated as captured.</p>\n",
+      "codes": [
+        "fxcss shot --out shots/before",
+        "fxcss shot --out shots --variants all",
+        "fxcss watch --toolbar \"new-tab-button>nav-bar, -downloads-button\"\nfxcss shot  --toolbar \"home-button>nav-bar@0\" --out shots/"
+      ],
+      "headings": [
+        {
+          "id": "browser-states-it-captures",
+          "text": "Browser states it captures"
+        }
+      ],
+      "sourceAnchor": "fxcss-shot"
+    },
+    {
+      "slug": "compare",
+      "title": "fxcss compare",
+      "chapter": "Testing appearance",
+      "group": "command",
+      "description": "Diffs two sets and writes one stacked before / after / changed-pixels image per view that differs. Views that render identically are reported rather than pictured, so you only look at what a",
+      "html": "<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>fxcss compare --base shots/before --head shots/after --out diff/</code></pre></div><p>Diffs two sets and writes one stacked <strong>before / after / changed-pixels</strong> image\nper view that differs. Views that render identically are reported rather than\npictured, so you only look at what actually changed.</p>\n<p><code>--out</code> therefore holds comparison images for changed views only, plus a\n<code>summary.json</code> and a <code>full/</code> directory carrying a normalised copy of <em>every</em>\nhead capture, changed or not. So <code>&lt;out&gt;/full/</code> is what a preview comment shows\nwhen nothing differs — and <code>shot</code>'s own <code>--out</code> (flat, no <code>full/</code>) is what to\nread when you just want the screenshots.</p>\n<p></p><p><a href=\"/#demo\">Explore the verified before/after comparison</a>.</p><p></p>\n<p>This is what makes it useful in CI: render your theme at the base commit and at\na pull request, and the diff shows a reviewer exactly what the change does. See\n<a href=\"/docs/using-it-in-ci\">Using it in CI</a>.</p>\n<p>A successful comparison reports differences; changed pixels alone do not make\n<code>compare</code> fail. Review the images to decide whether a change is intended. If\nyour project needs a pass/fail threshold, use <code>fxcss check</code> or a custom check\nusing <code>summary.json</code>. Added and missing views are reported as changes. Missing,\nempty or unreadable screenshot inputs return an error. Reusing an output\ndirectory clears the previous report's generated images so stale comparisons\ndo not survive into a new result.</p>\n",
+      "codes": [
+        "fxcss compare --base shots/before --head shots/after --out diff/"
+      ],
+      "headings": [],
+      "sourceAnchor": "fxcss-compare"
+    },
+    {
+      "slug": "tracking-firefox-compatibility",
+      "title": "Tracking Firefox compatibility",
+      "chapter": "Tracking Firefox compatibility",
+      "group": "guide",
+      "description": "Firefox changes can leave a theme partly unstyled even when its CSS still loads. These tools help you inspect the browser you have and prepare for the builds your users will get next. | Tool",
+      "html": "<p>Firefox changes can leave a theme partly unstyled even when its CSS still\nloads. These tools help you inspect the browser you have and prepare for the\nbuilds your users will get next.</p>\n<table class=\"doc-table\">\n<thead>\n<tr>\n<th>Tool</th>\n<th>What it tells you</th>\n</tr>\n</thead>\n<tbody><tr>\n<td><code>snapshot</code></td>\n<td>Which browser UI IDs and classes were observed in a Firefox build; saves a JSON baseline.</td>\n</tr>\n<tr>\n<td><code>changelog</code></td>\n<td>Which names changed between that baseline and another build, and which removals the theme uses.</td>\n</tr>\n<tr>\n<td><code>audit</code></td>\n<td>Which selectors and custom properties need attention in the selected Firefox, with suggested fixes.</td>\n</tr>\n</tbody></table>\n<p>A snapshot records structure; <code>shot</code> records appearance. Neither is a profile\nbackup. Use audits and visual comparisons together: a selector can still\nexist while its layout looks wrong.</p>\n",
+      "codes": [],
+      "headings": [],
+      "sourceAnchor": "tracking-firefox-compatibility"
+    },
+    {
+      "slug": "testing-against-nightly-developer-edition-esr-or-a-fork",
+      "title": "Testing against Nightly, Developer Edition, ESR — or a fork",
+      "chapter": "Tracking Firefox compatibility",
+      "group": "guide",
+      "description": "Every command that opens a browser takes a channel name as well as a path: Recognised names: stable, beta, dev, nightly, esr, and the Gecko forks theme users actually run — librewolf, floorp",
+      "html": "<p>Every command that opens a browser takes a channel name as well as a path:</p>\n<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>fxcss watch --firefox nightly\nfxcss audit --firefox dev          # what will break before it ships\nfxcss shot  --firefox esr --out shots/esr</code></pre></div><p>Recognised names: <code>stable</code>, <code>beta</code>, <code>dev</code>, <code>nightly</code>, <code>esr</code>, and the Gecko\nforks theme users actually run — <code>librewolf</code>, <code>floorp</code>, <code>waterfox</code>, <code>zen</code>.\nThey resolve against what is installed in the usual places; a build kept\nsomewhere unusual can be added with <code>FXCSS_FIREFOX_ROOTS=/path/to/dir</code>.</p>\n<p>With <strong>several builds installed and no <code>--firefox</code> given</strong>, interactive\ncommands show a picker — press Enter for stable, or a number for another\nbuild. CI and scripts are never prompted: non-interactive runs keep the old\nbehaviour exactly.</p>\n<p>These names select browsers already installed on your machine. The local\ncommands do not install or update Firefox.</p>\n",
+      "codes": [
+        "fxcss watch --firefox nightly\nfxcss audit --firefox dev          # what will break before it ships\nfxcss shot  --firefox esr --out shots/esr"
+      ],
+      "headings": [],
+      "sourceAnchor": "testing-against-nightly-developer-edition-esr-or-a-fork"
+    },
+    {
+      "slug": "snapshot",
+      "title": "fxcss snapshot",
+      "chapter": "Tracking Firefox compatibility",
+      "group": "command",
+      "description": "Saves the UI IDs and classes observed in the collected browser states, along with the Firefox version, build ID and operating system. Keep this JSON file with your theme to compare later, wi",
+      "html": "<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>fxcss snapshot --firefox stable --out .fxcss/firefox-baseline.json</code></pre></div><p>Saves the UI IDs and classes observed in the collected browser states, along\nwith the Firefox version, build ID and operating system. Keep this JSON file\nwith your theme to compare later, without keeping the old browser installed:</p>\n<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"1\" aria-label=\"Copy code example 2\">Copy</button></div><pre><code>fxcss changelog --baseline .fxcss/firefox-baseline.json --firefox beta</code></pre></div><p>The snapshot covers the states fxcss collected; it is not a full DOM archive\nor a guarantee that every Firefox UI element was observed.</p>\n",
+      "codes": [
+        "fxcss snapshot --firefox stable --out .fxcss/firefox-baseline.json",
+        "fxcss changelog --baseline .fxcss/firefox-baseline.json --firefox beta"
+      ],
+      "headings": [],
+      "sourceAnchor": "fxcss-snapshot"
+    },
+    {
+      "slug": "changelog",
+      "title": "fxcss changelog",
+      "chapter": "Tracking Firefox compatibility",
+      "group": "command",
+      "description": "What actually changed between two Firefox releases. Compares the chrome IDs and classes collected from both builds and tells you which of the removals your theme depends on: Point it at an E",
+      "html": "<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>fxcss changelog --against /path/to/old/firefox --firefox /path/to/new/firefox</code></pre></div><p><strong>What actually changed between two Firefox releases.</strong> Compares the chrome IDs\nand classes collected from both builds and tells you which of the removals your\ntheme depends on:</p>\n<div class=\"doc-code\"><div class=\"doc-code-header\"><span>example</span><button type=\"button\" data-copy-index=\"1\" aria-label=\"Copy code example 2\">Copy</button></div><pre><code>  Firefox 140.13.0 → 153.0.3\n    52 chrome names gone, 221 new\n\n  2 of them are used by this theme:\n    #urlbar-background          chrome/parts/headerbar-urlbar.css:52\n    #urlbar-go-button           chrome/parts/buttons-fixes.css:202</code></pre></div><p>Point it at an ESR build and current release to see what a year of Firefox did\nto your theme, or at a Beta to find out what is about to break before your users\ndo. <code>--show-all</code> lists every name that changed, not just the ones you use.</p>\n<p><code>--against</code> supplies the older baseline; <code>--firefox</code> supplies the newer target.\nUse <code>--baseline</code> with a <a href=\"/docs/snapshot\">saved snapshot</a> when the old build is\nno longer installed. Run <code>fxcss audit --firefox beta</code> to investigate findings\nagainst a selected channel.</p>\n",
+      "codes": [
+        "fxcss changelog --against /path/to/old/firefox --firefox /path/to/new/firefox",
+        "  Firefox 140.13.0 → 153.0.3\n    52 chrome names gone, 221 new\n\n  2 of them are used by this theme:\n    #urlbar-background          chrome/parts/headerbar-urlbar.css:52\n    #urlbar-go-button           chrome/parts/buttons-fixes.css:202"
+      ],
+      "headings": [],
+      "sourceAnchor": "fxcss-changelog"
+    },
+    {
+      "slug": "audit",
+      "title": "fxcss audit",
+      "chapter": "Tracking Firefox compatibility",
+      "group": "command",
+      "description": "Upgrading a theme after Firefox moved on. inspect answers the question one selector at a time; audit does the whole theme at once. It walks every id and class your CSS mentions, resolves eac",
+      "html": "<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>fxcss audit\nfxcss audit --patch fix.diff     # write the confident fixes as a patch\nfxcss audit --strict             # exit non-zero if a selector needs attention\nfxcss audit --strict-vars        # …or if a custom property override is dead</code></pre></div><p><strong>Upgrading a theme after Firefox moved on.</strong> <code>inspect</code> answers the question one\nselector at a time; <code>audit</code> does the whole theme at once. It walks every id and\nclass your CSS mentions, resolves each against a running Firefox, and shows what\nto change — with the real line from your file and the replacement applied:</p>\n<div class=\"doc-code\"><div class=\"doc-code-header\"><span>example</span><button type=\"button\" data-copy-index=\"1\" aria-label=\"Copy code example 2\">Copy</button></div><pre><code>  14 selectors need attention\n\n  RENAMED  #urlbar-background  →  .urlbar-background\n           same name, now a class rather than an id\n\n    chrome/parts/headerbar-urlbar.css:52\n    - #urlbar-background {\n    + .urlbar-background {\n\n  SIMILAR  #appMenu-fullscreen-button  →  #appMenu-fullscreen-button2  (a guess, not applied)\n           no exact match; closest live name is #appMenu-fullscreen-button2\n\n    chrome/parts/icons.css:198\n      #appMenu-fullscreen-button {</code></pre></div><p>These examples come from findings in a long-running theme. The\n<code>…-button2</code> pattern is how Firefox has been versioning app-menu controls, and it\nbreaks menu styling silently.</p>\n<p>Findings are grouped as follows:</p>\n<table class=\"doc-table\">\n<thead>\n<tr>\n<th></th>\n<th>meaning</th>\n</tr>\n</thead>\n<tbody><tr>\n<td><strong>RENAMED</strong></td>\n<td>The same name exists, but as a class instead of an id, or the reverse. The suggestion is exact.</td>\n</tr>\n<tr>\n<td><strong>SIMILAR</strong></td>\n<td>No exact counterpart, but a close name exists. Usually a Firefox suffix change, or a typo in your CSS.</td>\n</tr>\n<tr>\n<td><em>offscreen</em></td>\n<td>Not in any state the live audit produced, but present in the markup this Firefox ships — a dialog, another platform's chrome. Healthy, and the report says which file carries it.</td>\n</tr>\n<tr>\n<td><em>unresolved</em></td>\n<td>Nothing close. Listed separately with <code>--all</code> and <strong>not</strong> counted as a problem — normally an element that only appears in a state fxcss cannot reach, not one that was removed.</td>\n</tr>\n</tbody></table>\n<p>That last distinction is the point. Reporting every unmatched selector as broken\nwould be noise; a theme legitimately styles things that only exist in private\nwindows, on other platforms, or inside popups.</p>\n<p>Suggestions are inferred from the live browser, not from a hardcoded list of\nFirefox versions, so they keep working for releases that came out after this\ntool did.</p>\n<p><code>--patch</code> writes a unified diff of the <strong>RENAMED</strong> findings only — the ones where\nthe replacement is certain. If a replacement would repeat another selector in\nthe same rule, that occurrence is left out of the patch and the report asks\nyou to remove the redundant selector manually. Other safe occurrences are\nstill patched. Review the diff, then <code>git apply</code>. SIMILAR findings are\ndeliberately excluded: they are usually right, but \"usually\" is not good enough\nto rewrite your CSS unattended.</p>\n<h2 id=\"custom-properties-die-differently\">Custom properties die differently</h2><p>A selector that stops matching is only half of how a theme goes stale. The\nother half is a custom property Firefox stops <em>reading</em>: the override keeps\nparsing, keeps resolving, and paints nothing — <code>--in-content-page-background</code>\ndid exactly that, and a theme's dialog body silently rendered white under its\ndark palettes for months.</p>\n<p>When fxcss can find this Firefox's <code>omni.ja</code> archives (it can, for every\npackaged build), the audit reads the shipped chrome directly and separates\nthree cases a live probe cannot tell apart:</p>\n<ul>\n<li><strong>set and read by Firefox</strong> — a working override, counted quietly;</li>\n<li><strong>SET, NEVER READ</strong> — this Firefox still declares the name but no rule or\nscript consumes it any more, so the override changes nothing;</li>\n<li><strong>DEFINED ONLY</strong> — the shipped chrome neither declares nor reads the name,\nwith the closest consumed name suggested when there is one\n(<code>--panel-background</code> → <code>--panel-background-color</code>).</li>\n</ul>\n<p>Reading the shipped sources also covers documents the live audit cannot open —\ndialogs, DevTools, in-content pages — and replaces the second, unthemed\nFirefox launch the probe needed.</p>\n<p>A name you keep deliberately — for an ESR that still reads it, say — gets an\ninline pragma rather than a CI flag nobody finds later:</p>\n<div class=\"doc-code\"><div class=\"doc-code-header\"><span>css</span><button type=\"button\" data-copy-index=\"2\" aria-label=\"Copy code example 3\">Copy</button></div><pre><code>--in-content-page-background: var(--gnome-menu-background) !important; /* fxcss-keep: ESR 140 reads it */</code></pre></div><p><code>--strict-vars</code> turns dead and stale overrides into a non-zero exit for CI;\n<code>fxcss-keep</code> lines are exempt.</p>\n<h2 id=\"unused-and-unreachable-code\">Unused and unreachable code</h2><p><code>audit</code> also reports housekeeping, in its own section, separate from breakage:</p>\n<ul>\n<li><strong>Stylesheets nothing imports.</strong> Files under <code>chrome/</code> unreachable by\nfollowing <code>@import</code> from <code>userChrome.css</code>. Sheets in a <code>custom/</code> or\n<code>optional/</code> folder are excluded — being opt-in is the point of those.</li>\n<li><strong>Custom properties used but never set</strong>, where an unthemed Firefox does not\nprovide them either. These are usually typos: the <code>var()</code> silently falls back.</li>\n<li><strong>Custom properties set but read nowhere.</strong> Reported cautiously — setting\n<code>--arrowpanel-background</code> exists precisely so Firefox's own rules pick it up,\nso this section excludes every name an unthemed Firefox resolves.</li>\n</ul>\n<p>The audit reads Firefox's shipped sources where available. Otherwise it uses\na second, unthemed browser to distinguish theme-defined properties from those\nFirefox provides.</p>\n<p>Pass <code>--no-unused</code> to skip the section.</p>\n<p>Use <code>--strict</code> to fail on actionable selector findings and <code>--strict-vars</code>\nfor dead custom properties. Unreachable stylesheet reports remain advisory;\n<code>/* fxcss-keep */</code> marks deliberate property overrides.</p>\n",
+      "codes": [
+        "fxcss audit\nfxcss audit --patch fix.diff     # write the confident fixes as a patch\nfxcss audit --strict             # exit non-zero if a selector needs attention\nfxcss audit --strict-vars        # …or if a custom property override is dead",
+        "  14 selectors need attention\n\n  RENAMED  #urlbar-background  →  .urlbar-background\n           same name, now a class rather than an id\n\n    chrome/parts/headerbar-urlbar.css:52\n    - #urlbar-background {\n    + .urlbar-background {\n\n  SIMILAR  #appMenu-fullscreen-button  →  #appMenu-fullscreen-button2  (a guess, not applied)\n           no exact match; closest live name is #appMenu-fullscreen-button2\n\n    chrome/parts/icons.css:198\n      #appMenu-fullscreen-button {",
+        "--in-content-page-background: var(--gnome-menu-background) !important; /* fxcss-keep: ESR 140 reads it */"
+      ],
+      "headings": [
+        {
+          "id": "custom-properties-die-differently",
+          "text": "Custom properties die differently"
+        },
+        {
+          "id": "unused-and-unreachable-code",
+          "text": "Unused and unreachable code"
+        }
+      ],
+      "sourceAnchor": "fxcss-audit"
+    },
+    {
+      "slug": "github-actions-workflows",
+      "title": "GitHub Actions workflows",
+      "chapter": "GitHub Actions workflows",
+      "group": "guide",
+      "description": "Give reviewers images of a proposed change, check upcoming Firefox builds and keep published screenshots current. Generate the workflows from your theme's root, then commit them to its GitHu",
+      "html": "<p>Give reviewers images of a proposed change, check upcoming Firefox builds and\nkeep published screenshots current. Generate the workflows from your theme's\nroot, then commit them to its GitHub repository.</p>\n",
+      "codes": [],
+      "headings": [],
+      "sourceAnchor": "github-actions-workflows"
+    },
+    {
+      "slug": "init",
+      "title": "fxcss init",
+      "chapter": "GitHub Actions workflows",
+      "group": "command",
+      "description": "init writes to .github/workflows/. Existing files are preserved unless you pass --force; review regenerated files before committing, especially if you have customised them. Generation pins t",
+      "html": "<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>fxcss init                               # PR previews\nfxcss init --watch                       # also check Firefox weekly\nfxcss init --showcase --previews          # also publish screenshots\nfxcss init --watch --showcase --previews  # generate all six workflow files</code></pre></div><p><code>init</code> writes to <code>.github/workflows/</code>. Existing files are preserved unless you\npass <code>--force</code>; review regenerated files before committing, especially if you\nhave customised them. Generation pins the installed fxcss version. The preview publisher validates\nvariant filenames and PNG headers, including options added by later PRs.\nUpdating fxcss locally does not update workflows already in a repository.</p>\n<table class=\"doc-table\">\n<thead>\n<tr>\n<th>Feature</th>\n<th>Enable with</th>\n<th>When it runs</th>\n<th>What readers see</th>\n</tr>\n</thead>\n<tbody><tr>\n<td>PR previews</td>\n<td><code>init</code></td>\n<td>Relevant pull request changes; macOS, Windows and Linux.</td>\n<td>A comment showing before/after views and highlighted differences, including optional stylesheets.</td>\n</tr>\n<tr>\n<td>Firefox watch</td>\n<td><code>init --watch</code></td>\n<td>Weekly on Mondays, or manually; Release, Beta and Nightly on macOS.</td>\n<td>Fix PRs or issues for actionable selector findings, plus a separate issue if screenshot capture fails.</td>\n</tr>\n<tr>\n<td>README previews</td>\n<td><code>init --previews</code></td>\n<td>Matching theme changes on <code>main</code>/<code>master</code>, or manually; macOS.</td>\n<td>Refreshed standard and variant screenshots plus cropped option comparisons on the <code>previews</code> branch.</td>\n</tr>\n<tr>\n<td>Release showcase</td>\n<td><code>init --showcase</code></td>\n<td>A release is published, or manually; macOS.</td>\n<td>Light/dark screenshots against live websites on the <code>showcase</code> branch.</td>\n</tr>\n</tbody></table>\n<p>The workflows download Firefox on their runners. Generated preview triggers\ncover <code>chrome/</code>, <code>configuration/</code>, <code>custom/</code>, <code>optional/</code>, <code>options/</code>, <code>extras/</code>\nand <code>variants/</code>. Review the filters if you keep theme assets elsewhere.\nRe-run generation and review the changes to update the pinned fxcss version\nor adopt improvements to the workflow templates. New variants are included automatically.</p>\n",
+      "codes": [
+        "fxcss init                               # PR previews\nfxcss init --watch                       # also check Firefox weekly\nfxcss init --showcase --previews          # also publish screenshots\nfxcss init --watch --showcase --previews  # generate all six workflow files"
+      ],
+      "headings": [],
+      "sourceAnchor": "fxcss-init"
+    },
+    {
+      "slug": "pull-request-previews",
+      "title": "Pull request previews",
+      "chapter": "GitHub Actions workflows",
+      "group": "guide",
+      "description": "The default setup writes three cooperating workflows: 1. Render: capture the base and proposed theme revisions on each operating system, compare them and upload the images. Matching base cap",
+      "html": "<p>The default setup writes three cooperating workflows:</p>\n<ol>\n<li><strong>Render:</strong> capture the base and proposed theme revisions on each operating\nsystem, compare them and upload the images. Matching base captures are\ncached for later pushes to the same PR.</li>\n<li><strong>Publish:</strong> validate the artifacts, publish images to <code>ci-previews</code>, and\ncreate or update the preview comment. Unchanged views remain available as\nfull screenshots.</li>\n<li><strong>Clean up:</strong> remove a PR's published images when it closes.</li>\n</ol>\n<p>Preview comments start once the workflows are on the default branch.\nFirst-time contributor runs may need GitHub's approval step. Rendering PR\ncontent uses read-only permissions; the separate publisher can post comments\nbut does not execute PR code.</p>\n<p>The preview shows what changed, leaving the reviewer to decide whether it is\ncorrect. It does not reject a PR simply because the screenshots differ.</p>\n",
+      "codes": [],
+      "headings": [],
+      "sourceAnchor": "pull-request-previews"
+    },
+    {
+      "slug": "watching-firefox-for-breakage",
+      "title": "Watching Firefox for breakage",
+      "chapter": "GitHub Actions workflows",
+      "group": "guide",
+      "description": "The weekly watch checks two things independently: - Theme selectors: run an audit against each channel. If exact ID/class replacements can be patched, open a PR with those fixes and the full",
+      "html": "<p>The weekly watch checks two things independently:</p>\n<ul>\n<li><strong>Theme selectors:</strong> run an audit against each channel. If exact ID/class\nreplacements can be patched, open a PR with those fixes and the full report.\nOtherwise, actionable findings open or update an issue for that channel.</li>\n<li><strong>Screenshot capture:</strong> run the standard capture to detect Firefox changes\nthat stop previews from rendering at all. Failures get a separate issue.</li>\n</ul>\n<p>Issues close when the associated check is healthy again. Proposed fixes still\nneed review and merging. The default audit uses <code>--strict --no-unused</code>, so\ncustom-property failure checks are not enabled in this workflow.</p>\n<p>The generated watch does not save structural snapshots or compare screenshots\nacross Firefox releases. To add that history, compose <code>snapshot</code>, <code>changelog</code>,\n<code>shot</code> and <code>compare</code> in a custom workflow.</p>\n",
+      "codes": [],
+      "headings": [],
+      "sourceAnchor": "watching-firefox-for-breakage"
+    },
+    {
+      "slug": "keeping-readme-and-release-images-current",
+      "title": "Keeping README and release images current",
+      "chapter": "GitHub Actions workflows",
+      "group": "guide",
+      "description": "Embed the generated image links in your README once; subsequent workflow runs refresh the images behind those links. The workflows do not edit the README's text. - README previews publish th",
+      "html": "<p>Embed the generated image links in your README once; subsequent workflow runs\nrefresh the images behind those links. The workflows do not edit the README's\ntext.</p>\n<ul>\n<li><strong>README previews</strong> publish the current standard views, individual optional\nstylesheet captures and cropped option comparisons to <code>previews</code>, replacing\nthe previous images.</li>\n<li><strong>Release showcase</strong> publishes live-website captures under\n<code>showcase/screenshots/</code>, with URLs printed in the workflow summary.</li>\n</ul>\n",
+      "codes": [],
+      "headings": [],
+      "sourceAnchor": "keeping-readme-and-release-images-current"
+    },
+    {
+      "slug": "using-it-in-ci",
+      "title": "Using it in CI",
+      "chapter": "GitHub Actions workflows",
+      "group": "guide",
+      "description": "For a custom workflow, the core capture-and-compare steps are: These steps assume the two theme revisions are checked out, Firefox is installed and a display is available. Browser chrome req",
+      "html": "<p>For a custom workflow, the core capture-and-compare steps are:</p>\n<div class=\"doc-code\"><div class=\"doc-code-header\"><span>yaml</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>- run: pip install \"fxcss[images]==0.22.0\"\n- run: fxcss shot --theme base --out shots/base\n- run: fxcss shot --theme head --out shots/head\n- run: fxcss compare --base shots/base --head shots/head --out out/ --platform ${{ runner.os }}</code></pre></div><p>These steps assume the two theme revisions are checked out, Firefox is\ninstalled and a display is available. Browser chrome requires a rendered\nwindow: macOS and Windows runners have a display; Linux needs Xvfb. Firefox's\nheadless mode does not render the browser chrome.</p>\n<p>Start with <code>fxcss init</code> for the complete setup. The\n<a href=\"/docs/github-actions-workflows\">workflow examples</a> explain the generated files. If your\nproject needs a visual pass/fail policy, read <code>compare</code>'s <code>summary.json</code> and\napply its chosen threshold.</p>\n<p><a href=\"https://github.com/AdamXweb/fxcss\" target=\"_blank\" rel=\"noreferrer noopener\"></a><a href=\"https://img.shields.io/badge/theme%20previews-fxcss-ff7139\">theme previews by fxcss</a></p>\n",
+      "codes": [
+        "- run: pip install \"fxcss[images]==0.22.0\"\n- run: fxcss shot --theme base --out shots/base\n- run: fxcss shot --theme head --out shots/head\n- run: fxcss compare --base shots/base --head shots/head --out out/ --platform ${{ runner.os }}"
+      ],
+      "headings": [],
+      "sourceAnchor": "using-it-in-ci"
+    },
+    {
+      "slug": "documenting-and-showcasing-themes",
+      "title": "Documenting and showcasing themes",
+      "chapter": "Documenting and showcasing themes",
+      "group": "guide",
+      "description": "Help users see what they are choosing. Generate images of install options, explore the UI parts a theme can style, or capture the theme against websites for a README or release announcement.",
+      "html": "<p>Help users see what they are choosing. Generate images of install options,\nexplore the UI parts a theme can style, or capture the theme against websites\nfor a README or release announcement.</p>\n",
+      "codes": [],
+      "headings": [],
+      "sourceAnchor": "documenting-and-showcasing-themes"
+    },
+    {
+      "slug": "tweaks",
+      "title": "fxcss tweaks",
+      "chapter": "Documenting and showcasing themes",
+      "group": "command",
+      "description": "Document your install options with screenshots. Themes describe their optional stylesheets in prose — accordions of flags, install.sh -c -n -s incantations — and a user assembles their prefe",
+      "html": "<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>fxcss tweaks\nfxcss tweaks --combo compact-tabs+tabs-swapclose</code></pre></div><p><strong>Document your install options with screenshots.</strong> Themes describe their\noptional stylesheets in prose — accordions of flags, <code>install.sh -c -n -s</code>\nincantations — and a user assembles their preferred setup in their head. This\nrenders the answer instead: the base theme, every optional stylesheet, and any\ncombination you bless with <code>--combo</code>, each with a labelled <strong>before/after crop\nof the region it actually changes</strong> and how much of the chrome it touches.</p>\n<p>A <code>--combo</code> is also judged against its own parts: if <code>a+b</code> renders\npixel-identically to <code>b</code> alone, then <code>a</code> did nothing in that combination, and\nTWEAKS.md says so rather than presenting the pair as a real option. That is\nthe check the static conflict analysis in <code>install</code> cannot make — two sheets\ncan fight over the same pixels through entirely different rules — and the\nrendered images settle it as a fact rather than a judgement.</p>\n<p>The crop is built from the changed pixels, so it needs no per-option\nconfiguration and cannot drift when Firefox moves something. It centres on the\nbusiest <em>cluster</em> of changes rather than the bounding box of all of them,\nwhich is what makes the common cases readable: swapping the tab close button\nchanges every tab, and a crop of all of them is the tab strip again, shrunk\nuntil nothing is visible. One tab, magnified, shows the option. Panels scale up\nas well as down for the same reason — a correctly cropped 16px button is still\na 16px button.</p>\n<p>The output is a folder of PNGs plus <code>TWEAKS.md</code>, written to be committed:\nrelative links, and a <code>&lt;details&gt;</code> accordion per option so a long list stays\nscannable on GitHub. If your README documents installer flags, they are parsed\nand included as a table.</p>\n<p>A tweak that changes nothing in the captured state is reported as exactly that — <em>\"changes nothing on\ncurrent Firefox, possibly stale\"</em>. Optional sheets rot at least as fast as\nselectors do, and nobody notices because nobody has them enabled.</p>\n",
+      "codes": [
+        "fxcss tweaks\nfxcss tweaks --combo compact-tabs+tabs-swapclose"
+      ],
+      "headings": [],
+      "sourceAnchor": "fxcss-tweaks"
+    },
+    {
+      "slug": "catalogue",
+      "title": "fxcss catalogue",
+      "chapter": "Documenting and showcasing themes",
+      "group": "command",
+      "description": "Builds an HTML directory of the UI parts a theme can target. For each one: a cropped screenshot of the real element in light and dark, its selector, the styles in effect, and every rule in y",
+      "html": "<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>fxcss catalogue --open</code></pre></div><p>Builds an HTML directory of the UI parts a theme can target. For each one: a\ncropped screenshot of the real element in light and dark, its selector, the\nstyles in effect, and every rule in your theme that targets it. Plus an\nannotated overview screenshot with each part numbered.</p>\n<p></p><figure class=\"doc-figure\"><a href=\"/catalogue/light/overview.png\" target=\"_blank\" rel=\"noreferrer\"><img src=\"/catalogue/light/overview.png\" alt=\"Annotated Firefox interface from the generated fxcss catalogue\" loading=\"lazy\" decoding=\"async\" /></a><figcaption>Fresh capture from the bundled starter theme. <a href=\"/docs/screenshot-evidence\">Capture details</a>.</figcaption></figure><p></p>\n<p>Everything is measured from a running browser rather than hardcoded, so it stays\nhonest as Firefox changes — an element that no longer exists is reported as\nmissing rather than quietly documented.</p>\n<p>Add <code>--self-contained</code> to also get a single <code>catalogue.html</code> with the images\ninlined, for attaching to an issue.</p>\n",
+      "codes": [
+        "fxcss catalogue --open"
+      ],
+      "headings": [],
+      "sourceAnchor": "fxcss-catalogue"
+    },
+    {
+      "slug": "against-real-websites",
+      "title": "Against real websites",
+      "chapter": "Documenting and showcasing themes",
+      "group": "guide",
+      "description": "Captures the theme against live sites, light and dark, for showing it off — README screenshots, release notes, an issue thread. These land in /live/ and are never part of a comparison. That ",
+      "html": "<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>fxcss shot --out shots --url https://github.com/AdamXweb/WhiteSurFirefoxThemeMacOS\nfxcss shot --out shots --only-live --url https://example.com --url https://news.ycombinator.com</code></pre></div><p>Captures the theme against live sites, light and dark, for showing it off —\nREADME screenshots, release notes, an issue thread.</p>\n<p>These land in <code>&lt;out&gt;/live/</code> and are <strong>never part of a comparison</strong>. That is the\nwhole point of keeping them separate: someone else's page can change its\ncontent, title or favicon between two runs, and a theme pull request should not\nbe blamed for it. <code>compare</code> only looks at PNGs at the top level, so they are\nexcluded by construction rather than by a rule someone has to remember.</p>\n<p>Generate the <a href=\"/docs/keeping-readme-and-release-images-current\">release showcase workflow</a>\nwith <code>fxcss init --showcase</code> to refresh these images when a release is published.</p>\n",
+      "codes": [
+        "fxcss shot --out shots --url https://github.com/AdamXweb/WhiteSurFirefoxThemeMacOS\nfxcss shot --out shots --only-live --url https://example.com --url https://news.ycombinator.com"
+      ],
+      "headings": [],
+      "sourceAnchor": "against-real-websites"
+    },
+    {
+      "slug": "troubleshooting-and-configuration",
+      "title": "Troubleshooting and configuration",
+      "chapter": "Troubleshooting and configuration",
+      "group": "guide",
+      "description": "Start with doctor when a browser or theme does not behave as expected. This section also covers installation alternatives, shell completion and the limits of browser chrome capture.",
+      "html": "<p>Start with <code>doctor</code> when a browser or theme does not behave as expected. This\nsection also covers installation alternatives, shell completion and the limits\nof browser chrome capture.</p>\n",
+      "codes": [],
+      "headings": [],
+      "sourceAnchor": "troubleshooting-and-configuration"
+    },
+    {
+      "slug": "doctor",
+      "title": "fxcss doctor",
+      "chapter": "Troubleshooting and configuration",
+      "group": "command",
+      "description": "Reports your Firefox version, whether userChrome.css is enabled, whether context menus are themeable on your platform, how many stylesheets your theme has — and every Gecko build installed o",
+      "html": "<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>fxcss doctor</code></pre></div><p>Reports your Firefox version, whether <code>userChrome.css</code> is enabled, whether\ncontext menus are themeable on your platform, how many stylesheets your theme\nhas — and <strong>every Gecko build installed on the machine</strong>, with versions. Start\nhere if something isn't behaving.</p>\n",
+      "codes": [
+        "fxcss doctor"
+      ],
+      "headings": [],
+      "sourceAnchor": "fxcss-doctor"
+    },
+    {
+      "slug": "requirements",
+      "title": "Requirements",
+      "chapter": "Troubleshooting and configuration",
+      "group": "guide",
+      "description": "- Python 3.9+ - Firefox (any recent release; the toolkit finds it automatically on macOS, Windows and Linux, or set FIREFOXBIN) - Pillow for catalogue, compare, check, tweaks and upgrade --c",
+      "html": "<ul>\n<li>Python 3.9+</li>\n<li>Firefox (any recent release; the toolkit finds it automatically on macOS,\nWindows and Linux, or set <code>FIREFOX_BIN</code>)</li>\n<li>Pillow for <code>catalogue</code>, <code>compare</code>, <code>check</code>, <code>tweaks</code> and <code>upgrade --compare</code>.\nThe <code>fxcss[images]</code> extra includes it; add it later with\n<code>pipx inject fxcss pillow</code>. Other commands use the Python standard library.</li>\n</ul>\n",
+      "codes": [],
+      "headings": [],
+      "sourceAnchor": "requirements"
+    },
+    {
+      "slug": "installation",
+      "title": "Installation",
+      "chapter": "Troubleshooting and configuration",
+      "group": "guide",
+      "description": "fxcss is on PyPI. Install it with pipx, which gives it its own environment and puts fxcss on your PATH: No pipx yet? brew install pipx (macOS), sudo apt install pipx (Debian and Ubuntu), or ",
+      "html": "<p>fxcss is <a href=\"https://pypi.org/project/fxcss/\" target=\"_blank\" rel=\"noreferrer noopener\">on PyPI</a>. Install it with <strong>pipx</strong>,\nwhich gives it its own environment and puts <code>fxcss</code> on your PATH:</p>\n<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>pipx install \"fxcss[images]\"</code></pre></div><p>No pipx yet? <code>brew install pipx</code> (macOS), <code>sudo apt install pipx</code> (Debian and\nUbuntu), or <code>python3 -m pip install --user pipx</code> elsewhere.</p>\n<blockquote>\n<p><strong>Why not plain pip?</strong> On current Homebrew, Debian and Ubuntu Pythons,\n<code>python3 -m pip install</code> refuses with <code>error: externally-managed-environment</code>\n— that's <a href=\"https://peps.python.org/pep-0668/\" target=\"_blank\" rel=\"noreferrer noopener\">PEP 668</a> protecting your system\nPython, not fxcss being broken. pipx is the intended answer for installing an\napplication. pip still works fine <em>inside a virtual environment</em>:</p>\n<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"1\" aria-label=\"Copy code example 2\">Copy</button></div><pre><code>python3 -m venv ~/.venvs/fxcss &amp;&amp; ~/.venvs/fxcss/bin/pip install \"fxcss[images]\"</code></pre></div></blockquote>\n<p>For CI, or anywhere a surprise upgrade would be unwelcome, pin the release —\nthe <a href=\"https://github.com/AdamXweb/fxcss/releases\" target=\"_blank\" rel=\"noreferrer noopener\">releases page</a> has the latest.\nCI runners' Pythons are not externally managed, so plain pip is fine there:</p>\n<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"2\" aria-label=\"Copy code example 3\">Copy</button></div><pre><code>pip install \"fxcss[images]==0.22.0\"</code></pre></div><p>Upgrade an existing pipx installation with <code>pipx upgrade fxcss</code>.</p>\n",
+      "codes": [
+        "pipx install \"fxcss[images]\"",
+        "python3 -m venv ~/.venvs/fxcss && ~/.venvs/fxcss/bin/pip install \"fxcss[images]\"",
+        "pip install \"fxcss[images]==0.22.0\""
+      ],
+      "headings": [],
+      "sourceAnchor": "installation"
+    },
+    {
+      "slug": "upgrading-to-022",
+      "title": "Upgrading to 0.22",
+      "chapter": "Troubleshooting and configuration",
+      "group": "guide",
+      "description": "The new check command requires baselines with a complete capture coverage report. To start using it with an older collection of screenshots, choose a fresh baseline directory, then review th",
+      "html": "<p>The new <code>check</code> command requires baselines with a complete capture coverage\nreport. To start using it with an older collection of screenshots, choose a\nfresh baseline directory, then review the new images:</p>\n<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>fxcss check --baseline .fxcss/baseline-0.22 --update-baseline</code></pre></div><p>Save that path as <code>baseline</code> in <code>.fxcss.json</code> for subsequent checks. Existing\ndirectories not managed by <code>check</code> are preserved. Missing views and failed\nbrowser states prevent a baseline update. You can still use <code>compare</code> directly\nwith older screenshots.</p>\n<p>Theme repositories keep their generated workflows and pinned fxcss version\nuntil you update those files. To pick up the capture fixes and workflow\nimprovements, <a href=\"/docs/github-actions-workflows\">regenerate the workflows</a> with\nyour existing options and review the changes before committing them. The\ngenerator skips existing files unless you pass <code>--force</code>; preserve any custom\nworkflow edits when reviewing the regenerated files.</p>\n",
+      "codes": [
+        "fxcss check --baseline .fxcss/baseline-0.22 --update-baseline"
+      ],
+      "headings": [],
+      "sourceAnchor": "upgrading-to-022"
+    },
+    {
+      "slug": "completions",
+      "title": "fxcss completions",
+      "chapter": "Troubleshooting and configuration",
+      "group": "command",
+      "description": "Tab-completes subcommands, the flags each one takes, --firefox channel names — and, reading the theme in front of it, the names of its optional stylesheets: Comma-separated lists complete el",
+      "html": "<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>eval \"$(fxcss completions bash)\"     # add to ~/.bashrc\neval \"$(fxcss completions zsh)\"      # add to ~/.zshrc\nfxcss completions fish | source      # add to config.fish</code></pre></div><p>Tab-completes subcommands, the flags each one takes, <code>--firefox</code> channel names\n— and, reading the theme in front of it, the names of its optional stylesheets:</p>\n<div class=\"doc-code\"><div class=\"doc-code-header\"><span>console</span><button type=\"button\" data-copy-index=\"1\" aria-label=\"Copy code example 2\">Copy</button></div><pre><code>$ fxcss install ~/src/whitesur --with theme-mat&lt;TAB&gt;\ntheme-material-ocean  theme-material-palenight</code></pre></div><p>Comma-separated lists complete element by element, and values already chosen\nare not offered twice. The candidates are read off the real argument parser, so\na command or flag becomes completable the moment it exists rather than when\nsomeone remembers to update a shell script. Completion never touches the\nnetwork: sheet names for a remote <code>owner/repo</code> are not known locally, and a Tab\nthat pauses to talk to GitHub would be worse than no completion at all — the\npicker during <code>install</code> covers that case instead.</p>\n",
+      "codes": [
+        "eval \"$(fxcss completions bash)\"     # add to ~/.bashrc\neval \"$(fxcss completions zsh)\"      # add to ~/.zshrc\nfxcss completions fish | source      # add to config.fish",
+        "$ fxcss install ~/src/whitesur --with theme-mat<TAB>\ntheme-material-ocean  theme-material-palenight"
+      ],
+      "headings": [],
+      "sourceAnchor": "fxcss-completions"
+    },
+    {
+      "slug": "context-menus-are-native-on-macos",
+      "title": "Context menus are native on macOS",
+      "chapter": "Troubleshooting and configuration",
+      "group": "guide",
+      "description": "Firefox sets widget.macos.native-context-menus to true by default, which means macOS draws right-click menus itself and CSS cannot style them at all. menupopup and menuitem rules have no eff",
+      "html": "<p>Firefox sets <code>widget.macos.native-context-menus</code> to <code>true</code> by default, which\nmeans <strong>macOS draws right-click menus itself and CSS cannot style them at all</strong>.\n<code>menupopup</code> and <code>menuitem</code> rules have no effect there. They do apply on Windows\nand Linux.</p>\n<p><code>fxcss doctor</code> reports the setting for your platform, and\n<code>fxcss watch --native-menus=false</code> switches Firefox to XUL menus so you can work\non that styling from a Mac.</p>\n",
+      "codes": [],
+      "headings": [],
+      "sourceAnchor": "context-menus-are-native-on-macos"
+    },
+    {
+      "slug": "popups-cant-be-screenshotted",
+      "title": "Popups can't be screenshotted",
+      "chapter": "Troubleshooting and configuration",
+      "group": "guide",
+      "description": "Menus and the app menu are separate OS-level windows, so they appear in neither a Marionette chrome screenshot nor a drawWindow rasterisation of the browser window. Capturing the whole scree",
+      "html": "<p>Menus and the app menu are separate OS-level windows, so they appear in neither\na Marionette chrome screenshot nor a <code>drawWindow</code> rasterisation of the browser\nwindow. Capturing the whole screen instead is worse: it depends on window\nstacking and picks up whatever else is on your desktop. Every view <code>shot</code>\ncaptures is therefore an in-document surface.</p>\n<p>You can still <em>look</em> at popups in <code>watch</code>, and inspect them with the Browser\nToolbox. These separate popup windows cannot be captured. The standard\nscreenshot set does include the window-modal quit-confirmation dialog.</p>\n",
+      "codes": [],
+      "headings": [],
+      "sourceAnchor": "popups-cant-be-screenshotted"
+    },
+    {
+      "slug": "why-not-selenium",
+      "title": "Why not Selenium?",
+      "chapter": "Troubleshooting and configuration",
+      "group": "guide",
+      "description": "Marionette is plain TCP with length-prefixed JSON, so the client here is about a hundred lines of standard library. No geckodriver to keep in step with your Firefox version — a common source",
+      "html": "<p>Marionette is plain TCP with length-prefixed JSON, so the client here is about a\nhundred lines of standard library. No geckodriver to keep in step with your\nFirefox version — a common source of CI breakage — and no dependency to install\nfor the core commands.</p>\n<p>More importantly, screenshots are taken in Marionette's <strong>chrome context</strong>,\nwhich captures the browser window's own document. An ordinary WebDriver\nscreenshot only captures page content, so toolbars and tabs would never appear\nat all.</p>\n",
+      "codes": [],
+      "headings": [],
+      "sourceAnchor": "why-not-selenium"
+    },
+    {
+      "slug": "reproducibility",
+      "title": "Reproducibility",
+      "chapter": "Troubleshooting and configuration",
+      "group": "guide",
+      "description": "Screenshot comparison only works if an unchanged theme renders identically twice. The throwaway profile pins what would otherwise drift: first-run tours, telemetry prompts, update checks and",
+      "html": "<p>Screenshot comparison only works if an unchanged theme renders identically\ntwice. The throwaway profile pins what would otherwise drift: first-run tours,\ntelemetry prompts, update checks and animations are off; pages are local files\nrather than live sites; and Nimbus/Normandy are disabled so Mozilla can't switch\na toolbar feature on remotely between two runs.</p>\n<p>Two CSS rules hide artifacts of the harness itself — the robot icon Firefox\nshows in automated sessions, and the rollout-gated IP Protection button. Neither\nis part of your theme.</p>\n<p>Each session also picks its own Marionette port. Firefox's fixed default of 2828\nmeans a browser leaked by an earlier run would silently accept the next\nsession's connection, which shows up as your theme mysteriously not applying.</p>\n",
+      "codes": [],
+      "headings": [],
+      "sourceAnchor": "reproducibility"
+    },
+    {
+      "slug": "commands",
+      "title": "Commands",
+      "chapter": "Commands",
+      "group": "guide",
+      "description": "| Command | What it's for | | --- | --- | | new | Start a theme from a small, working scaffold | | try | Download a theme from GitHub and test-drive it | | install | Install a theme into you",
+      "html": "<table class=\"doc-table\">\n<thead>\n<tr>\n<th>Command</th>\n<th>What it's for</th>\n</tr>\n</thead>\n<tbody><tr>\n<td><a href=\"/docs/new\"><code>new</code></a></td>\n<td>Start a theme from a small, working scaffold</td>\n</tr>\n<tr>\n<td><a href=\"/docs/try\"><code>try</code></a></td>\n<td>Download a theme from GitHub and test-drive it</td>\n</tr>\n<tr>\n<td><a href=\"/docs/install\"><code>install</code></a></td>\n<td>Install a theme into your real Firefox profile</td>\n</tr>\n<tr>\n<td><a href=\"/docs/uninstall\"><code>uninstall</code></a></td>\n<td>Remove managed files while preserving local changes</td>\n</tr>\n<tr>\n<td><a href=\"/docs/upgrade\"><code>upgrade</code></a></td>\n<td>Fetch a newer version of the theme you installed</td>\n</tr>\n<tr>\n<td><a href=\"/docs/rollback\"><code>rollback</code></a></td>\n<td>Put the previous version back</td>\n</tr>\n<tr>\n<td><a href=\"/docs/adopt\"><code>adopt</code></a></td>\n<td>Take over a theme installed some other way</td>\n</tr>\n<tr>\n<td><a href=\"/docs/profiles\"><code>profiles</code></a></td>\n<td>List every Firefox profile and what is themed in it</td>\n</tr>\n<tr>\n<td><a href=\"/docs/watch\"><code>watch</code></a></td>\n<td>Edit CSS and see it live, no restart</td>\n</tr>\n<tr>\n<td><a href=\"/docs/pick\"><code>pick</code></a></td>\n<td>Click any part of the UI to get its CSS selector</td>\n</tr>\n<tr>\n<td><a href=\"/docs/inspect\"><code>inspect</code></a></td>\n<td>Look up a selector you already have</td>\n</tr>\n<tr>\n<td><a href=\"/docs/init\"><code>init</code></a></td>\n<td>Add PR previews and CI checks to your theme repo</td>\n</tr>\n<tr>\n<td><a href=\"/docs/tweaks\"><code>tweaks</code></a></td>\n<td>Screenshot every install option into a committable doc</td>\n</tr>\n<tr>\n<td><a href=\"/docs/audit\"><code>audit</code></a></td>\n<td>Check selectors and custom properties for compatibility findings</td>\n</tr>\n<tr>\n<td><a href=\"/docs/changelog\"><code>changelog</code></a></td>\n<td>Diff two Firefox builds to see what chrome changed</td>\n</tr>\n<tr>\n<td><a href=\"/docs/snapshot\"><code>snapshot</code></a></td>\n<td>Record a Firefox's chrome names, to diff against later</td>\n</tr>\n<tr>\n<td><a href=\"/docs/catalogue\"><code>catalogue</code></a></td>\n<td>Build a directory of themeable UI parts</td>\n</tr>\n<tr>\n<td><a href=\"/docs/shot\"><code>shot</code></a> / <a href=\"/docs/compare\"><code>compare</code></a></td>\n<td>Screenshot and diff two versions</td>\n</tr>\n<tr>\n<td><a href=\"/docs/check\"><code>check</code></a></td>\n<td>Run saved audit, capture and comparison settings with one combined report</td>\n</tr>\n<tr>\n<td><a href=\"/docs/doctor\"><code>doctor</code></a></td>\n<td>Report what your Firefox supports</td>\n</tr>\n<tr>\n<td><a href=\"/docs/completions\"><code>completions</code></a></td>\n<td>Enable Bash, Zsh or Fish tab completion</td>\n</tr>\n</tbody></table>\n",
+      "codes": [],
+      "headings": [],
+      "sourceAnchor": "commands"
+    },
+    {
+      "slug": "contributing",
+      "title": "Contributing",
+      "chapter": "Contributing",
+      "group": "guide",
+      "description": "Issues and pull requests welcome — particularly landmark definitions for UI parts the catalogue doesn't cover yet, and reports of selectors that changed in a new Firefox release. To work on ",
+      "html": "<p>Issues and pull requests welcome — particularly landmark definitions for UI\nparts the catalogue doesn't cover yet, and reports of selectors that changed in\na new Firefox release.</p>\n<p>To work on fxcss itself, clone and install it in an editable environment:</p>\n<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>git clone https://github.com/AdamXweb/fxcss.git\ncd fxcss &amp;&amp; python3 -m pip install -e \".[images]\"</code></pre></div><p>And if you would rather install nothing at all, the repo runs as-is:</p>\n<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"1\" aria-label=\"Copy code example 2\">Copy</button></div><pre><code>python3 -m fxcss &lt;command&gt;</code></pre></div>",
+      "codes": [
+        "git clone https://github.com/AdamXweb/fxcss.git\ncd fxcss && python3 -m pip install -e \".[images]\"",
+        "python3 -m fxcss <command>"
+      ],
+      "headings": [],
+      "sourceAnchor": "contributing"
+    },
+    {
+      "slug": "testing-fxcss-itself",
+      "title": "Testing fxcss itself",
+      "chapter": "Contributing",
+      "group": "guide",
+      "description": "The toolkit's own CI runs unit tests on Python 3.9, 3.12 and 3.14. Profile installation, upgrade, rollback, removal and failure recovery are checked on macOS, Windows and Linux, including ed",
+      "html": "<p>The toolkit's own CI runs unit tests on Python 3.9, 3.12 and 3.14. Profile\ninstallation, upgrade, rollback, removal and failure recovery are checked on\nmacOS, Windows and Linux, including edited files and paths with spaces and\nnon-ASCII characters. Real Firefox checks cover Stable on all three platforms\nand ESR on Linux, repeated capture consistency, deliberate CSS changes,\nnested imports, content stylesheets and stacked optional stylesheets.</p>\n<p>A separate compatibility workflow checks Stable, ESR, Beta and Nightly on Linux\nevery Monday and Thursday, or on demand. Failed audits, incomplete captures and\nrendering differences fail the run; reports and screenshots are retained as\nworkflow artifacts. These checks help detect browser changes between releases.\nTo test a development branch before merging, manually run <strong>CI</strong> on that branch\nand enable <strong>compatibility</strong> to include all four channels. Normal PR CI runs\nStable and ESR; the additional channels are optional for manual runs.</p>\n<p>Package publishing is gated on CI and checks of the exact wheel and source\narchive being published. Clean environments outside the checkout test the\nbase install, optional image dependencies, generated workflows and profile\ncompatibility with the latest released fxcss. Package checks run on all three\noperating systems with Python 3.9 and 3.14; the release tag must also match the\nbuilt package version. These are fxcss's own checks; <code>init</code> generates the theme\nrepository workflows described above.</p>\n<p>Run the checks locally with:</p>\n<div class=\"doc-code\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>python3 -m unittest discover -s tests -v\npython3 -m tests.smoke_themes       # requires Firefox and a display\npython3 -m tests.smoke_variants     # requires Firefox and a display\npython3 -m pip install build\npython3 -m build\npython3 scripts/package_smoke.py --dist dist  # downloads the released package and image dependencies</code></pre></div>",
+      "codes": [
+        "python3 -m unittest discover -s tests -v\npython3 -m tests.smoke_themes       # requires Firefox and a display\npython3 -m tests.smoke_variants     # requires Firefox and a display\npython3 -m pip install build\npython3 -m build\npython3 scripts/package_smoke.py --dist dist  # downloads the released package and image dependencies"
+      ],
+      "headings": [],
+      "sourceAnchor": "testing-fxcss-itself"
+    }
+  ]
+}

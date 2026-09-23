@@ -1,0 +1,333 @@
+{
+  "platform": "darwin",
+  "views": [
+    {
+      "view": "dark-01-window",
+      "title": "Browser window",
+      "mode": "dark",
+      "changed_pixels": 0,
+      "total_pixels": 345600,
+      "percent": 0.0,
+      "image": null
+    },
+    {
+      "view": "dark-02-urlbar",
+      "title": "Address bar focused",
+      "mode": "dark",
+      "changed_pixels": 0,
+      "total_pixels": 345600,
+      "percent": 0.0,
+      "image": null
+    },
+    {
+      "view": "dark-03-findbar",
+      "title": "Find bar",
+      "mode": "dark",
+      "changed_pixels": 0,
+      "total_pixels": 345600,
+      "percent": 0.0,
+      "image": null
+    },
+    {
+      "view": "dark-04-dialog",
+      "title": "dark-04-dialog",
+      "mode": "dark",
+      "changed_pixels": 0,
+      "total_pixels": 345600,
+      "percent": 0.0,
+      "image": null
+    },
+    {
+      "view": "extra-04-audio",
+      "title": "Tab playing audio",
+      "mode": "extra",
+      "changed_pixels": 302,
+      "total_pixels": 345600,
+      "percent": 0.0874,
+      "image": "extra-04-audio.png"
+    },
+    {
+      "view": "extra-05-muted",
+      "title": "Tab muted",
+      "mode": "extra",
+      "changed_pixels": 302,
+      "total_pixels": 345600,
+      "percent": 0.0874,
+      "image": "extra-05-muted.png"
+    },
+    {
+      "view": "extra-06-containers",
+      "title": "Container tabs",
+      "mode": "extra",
+      "changed_pixels": 205,
+      "total_pixels": 345600,
+      "percent": 0.0593,
+      "image": "extra-06-containers.png"
+    },
+    {
+      "view": "extra-07-many-tabs",
+      "title": "Tab strip overflowing",
+      "mode": "extra",
+      "changed_pixels": 79,
+      "total_pixels": 345600,
+      "percent": 0.0229,
+      "image": "extra-07-many-tabs.png"
+    },
+    {
+      "view": "extra-08-private",
+      "title": "Private window",
+      "mode": "extra",
+      "changed_pixels": 0,
+      "total_pixels": 345600,
+      "percent": 0.0,
+      "image": null
+    },
+    {
+      "view": "extra-09-compact",
+      "title": "Compact density",
+      "mode": "extra",
+      "changed_pixels": 116,
+      "total_pixels": 345600,
+      "percent": 0.0336,
+      "image": "extra-09-compact.png"
+    },
+    {
+      "view": "extra-10-sidebar-bookmarks",
+      "title": "extra-10-sidebar-bookmarks",
+      "mode": "extra",
+      "changed_pixels": 79,
+      "total_pixels": 345600,
+      "percent": 0.0229,
+      "image": "extra-10-sidebar-bookmarks.png"
+    },
+    {
+      "view": "extra-11-sidebar-history",
+      "title": "extra-11-sidebar-history",
+      "mode": "extra",
+      "changed_pixels": 79,
+      "total_pixels": 345600,
+      "percent": 0.0229,
+      "image": "extra-11-sidebar-history.png"
+    },
+    {
+      "view": "extra-12-rtl",
+      "title": "extra-12-rtl",
+      "mode": "extra",
+      "changed_pixels": 792,
+      "total_pixels": 345600,
+      "percent": 0.2292,
+      "image": "extra-12-rtl.png"
+    },
+    {
+      "view": "extra-13-customize",
+      "title": "extra-13-customize",
+      "mode": "extra",
+      "changed_pixels": 0,
+      "total_pixels": 345600,
+      "percent": 0.0,
+      "image": null
+    },
+    {
+      "view": "extra-14-vertical-tabs",
+      "title": "extra-14-vertical-tabs",
+      "mode": "extra",
+      "changed_pixels": 493,
+      "total_pixels": 345600,
+      "percent": 0.1427,
+      "image": "extra-14-vertical-tabs.png"
+    },
+    {
+      "view": "extra-15-toolbar",
+      "title": "extra-15-toolbar",
+      "mode": "extra",
+      "changed_pixels": 303,
+      "total_pixels": 345600,
+      "percent": 0.0877,
+      "image": "extra-15-toolbar.png"
+    },
+    {
+      "view": "light-01-window",
+      "title": "Browser window",
+      "mode": "light",
+      "changed_pixels": 303,
+      "total_pixels": 345600,
+      "percent": 0.0877,
+      "image": "light-01-window.png"
+    },
+    {
+      "view": "light-02-urlbar",
+      "title": "Address bar focused",
+      "mode": "light",
+      "changed_pixels": 3514,
+      "total_pixels": 345600,
+      "percent": 1.0168,
+      "image": "light-02-urlbar.png"
+    },
+    {
+      "view": "light-03-findbar",
+      "title": "Find bar",
+      "mode": "light",
+      "changed_pixels": 303,
+      "total_pixels": 345600,
+      "percent": 0.0877,
+      "image": "light-03-findbar.png"
+    },
+    {
+      "view": "light-04-dialog",
+      "title": "light-04-dialog",
+      "mode": "light",
+      "changed_pixels": 301,
+      "total_pixels": 345600,
+      "percent": 0.0871,
+      "image": "light-04-dialog.png"
+    }
+  ],
+  "only_in_base": [],
+  "only_in_head": [],
+  "changed_views": [
+    {
+      "view": "extra-04-audio",
+      "title": "Tab playing audio",
+      "mode": "extra",
+      "changed_pixels": 302,
+      "total_pixels": 345600,
+      "percent": 0.0874,
+      "image": "extra-04-audio.png"
+    },
+    {
+      "view": "extra-05-muted",
+      "title": "Tab muted",
+      "mode": "extra",
+      "changed_pixels": 302,
+      "total_pixels": 345600,
+      "percent": 0.0874,
+      "image": "extra-05-muted.png"
+    },
+    {
+      "view": "extra-06-containers",
+      "title": "Container tabs",
+      "mode": "extra",
+      "changed_pixels": 205,
+      "total_pixels": 345600,
+      "percent": 0.0593,
+      "image": "extra-06-containers.png"
+    },
+    {
+      "view": "extra-07-many-tabs",
+      "title": "Tab strip overflowing",
+      "mode": "extra",
+      "changed_pixels": 79,
+      "total_pixels": 345600,
+      "percent": 0.0229,
+      "image": "extra-07-many-tabs.png"
+    },
+    {
+      "view": "extra-09-compact",
+      "title": "Compact density",
+      "mode": "extra",
+      "changed_pixels": 116,
+      "total_pixels": 345600,
+      "percent": 0.0336,
+      "image": "extra-09-compact.png"
+    },
+    {
+      "view": "extra-10-sidebar-bookmarks",
+      "title": "extra-10-sidebar-bookmarks",
+      "mode": "extra",
+      "changed_pixels": 79,
+      "total_pixels": 345600,
+      "percent": 0.0229,
+      "image": "extra-10-sidebar-bookmarks.png"
+    },
+    {
+      "view": "extra-11-sidebar-history",
+      "title": "extra-11-sidebar-history",
+      "mode": "extra",
+      "changed_pixels": 79,
+      "total_pixels": 345600,
+      "percent": 0.0229,
+      "image": "extra-11-sidebar-history.png"
+    },
+    {
+      "view": "extra-12-rtl",
+      "title": "extra-12-rtl",
+      "mode": "extra",
+      "changed_pixels": 792,
+      "total_pixels": 345600,
+      "percent": 0.2292,
+      "image": "extra-12-rtl.png"
+    },
+    {
+      "view": "extra-14-vertical-tabs",
+      "title": "extra-14-vertical-tabs",
+      "mode": "extra",
+      "changed_pixels": 493,
+      "total_pixels": 345600,
+      "percent": 0.1427,
+      "image": "extra-14-vertical-tabs.png"
+    },
+    {
+      "view": "extra-15-toolbar",
+      "title": "extra-15-toolbar",
+      "mode": "extra",
+      "changed_pixels": 303,
+      "total_pixels": 345600,
+      "percent": 0.0877,
+      "image": "extra-15-toolbar.png"
+    },
+    {
+      "view": "light-01-window",
+      "title": "Browser window",
+      "mode": "light",
+      "changed_pixels": 303,
+      "total_pixels": 345600,
+      "percent": 0.0877,
+      "image": "light-01-window.png"
+    },
+    {
+      "view": "light-02-urlbar",
+      "title": "Address bar focused",
+      "mode": "light",
+      "changed_pixels": 3514,
+      "total_pixels": 345600,
+      "percent": 1.0168,
+      "image": "light-02-urlbar.png"
+    },
+    {
+      "view": "light-03-findbar",
+      "title": "Find bar",
+      "mode": "light",
+      "changed_pixels": 303,
+      "total_pixels": 345600,
+      "percent": 0.0877,
+      "image": "light-03-findbar.png"
+    },
+    {
+      "view": "light-04-dialog",
+      "title": "light-04-dialog",
+      "mode": "light",
+      "changed_pixels": 301,
+      "total_pixels": 345600,
+      "percent": 0.0871,
+      "image": "light-04-dialog.png"
+    }
+  ],
+  "any_change": true,
+  "render_info": {
+    "version": "153.0.4",
+    "buildID": "20260810162159",
+    "os": "Darwin",
+    "dpr": 2,
+    "outer": [
+      1280,
+      480
+    ],
+    "legacyStylesheets": true,
+    "nativeContextMenus": {
+      "macos": true,
+      "gtk": false,
+      "windows": null
+    },
+    "audioIndicators": "controlled playing and muted tab attributes"
+  }
+}

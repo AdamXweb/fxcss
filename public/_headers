@@ -1,0 +1,10 @@
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  X-Frame-Options: SAMEORIGIN
+
+/install.sh
+  Content-Type: text/plain; charset=utf-8
+  Cache-Control: no-cache, max-age=0, must-revalidate
+  X-Robots-Tag: noindex

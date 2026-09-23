@@ -1,0 +1,435 @@
+<!doctype html><meta charset=utf-8>
+<meta name=viewport content='width=device-width,initial-scale=1'>
+<title>Themeable UI directory</title>
+<style>
+:root { color-scheme: light dark; --bg:#fff; --fg:#1c1c1e; --muted:#6b6b70;
+        --line:#e3e3e6; --card:#fafafa; --accent:#315bef; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#1c1c1e; --fg:#f2f2f7; --muted:#9a9aa0; --line:#38383c;
+          --card:#232326; --accent:#6f8dff; }
+}
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.55 -apple-system,
+       BlinkMacSystemFont,'Segoe UI',sans-serif; }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 32px 20px 80px; }
+h1 { font-size: 28px; margin: 0 0 6px; letter-spacing: -0.02em; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em;
+     color: var(--muted); margin: 40px 0 12px; }
+.lede { color: var(--muted); margin: 0 0 28px; }
+img { max-width: 100%; border-radius: 8px; border: 1px solid var(--line); display:block; }
+.overview { margin-bottom: 8px; }
+.tabs { display:flex; gap:8px; margin: 0 0 12px; }
+.tabs button { font: inherit; padding: 6px 14px; border-radius: 999px; cursor: pointer;
+   border: 1px solid var(--line); background: var(--card); color: var(--fg); }
+.tabs button[aria-selected=true] { background: var(--accent); color:#fff; border-color:transparent; }
+.card { border:1px solid var(--line); border-radius:12px; padding:16px 18px;
+        margin-bottom:14px; background:var(--card); }
+.card h3 { margin:0 0 2px; font-size:17px; }
+.card .sel { font: 13px ui-monospace,SFMono-Regular,Menlo,monospace; color: var(--accent); }
+.card p { margin:8px 0 12px; color: var(--muted); }
+.styles { display:flex; flex-wrap:wrap; gap:6px; margin:10px 0 0; }
+.chip { font: 12px ui-monospace,SFMono-Regular,Menlo,monospace; background:var(--bg);
+        border:1px solid var(--line); border-radius:6px; padding:3px 8px; }
+.sw { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px;
+      border:1px solid rgba(128,128,128,.5); vertical-align:-1px; }
+details { margin-top:10px; }
+summary { cursor:pointer; color:var(--muted); font-size:13px; }
+table { border-collapse:collapse; width:100%; margin-top:8px; font-size:13px; }
+td { border-top:1px solid var(--line); padding:5px 8px; vertical-align:top; }
+td.loc { white-space:nowrap; font: 12px ui-monospace,Menlo,monospace; color:var(--accent); }
+td.src { font: 12px ui-monospace,Menlo,monospace; color:var(--muted); }
+.missing { opacity:.55; }
+.badge { font-size:11px; border:1px solid var(--line); border-radius:5px;
+         padding:1px 6px; color:var(--muted); margin-left:8px; }
+</style><div class=wrap>
+<h1>Themeable UI directory</h1>
+<p class=lede>Measured live in Firefox 153.0.4 on Darwin. Each entry shows what the part looks like, the styles in effect, and which files in this repo style it.</p>
+<div class=tabs><button data-set=light onclick="showMode('light')">Light</button><button data-set=dark onclick="showMode('dark')">Dark</button></div>
+<div data-mode=light hidden><img class=overview src='light/overview.png' alt='Annotated light browser window'></div>
+<div data-mode=dark hidden><img class=overview src='dark/overview.png' alt='Annotated dark browser window'></div>
+<h2>Toolbars</h2>
+<div class='card'>
+<h3>Navigation toolbar</h3>
+<div class=sel>#nav-bar</div>
+<p>The main toolbar holding back/forward, the address bar and the right-hand buttons.</p>
+<div data-mode=light hidden>
+<img src='light/nav-bar.png' alt='Navigation toolbar'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(234, 238, 251)"></span>background-color: rgb(234, 238, 251)</span><span class=chip><span class="sw" style="background:rgb(27, 31, 42)"></span>color: rgb(27, 31, 42)</span><span class=chip><span class="sw" style="background:rgb(224, 224, 224)"></span>border-top-color: rgb(224, 224, 224)</span><span class=chip>font-size: 11px</span><span class=chip>height: 43px</span><span class=chip>opacity: 1</span></div>
+</div>
+<div data-mode=dark hidden>
+<img src='dark/nav-bar.png' alt='Navigation toolbar'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(35, 40, 58)"></span>background-color: rgb(35, 40, 58)</span><span class=chip><span class="sw" style="background:rgb(238, 241, 248)"></span>color: rgb(238, 241, 248)</span><span class=chip><span class="sw" style="background:rgb(143, 143, 157)"></span>border-top-color: rgb(143, 143, 157)</span><span class=chip>font-size: 11px</span><span class=chip>height: 43px</span><span class=chip>opacity: 1</span></div>
+</div>
+<details><summary>1 rule in this repo</summary><table>
+<tr><td class=loc>chrome/userChrome.css:35</td><td class=src>#nav-bar,</td></tr>
+</table></details>
+</div>
+<div class='card'>
+<h3>Tab strip toolbar</h3>
+<div class=sel>#TabsToolbar</div>
+<p>Container for the row of tabs. Themes often move or restyle this whole strip.</p>
+<div data-mode=light hidden>
+<img src='light/tabs-toolbar.png' alt='Tab strip toolbar'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(234, 238, 251)"></span>background-color: rgb(234, 238, 251)</span><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>color: rgb(21, 20, 26)</span><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>border-top-color: rgb(21, 20, 26)</span><span class=chip>font-size: 11px</span><span class=chip>height: 44px</span><span class=chip>opacity: 1</span></div>
+</div>
+<div data-mode=dark hidden>
+<img src='dark/tabs-toolbar.png' alt='Tab strip toolbar'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(35, 40, 58)"></span>background-color: rgb(35, 40, 58)</span><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>color: rgb(251, 251, 254)</span><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>border-top-color: rgb(251, 251, 254)</span><span class=chip>font-size: 11px</span><span class=chip>height: 44px</span><span class=chip>opacity: 1</span></div>
+</div>
+<details><summary>1 rule in this repo</summary><table>
+<tr><td class=loc>chrome/userChrome.css:65</td><td class=src>#TabsToolbar {</td></tr>
+</table></details>
+</div>
+<div class='card'>
+<h3>Bookmarks toolbar</h3>
+<div class=sel>#PersonalToolbar</div>
+<p>The bookmarks bar, shown here with three sample bookmarks.</p>
+<div data-mode=light hidden>
+<img src='light/personal-toolbar.png' alt='Bookmarks toolbar'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(234, 238, 251)"></span>background-color: rgb(234, 238, 251)</span><span class=chip><span class="sw" style="background:rgb(27, 31, 42)"></span>color: rgb(27, 31, 42)</span><span class=chip><span class="sw" style="background:rgb(27, 31, 42)"></span>border-top-color: rgb(27, 31, 42)</span><span class=chip>font-size: 11px</span><span class=chip>height: 29px</span><span class=chip>opacity: 1</span></div>
+</div>
+<div data-mode=dark hidden>
+<img src='dark/personal-toolbar.png' alt='Bookmarks toolbar'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(35, 40, 58)"></span>background-color: rgb(35, 40, 58)</span><span class=chip><span class="sw" style="background:rgb(238, 241, 248)"></span>color: rgb(238, 241, 248)</span><span class=chip><span class="sw" style="background:rgb(238, 241, 248)"></span>border-top-color: rgb(238, 241, 248)</span><span class=chip>font-size: 11px</span><span class=chip>height: 29px</span><span class=chip>opacity: 1</span></div>
+</div>
+<details><summary>1 rule in this repo</summary><table>
+<tr><td class=loc>chrome/userChrome.css:36</td><td class=src>#PersonalToolbar {</td></tr>
+</table></details>
+</div>
+<div class='card'>
+<h3>Menu bar</h3>
+<div class=sel>#toolbar-menubar</div>
+<p>Hidden by default on macOS; on Windows this is the File/Edit/View strip.</p>
+<div data-mode=light hidden>
+<p class=sel>present but not visible in this layout</p>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>color: rgb(21, 20, 26)</span><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>border-top-color: rgb(21, 20, 26)</span><span class=chip>font-size: 11px</span><span class=chip>opacity: 1</span></div>
+</div>
+<div data-mode=dark hidden>
+<p class=sel>present but not visible in this layout</p>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>color: rgb(251, 251, 254)</span><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>border-top-color: rgb(251, 251, 254)</span><span class=chip>font-size: 11px</span><span class=chip>opacity: 1</span></div>
+</div>
+<details><summary>no rules in this repo target it</summary><p>Styled by Firefox defaults only.</p></details>
+</div>
+<h2>Address bar</h2>
+<div class='card'>
+<h3>Address bar container</h3>
+<div class=sel>#urlbar</div>
+<p>The whole address bar, including its background, border and rounding.</p>
+<div data-mode=light hidden>
+<img src='light/urlbar.png' alt='Address bar container'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(255, 255, 255)"></span>background-color: rgb(255, 255, 255)</span><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>color: rgb(21, 20, 26)</span><span class=chip>border-radius: 10px</span><span class=chip>border-top-width: 1px</span><span class=chip><span class="sw" style="background:rgb(211, 219, 245)"></span>border-top-color: rgb(211, 219, 245)</span><span class=chip>font-size: 13.75px</span><span class=chip>height: 32px</span><span class=chip>opacity: 1</span></div>
+</div>
+<div data-mode=dark hidden>
+<img src='dark/urlbar.png' alt='Address bar container'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(26, 30, 43)"></span>background-color: rgb(26, 30, 43)</span><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>color: rgb(251, 251, 254)</span><span class=chip>border-radius: 10px</span><span class=chip>border-top-width: 1px</span><span class=chip><span class="sw" style="background:rgb(51, 59, 85)"></span>border-top-color: rgb(51, 59, 85)</span><span class=chip>font-size: 13.75px</span><span class=chip>height: 32px</span><span class=chip>opacity: 1</span></div>
+</div>
+<details><summary>2 rules in this repo</summary><table>
+<tr><td class=loc>chrome/userChrome.css:50</td><td class=src>#urlbar {</td></tr>
+<tr><td class=loc>chrome/userChrome.css:58</td><td class=src>#urlbar[focused] {</td></tr>
+</table></details>
+</div>
+<div class='card'>
+<h3>Address bar text field</h3>
+<div class=sel>#urlbar-input</div>
+<p>The editable text itself. Colour problems with typed URLs live here.</p>
+<div data-mode=light hidden>
+<img src='light/urlbar-input.png' alt='Address bar text field'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>color: rgb(21, 20, 26)</span><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>border-top-color: rgb(21, 20, 26)</span><span class=chip>font-size: 13.75px</span><span class=chip>height: 16.5px</span><span class=chip>opacity: 1</span></div>
+</div>
+<div data-mode=dark hidden>
+<img src='dark/urlbar-input.png' alt='Address bar text field'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>color: rgb(251, 251, 254)</span><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>border-top-color: rgb(251, 251, 254)</span><span class=chip>font-size: 13.75px</span><span class=chip>height: 16.5px</span><span class=chip>opacity: 1</span></div>
+</div>
+<details><summary>no rules in this repo target it</summary><p>Styled by Firefox defaults only.</p></details>
+</div>
+<div class='card'>
+<h3>Site identity block</h3>
+<div class=sel>#identity-box</div>
+<p>Padlock / permissions area at the left of the address bar.</p>
+<div data-mode=light hidden>
+<p class=sel>present but not visible in this layout</p>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>color: rgb(21, 20, 26)</span><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>border-top-color: rgb(21, 20, 26)</span><span class=chip>font-size: 13.75px</span><span class=chip>margin-inline-end: 6.1875px</span><span class=chip>height: 28px</span><span class=chip>opacity: 1</span></div>
+</div>
+<div data-mode=dark hidden>
+<p class=sel>present but not visible in this layout</p>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>color: rgb(251, 251, 254)</span><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>border-top-color: rgb(251, 251, 254)</span><span class=chip>font-size: 13.75px</span><span class=chip>margin-inline-end: 6.1875px</span><span class=chip>height: 28px</span><span class=chip>opacity: 1</span></div>
+</div>
+<details><summary>no rules in this repo target it</summary><p>Styled by Firefox defaults only.</p></details>
+</div>
+<div class='card'>
+<h3>Bookmark star</h3>
+<div class=sel>#star-button-box</div>
+<p>The bookmark-this-page control at the right of the address bar.</p>
+<div data-mode=light hidden>
+<img src='light/star-button.png' alt='Bookmark star'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>color: rgb(21, 20, 26)</span><span class=chip>border-radius: 7px</span><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>border-top-color: rgb(21, 20, 26)</span><span class=chip>font-size: 13.75px</span><span class=chip>height: 28px</span><span class=chip>opacity: 1</span></div>
+</div>
+<div data-mode=dark hidden>
+<img src='dark/star-button.png' alt='Bookmark star'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>color: rgb(251, 251, 254)</span><span class=chip>border-radius: 7px</span><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>border-top-color: rgb(251, 251, 254)</span><span class=chip>font-size: 13.75px</span><span class=chip>height: 28px</span><span class=chip>opacity: 1</span></div>
+</div>
+<details><summary>no rules in this repo target it</summary><p>Styled by Firefox defaults only.</p></details>
+</div>
+<div class='card'>
+<h3>Container identity label</h3>
+<div class=sel>#userContext-label</div>
+<p>Names the active tab&#x27;s container (e.g. Banking) inside the address bar.</p>
+<div data-mode=light hidden>
+<img src='light/container-label.png' alt='Container identity label'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(81, 205, 0)"></span>color: rgb(81, 205, 0)</span><span class=chip><span class="sw" style="background:rgb(81, 205, 0)"></span>border-top-color: rgb(81, 205, 0)</span><span class=chip>font-size: 13.75px</span><span class=chip>height: 16.5px</span><span class=chip>opacity: 1</span></div>
+</div>
+<div data-mode=dark hidden>
+<img src='dark/container-label.png' alt='Container identity label'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(81, 205, 0)"></span>color: rgb(81, 205, 0)</span><span class=chip><span class="sw" style="background:rgb(81, 205, 0)"></span>border-top-color: rgb(81, 205, 0)</span><span class=chip>font-size: 13.75px</span><span class=chip>height: 16.5px</span><span class=chip>opacity: 1</span></div>
+</div>
+<details><summary>no rules in this repo target it</summary><p>Styled by Firefox defaults only.</p></details>
+</div>
+<div class='card'>
+<h3>Address bar dropdown</h3>
+<div class=sel>#urlbar-results</div>
+<p>Suggestion list shown while typing. Rendered inside the window, so it is themeable.</p>
+<div data-mode=light hidden>
+<p class=sel>present but not visible in this layout</p>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>color: rgb(21, 20, 26)</span><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>border-top-color: rgb(21, 20, 26)</span><span class=chip>font-size: 13.75px</span><span class=chip>opacity: 1</span></div>
+</div>
+<div data-mode=dark hidden>
+<p class=sel>present but not visible in this layout</p>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>color: rgb(251, 251, 254)</span><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>border-top-color: rgb(251, 251, 254)</span><span class=chip>font-size: 13.75px</span><span class=chip>opacity: 1</span></div>
+</div>
+<details><summary>no rules in this repo target it</summary><p>Styled by Firefox defaults only.</p></details>
+</div>
+<h2>Tabs</h2>
+<div class='card'>
+<h3>Tab container</h3>
+<div class=sel>#tabbrowser-tabs</div>
+<p>Wraps every tab plus the new-tab button.</p>
+<div data-mode=light hidden>
+<img src='light/tabbrowser-tabs.png' alt='Tab container'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>color: rgb(21, 20, 26)</span><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>border-top-color: rgb(21, 20, 26)</span><span class=chip>font-size: 11px</span><span class=chip>height: 44px</span><span class=chip>opacity: 1</span></div>
+</div>
+<div data-mode=dark hidden>
+<img src='dark/tabbrowser-tabs.png' alt='Tab container'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>color: rgb(251, 251, 254)</span><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>border-top-color: rgb(251, 251, 254)</span><span class=chip>font-size: 11px</span><span class=chip>height: 44px</span><span class=chip>opacity: 1</span></div>
+</div>
+<details><summary>no rules in this repo target it</summary><p>Styled by Firefox defaults only.</p></details>
+</div>
+<div class='card'>
+<h3>Selected tab</h3>
+<div class=sel>.tabbrowser-tab[selected]</div>
+<p>The active tab. Most tab colour work targets this.</p>
+<div data-mode=light hidden>
+<img src='light/selected-tab.png' alt='Selected tab'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>color: rgb(21, 20, 26)</span><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>border-top-color: rgb(21, 20, 26)</span><span class=chip>font-size: 11px</span><span class=chip>height: 44px</span><span class=chip>opacity: 1</span></div>
+</div>
+<div data-mode=dark hidden>
+<img src='dark/selected-tab.png' alt='Selected tab'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>color: rgb(251, 251, 254)</span><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>border-top-color: rgb(251, 251, 254)</span><span class=chip>font-size: 11px</span><span class=chip>height: 44px</span><span class=chip>opacity: 1</span></div>
+</div>
+<details><summary>3 rules in this repo</summary><table>
+<tr><td class=loc>chrome/userChrome.css:69</td><td class=src>.tabbrowser-tab .tab-content {</td></tr>
+<tr><td class=loc>chrome/userChrome.css:73</td><td class=src>.tabbrowser-tab[selected] .tab-content {</td></tr>
+<tr><td class=loc>chrome/userChrome.css:80</td><td class=src>.tabbrowser-tab[selected] .tab-content::after {</td></tr>
+</table></details>
+</div>
+<div class='card'>
+<h3>Pinned tabs container</h3>
+<div class=sel>#pinned-tabs-container</div>
+<p>Holds pinned tabs; spacing here affects the join with normal tabs.</p>
+<div data-mode=light hidden>
+<img src='light/pinned-container.png' alt='Pinned tabs container'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>color: rgb(21, 20, 26)</span><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>border-top-color: rgb(21, 20, 26)</span><span class=chip>font-size: 11px</span><span class=chip>height: 44px</span><span class=chip>opacity: 1</span></div>
+</div>
+<div data-mode=dark hidden>
+<img src='dark/pinned-container.png' alt='Pinned tabs container'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>color: rgb(251, 251, 254)</span><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>border-top-color: rgb(251, 251, 254)</span><span class=chip>font-size: 11px</span><span class=chip>height: 44px</span><span class=chip>opacity: 1</span></div>
+</div>
+<details><summary>no rules in this repo target it</summary><p>Styled by Firefox defaults only.</p></details>
+</div>
+<div class='card'>
+<h3>Tab close button</h3>
+<div class=sel>.tab-close-button</div>
+<p>Per-tab close control. The install script can move it to the left.</p>
+<div data-mode=light hidden>
+<p class=sel>present but not visible in this layout</p>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>color: rgb(21, 20, 26)</span><span class=chip>border-radius: 5px</span><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>border-top-color: rgb(21, 20, 26)</span><span class=chip>font-size: 11px</span><span class=chip>padding-top: 6px</span><span class=chip>margin-inline-end: -4px</span><span class=chip>height: 24px</span><span class=chip>opacity: 1</span></div>
+</div>
+<div data-mode=dark hidden>
+<p class=sel>present but not visible in this layout</p>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>color: rgb(251, 251, 254)</span><span class=chip>border-radius: 5px</span><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>border-top-color: rgb(251, 251, 254)</span><span class=chip>font-size: 11px</span><span class=chip>padding-top: 6px</span><span class=chip>margin-inline-end: -4px</span><span class=chip>height: 24px</span><span class=chip>opacity: 1</span></div>
+</div>
+<details><summary>no rules in this repo target it</summary><p>Styled by Firefox defaults only.</p></details>
+</div>
+<div class='card'>
+<h3>New tab button</h3>
+<div class=sel>#tabs-newtab-button</div>
+<p>The + at the end of the tab strip.</p>
+<div data-mode=light hidden>
+<img src='light/newtab-button.png' alt='New tab button'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>color: rgb(21, 20, 26)</span><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>border-top-color: rgb(21, 20, 26)</span><span class=chip>font-size: 11px</span><span class=chip>height: 44px</span><span class=chip>opacity: 1</span></div>
+</div>
+<div data-mode=dark hidden>
+<img src='dark/newtab-button.png' alt='New tab button'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>color: rgb(251, 251, 254)</span><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>border-top-color: rgb(251, 251, 254)</span><span class=chip>font-size: 11px</span><span class=chip>height: 44px</span><span class=chip>opacity: 1</span></div>
+</div>
+<details><summary>no rules in this repo target it</summary><p>Styled by Firefox defaults only.</p></details>
+</div>
+<div class='card'>
+<h3>Tab audio button</h3>
+<div class=sel>.tab-audio-button</div>
+<p>Speaker / mute toggle shown on a tab that is playing sound.</p>
+<div data-mode=light hidden>
+<p class=sel>present but not visible in this layout</p>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>color: rgb(21, 20, 26)</span><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>border-top-color: rgb(21, 20, 26)</span><span class=chip>font-size: 11px</span><span class=chip>margin-inline-end: 5.5px</span><span class=chip>height: fit-content</span><span class=chip>opacity: 1</span></div>
+</div>
+<div data-mode=dark hidden>
+<p class=sel>present but not visible in this layout</p>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>color: rgb(251, 251, 254)</span><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>border-top-color: rgb(251, 251, 254)</span><span class=chip>font-size: 11px</span><span class=chip>margin-inline-end: 5.5px</span><span class=chip>height: fit-content</span><span class=chip>opacity: 1</span></div>
+</div>
+<details><summary>no rules in this repo target it</summary><p>Styled by Firefox defaults only.</p></details>
+</div>
+<div class='card'>
+<h3>Container tab</h3>
+<div class=sel>.tabbrowser-tab[usercontextid]</div>
+<p>A tab opened in a container, carrying its identity colour.</p>
+<div data-mode=light hidden>
+<img src='light/container-tab.png' alt='Container tab'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>color: rgb(21, 20, 26)</span><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>border-top-color: rgb(21, 20, 26)</span><span class=chip>font-size: 11px</span><span class=chip>height: 44px</span><span class=chip>opacity: 1</span></div>
+</div>
+<div data-mode=dark hidden>
+<img src='dark/container-tab.png' alt='Container tab'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>color: rgb(251, 251, 254)</span><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>border-top-color: rgb(251, 251, 254)</span><span class=chip>font-size: 11px</span><span class=chip>height: 44px</span><span class=chip>opacity: 1</span></div>
+</div>
+<details><summary>3 rules in this repo</summary><table>
+<tr><td class=loc>chrome/userChrome.css:69</td><td class=src>.tabbrowser-tab .tab-content {</td></tr>
+<tr><td class=loc>chrome/userChrome.css:73</td><td class=src>.tabbrowser-tab[selected] .tab-content {</td></tr>
+<tr><td class=loc>chrome/userChrome.css:80</td><td class=src>.tabbrowser-tab[selected] .tab-content::after {</td></tr>
+</table></details>
+</div>
+<h2>Toolbar buttons</h2>
+<div class='card'>
+<h3>Back button</h3>
+<div class=sel>#back-button</div>
+<p>Navigation back.</p>
+<div data-mode=light hidden>
+<img src='light/back-button.png' alt='Back button'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(27, 31, 42)"></span>color: rgb(27, 31, 42)</span><span class=chip><span class="sw" style="background:rgb(27, 31, 42)"></span>border-top-color: rgb(27, 31, 42)</span><span class=chip>font-size: 11px</span><span class=chip>height: 42px</span><span class=chip>opacity: 0.5</span></div>
+</div>
+<div data-mode=dark hidden>
+<img src='dark/back-button.png' alt='Back button'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(238, 241, 248)"></span>color: rgb(238, 241, 248)</span><span class=chip><span class="sw" style="background:rgb(238, 241, 248)"></span>border-top-color: rgb(238, 241, 248)</span><span class=chip>font-size: 11px</span><span class=chip>height: 42px</span><span class=chip>opacity: 0.5</span></div>
+</div>
+<details><summary>no rules in this repo target it</summary><p>Styled by Firefox defaults only.</p></details>
+</div>
+<div class='card'>
+<h3>Reload button</h3>
+<div class=sel>#reload-button</div>
+<p>Reload / stop.</p>
+<div data-mode=light hidden>
+<img src='light/reload-button.png' alt='Reload button'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(27, 31, 42)"></span>color: rgb(27, 31, 42)</span><span class=chip><span class="sw" style="background:rgb(27, 31, 42)"></span>border-top-color: rgb(27, 31, 42)</span><span class=chip>font-size: 11px</span><span class=chip>height: 42px</span><span class=chip>opacity: 1</span></div>
+</div>
+<div data-mode=dark hidden>
+<img src='dark/reload-button.png' alt='Reload button'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(238, 241, 248)"></span>color: rgb(238, 241, 248)</span><span class=chip><span class="sw" style="background:rgb(238, 241, 248)"></span>border-top-color: rgb(238, 241, 248)</span><span class=chip>font-size: 11px</span><span class=chip>height: 42px</span><span class=chip>opacity: 1</span></div>
+</div>
+<details><summary>no rules in this repo target it</summary><p>Styled by Firefox defaults only.</p></details>
+</div>
+<div class='card'>
+<h3>Firefox View button</h3>
+<div class=sel>#firefox-view-button</div>
+<p>The leftmost control on the tab strip.</p>
+<div data-mode=light hidden>
+<img src='light/firefox-view.png' alt='Firefox View button'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>color: rgb(21, 20, 26)</span><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>border-top-color: rgb(21, 20, 26)</span><span class=chip>font-size: 11px</span><span class=chip>height: 44px</span><span class=chip>opacity: 1</span></div>
+</div>
+<div data-mode=dark hidden>
+<img src='dark/firefox-view.png' alt='Firefox View button'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>color: rgb(251, 251, 254)</span><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>border-top-color: rgb(251, 251, 254)</span><span class=chip>font-size: 11px</span><span class=chip>height: 44px</span><span class=chip>opacity: 1</span></div>
+</div>
+<details><summary>no rules in this repo target it</summary><p>Styled by Firefox defaults only.</p></details>
+</div>
+<div class='card'>
+<h3>App menu button</h3>
+<div class=sel>#PanelUI-menu-button</div>
+<p>The hamburger. Its panel is a native OS window and cannot be screenshotted.</p>
+<div data-mode=light hidden>
+<img src='light/appmenu-button.png' alt='App menu button'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(27, 31, 42)"></span>color: rgb(27, 31, 42)</span><span class=chip><span class="sw" style="background:rgb(27, 31, 42)"></span>border-top-color: rgb(27, 31, 42)</span><span class=chip>font-size: 11px</span><span class=chip>height: 42px</span><span class=chip>opacity: 1</span></div>
+</div>
+<div data-mode=dark hidden>
+<img src='dark/appmenu-button.png' alt='App menu button'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(238, 241, 248)"></span>color: rgb(238, 241, 248)</span><span class=chip><span class="sw" style="background:rgb(238, 241, 248)"></span>border-top-color: rgb(238, 241, 248)</span><span class=chip>font-size: 11px</span><span class=chip>height: 42px</span><span class=chip>opacity: 1</span></div>
+</div>
+<details><summary>no rules in this repo target it</summary><p>Styled by Firefox defaults only.</p></details>
+</div>
+<div class='card'>
+<h3>Extensions button</h3>
+<div class=sel>#unified-extensions-button</div>
+<p>Unified extensions control.</p>
+<div data-mode=light hidden>
+<img src='light/extensions-button.png' alt='Extensions button'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(27, 31, 42)"></span>color: rgb(27, 31, 42)</span><span class=chip><span class="sw" style="background:rgb(27, 31, 42)"></span>border-top-color: rgb(27, 31, 42)</span><span class=chip>font-size: 11px</span><span class=chip>height: 42px</span><span class=chip>opacity: 1</span></div>
+</div>
+<div data-mode=dark hidden>
+<img src='dark/extensions-button.png' alt='Extensions button'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(238, 241, 248)"></span>color: rgb(238, 241, 248)</span><span class=chip><span class="sw" style="background:rgb(238, 241, 248)"></span>border-top-color: rgb(238, 241, 248)</span><span class=chip>font-size: 11px</span><span class=chip>height: 42px</span><span class=chip>opacity: 1</span></div>
+</div>
+<details><summary>no rules in this repo target it</summary><p>Styled by Firefox defaults only.</p></details>
+</div>
+<div class='card'>
+<h3>Account button</h3>
+<div class=sel>#fxa-toolbar-menu-button</div>
+<p>Firefox Account menu.</p>
+<div data-mode=light hidden>
+<img src='light/account-button.png' alt='Account button'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(27, 31, 42)"></span>color: rgb(27, 31, 42)</span><span class=chip><span class="sw" style="background:rgb(27, 31, 42)"></span>border-top-color: rgb(27, 31, 42)</span><span class=chip>font-size: 11px</span><span class=chip>height: 42px</span><span class=chip>opacity: 1</span></div>
+</div>
+<div data-mode=dark hidden>
+<img src='dark/account-button.png' alt='Account button'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(238, 241, 248)"></span>color: rgb(238, 241, 248)</span><span class=chip><span class="sw" style="background:rgb(238, 241, 248)"></span>border-top-color: rgb(238, 241, 248)</span><span class=chip>font-size: 11px</span><span class=chip>height: 42px</span><span class=chip>opacity: 1</span></div>
+</div>
+<details><summary>no rules in this repo target it</summary><p>Styled by Firefox defaults only.</p></details>
+</div>
+<h2>Find bar</h2>
+<div class='card'>
+<h3>Find bar</h3>
+<div class=sel>findbar</div>
+<p>Docked at the bottom of the content area when you press Ctrl/Cmd+F.</p>
+<div data-mode=light hidden>
+<img src='light/findbar.png' alt='Find bar'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(234, 238, 251)"></span>background-color: rgb(234, 238, 251)</span><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>color: rgb(21, 20, 26)</span><span class=chip>border-top-width: 1px</span><span class=chip><span class="sw" style="background:rgb(211, 219, 245)"></span>border-top-color: rgb(211, 219, 245)</span><span class=chip>font-size: 11px</span><span class=chip>padding-top: 6px</span><span class=chip>height: 41px</span><span class=chip>opacity: 1</span></div>
+</div>
+<div data-mode=dark hidden>
+<img src='dark/findbar.png' alt='Find bar'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(35, 40, 58)"></span>background-color: rgb(35, 40, 58)</span><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>color: rgb(251, 251, 254)</span><span class=chip>border-top-width: 1px</span><span class=chip><span class="sw" style="background:rgb(51, 59, 85)"></span>border-top-color: rgb(51, 59, 85)</span><span class=chip>font-size: 11px</span><span class=chip>padding-top: 6px</span><span class=chip>height: 41px</span><span class=chip>opacity: 1</span></div>
+</div>
+<details><summary>1 rule in this repo</summary><table>
+<tr><td class=loc>chrome/userChrome.css:92</td><td class=src>findbar {</td></tr>
+</table></details>
+</div>
+<h2>Content</h2>
+<div class='card'>
+<h3>Content area</h3>
+<div class=sel>#browser</div>
+<p>Where the page renders. Styled by userContent.css rather than userChrome.css.</p>
+<div data-mode=light hidden>
+<img src='light/browser-stack.png' alt='Content area'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(249, 249, 251)"></span>background-color: rgb(249, 249, 251)</span><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>color: rgb(21, 20, 26)</span><span class=chip><span class="sw" style="background:rgb(21, 20, 26)"></span>border-top-color: rgb(21, 20, 26)</span><span class=chip>font-size: 11px</span><span class=chip>height: 363.5px</span><span class=chip>opacity: 1</span></div>
+</div>
+<div data-mode=dark hidden>
+<img src='dark/browser-stack.png' alt='Content area'>
+<div class=styles><span class=chip><span class="sw" style="background:rgb(43, 42, 51)"></span>background-color: rgb(43, 42, 51)</span><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>color: rgb(251, 251, 254)</span><span class=chip><span class="sw" style="background:rgb(251, 251, 254)"></span>border-top-color: rgb(251, 251, 254)</span><span class=chip>font-size: 11px</span><span class=chip>height: 363.5px</span><span class=chip>opacity: 1</span></div>
+</div>
+<details><summary>no rules in this repo target it</summary><p>Styled by Firefox defaults only.</p></details>
+</div>
+</div><script>
+function showMode(m) {
+  document.querySelectorAll('[data-mode]').forEach(function (el) {
+    el.hidden = el.dataset.mode !== m;
+  });
+  document.querySelectorAll('.tabs button').forEach(function (b) {
+    b.setAttribute('aria-selected', String(b.dataset.set === m));
+  });
+}
+document.addEventListener('DOMContentLoaded', function () { showMode('light'); });
+</script>
