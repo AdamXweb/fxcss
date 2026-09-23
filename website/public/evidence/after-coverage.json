@@ -1,0 +1,82 @@
+{
+  "format": 1,
+  "browser": {
+    "version": "153.0.4",
+    "buildID": "20260810162159",
+    "os": "Darwin",
+    "dpr": 2,
+    "outer": [
+      1280,
+      480
+    ],
+    "legacyStylesheets": true,
+    "nativeContextMenus": {
+      "macos": true,
+      "gtk": false,
+      "windows": null
+    },
+    "audioIndicators": "controlled playing and muted tab attributes"
+  },
+  "views": {
+    "light-01-window": {
+      "status": "captured"
+    },
+    "light-02-urlbar": {
+      "status": "captured"
+    },
+    "light-03-findbar": {
+      "status": "captured"
+    },
+    "light-04-dialog": {
+      "status": "captured"
+    },
+    "dark-01-window": {
+      "status": "captured"
+    },
+    "dark-02-urlbar": {
+      "status": "captured"
+    },
+    "dark-03-findbar": {
+      "status": "captured"
+    },
+    "dark-04-dialog": {
+      "status": "captured"
+    },
+    "extra-04-audio": {
+      "status": "captured"
+    },
+    "extra-05-muted": {
+      "status": "captured"
+    },
+    "extra-06-containers": {
+      "status": "captured"
+    },
+    "extra-07-many-tabs": {
+      "status": "captured"
+    },
+    "extra-08-private": {
+      "status": "captured"
+    },
+    "extra-09-compact": {
+      "status": "captured"
+    },
+    "extra-10-sidebar-bookmarks": {
+      "status": "captured"
+    },
+    "extra-11-sidebar-history": {
+      "status": "captured"
+    },
+    "extra-12-rtl": {
+      "status": "captured"
+    },
+    "extra-13-customize": {
+      "status": "captured"
+    },
+    "extra-14-vertical-tabs": {
+      "status": "captured"
+    },
+    "extra-15-toolbar": {
+      "status": "captured"
+    }
+  }
+}

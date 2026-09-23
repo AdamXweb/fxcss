@@ -1,0 +1,1287 @@
+{
+  "info": {
+    "version": "153.0.4",
+    "buildID": "20260810162159",
+    "os": "Darwin",
+    "dpr": 2,
+    "outer": [
+      1280,
+      480
+    ],
+    "legacyStylesheets": true,
+    "nativeContextMenus": {
+      "macos": true,
+      "gtk": false,
+      "windows": null
+    }
+  },
+  "entries": [
+    {
+      "area": "Toolbars",
+      "slug": "nav-bar",
+      "selector": "#nav-bar",
+      "name": "Navigation toolbar",
+      "description": "The main toolbar holding back/forward, the address bar and the right-hand buttons.",
+      "references": [
+        {
+          "file": "chrome/userChrome.css",
+          "line": 35,
+          "text": "#nav-bar,"
+        }
+      ],
+      "modes": {
+        "light": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgb(234, 238, 251)",
+            "color": "rgb(27, 31, 42)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(224, 224, 224)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "43px",
+            "opacity": "1"
+          },
+          "shot": "light/nav-bar.png",
+          "tag": "toolbar"
+        },
+        "dark": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgb(35, 40, 58)",
+            "color": "rgb(238, 241, 248)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(143, 143, 157)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "43px",
+            "opacity": "1"
+          },
+          "shot": "dark/nav-bar.png",
+          "tag": "toolbar"
+        }
+      }
+    },
+    {
+      "area": "Toolbars",
+      "slug": "tabs-toolbar",
+      "selector": "#TabsToolbar",
+      "name": "Tab strip toolbar",
+      "description": "Container for the row of tabs. Themes often move or restyle this whole strip.",
+      "references": [
+        {
+          "file": "chrome/userChrome.css",
+          "line": 65,
+          "text": "#TabsToolbar {"
+        }
+      ],
+      "modes": {
+        "light": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgb(234, 238, 251)",
+            "color": "rgb(21, 20, 26)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(21, 20, 26)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "44px",
+            "opacity": "1"
+          },
+          "shot": "light/tabs-toolbar.png",
+          "tag": "toolbar"
+        },
+        "dark": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgb(35, 40, 58)",
+            "color": "rgb(251, 251, 254)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(251, 251, 254)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "44px",
+            "opacity": "1"
+          },
+          "shot": "dark/tabs-toolbar.png",
+          "tag": "toolbar"
+        }
+      }
+    },
+    {
+      "area": "Toolbars",
+      "slug": "personal-toolbar",
+      "selector": "#PersonalToolbar",
+      "name": "Bookmarks toolbar",
+      "description": "The bookmarks bar, shown here with three sample bookmarks.",
+      "references": [
+        {
+          "file": "chrome/userChrome.css",
+          "line": 36,
+          "text": "#PersonalToolbar {"
+        }
+      ],
+      "modes": {
+        "light": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgb(234, 238, 251)",
+            "color": "rgb(27, 31, 42)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(27, 31, 42)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "29px",
+            "opacity": "1"
+          },
+          "shot": "light/personal-toolbar.png",
+          "tag": "toolbar"
+        },
+        "dark": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgb(35, 40, 58)",
+            "color": "rgb(238, 241, 248)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(238, 241, 248)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "29px",
+            "opacity": "1"
+          },
+          "shot": "dark/personal-toolbar.png",
+          "tag": "toolbar"
+        }
+      }
+    },
+    {
+      "area": "Toolbars",
+      "slug": "toolbar-menubar",
+      "selector": "#toolbar-menubar",
+      "name": "Menu bar",
+      "description": "Hidden by default on macOS; on Windows this is the File/Edit/View strip.",
+      "references": [],
+      "modes": {
+        "light": {
+          "found": true,
+          "visible": false,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(21, 20, 26)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(21, 20, 26)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "0px",
+            "opacity": "1"
+          },
+          "shot": null,
+          "tag": "toolbar"
+        },
+        "dark": {
+          "found": true,
+          "visible": false,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(251, 251, 254)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(251, 251, 254)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "0px",
+            "opacity": "1"
+          },
+          "shot": null,
+          "tag": "toolbar"
+        }
+      }
+    },
+    {
+      "area": "Address bar",
+      "slug": "urlbar",
+      "selector": "#urlbar",
+      "name": "Address bar container",
+      "description": "The whole address bar, including its background, border and rounding.",
+      "references": [
+        {
+          "file": "chrome/userChrome.css",
+          "line": 50,
+          "text": "#urlbar {"
+        },
+        {
+          "file": "chrome/userChrome.css",
+          "line": 58,
+          "text": "#urlbar[focused] {"
+        }
+      ],
+      "modes": {
+        "light": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgb(255, 255, 255)",
+            "color": "rgb(21, 20, 26)",
+            "border-radius": "10px",
+            "border-top-width": "1px",
+            "border-top-color": "rgb(211, 219, 245)",
+            "box-shadow": "none",
+            "font-size": "13.75px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "32px",
+            "opacity": "1"
+          },
+          "shot": "light/urlbar.png",
+          "tag": "moz-urlbar"
+        },
+        "dark": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgb(26, 30, 43)",
+            "color": "rgb(251, 251, 254)",
+            "border-radius": "10px",
+            "border-top-width": "1px",
+            "border-top-color": "rgb(51, 59, 85)",
+            "box-shadow": "none",
+            "font-size": "13.75px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "32px",
+            "opacity": "1"
+          },
+          "shot": "dark/urlbar.png",
+          "tag": "moz-urlbar"
+        }
+      }
+    },
+    {
+      "area": "Address bar",
+      "slug": "urlbar-input",
+      "selector": "#urlbar-input",
+      "name": "Address bar text field",
+      "description": "The editable text itself. Colour problems with typed URLs live here.",
+      "references": [],
+      "modes": {
+        "light": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(21, 20, 26)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(21, 20, 26)",
+            "box-shadow": "none",
+            "font-size": "13.75px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "16.5px",
+            "opacity": "1"
+          },
+          "shot": "light/urlbar-input.png",
+          "tag": "input"
+        },
+        "dark": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(251, 251, 254)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(251, 251, 254)",
+            "box-shadow": "none",
+            "font-size": "13.75px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "16.5px",
+            "opacity": "1"
+          },
+          "shot": "dark/urlbar-input.png",
+          "tag": "input"
+        }
+      }
+    },
+    {
+      "area": "Address bar",
+      "slug": "identity-box",
+      "selector": "#identity-box",
+      "name": "Site identity block",
+      "description": "Padlock / permissions area at the left of the address bar.",
+      "references": [],
+      "modes": {
+        "light": {
+          "found": true,
+          "visible": false,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(21, 20, 26)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(21, 20, 26)",
+            "box-shadow": "none",
+            "font-size": "13.75px",
+            "padding-top": "0px",
+            "margin-inline-end": "6.1875px",
+            "height": "28px",
+            "opacity": "1"
+          },
+          "shot": null,
+          "tag": "box"
+        },
+        "dark": {
+          "found": true,
+          "visible": false,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(251, 251, 254)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(251, 251, 254)",
+            "box-shadow": "none",
+            "font-size": "13.75px",
+            "padding-top": "0px",
+            "margin-inline-end": "6.1875px",
+            "height": "28px",
+            "opacity": "1"
+          },
+          "shot": null,
+          "tag": "box"
+        }
+      }
+    },
+    {
+      "area": "Address bar",
+      "slug": "star-button",
+      "selector": "#star-button-box",
+      "name": "Bookmark star",
+      "description": "The bookmark-this-page control at the right of the address bar.",
+      "references": [],
+      "modes": {
+        "light": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(21, 20, 26)",
+            "border-radius": "7px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(21, 20, 26)",
+            "box-shadow": "none",
+            "font-size": "13.75px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "28px",
+            "opacity": "1"
+          },
+          "shot": "light/star-button.png",
+          "tag": "hbox"
+        },
+        "dark": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(251, 251, 254)",
+            "border-radius": "7px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(251, 251, 254)",
+            "box-shadow": "none",
+            "font-size": "13.75px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "28px",
+            "opacity": "1"
+          },
+          "shot": "dark/star-button.png",
+          "tag": "hbox"
+        }
+      }
+    },
+    {
+      "area": "Address bar",
+      "slug": "container-label",
+      "selector": "#userContext-label",
+      "name": "Container identity label",
+      "description": "Names the active tab's container (e.g. Banking) inside the address bar.",
+      "references": [],
+      "modes": {
+        "light": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(81, 205, 0)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(81, 205, 0)",
+            "box-shadow": "none",
+            "font-size": "13.75px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "16.5px",
+            "opacity": "1"
+          },
+          "shot": "light/container-label.png",
+          "tag": "label"
+        },
+        "dark": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(81, 205, 0)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(81, 205, 0)",
+            "box-shadow": "none",
+            "font-size": "13.75px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "16.5px",
+            "opacity": "1"
+          },
+          "shot": "dark/container-label.png",
+          "tag": "label"
+        }
+      }
+    },
+    {
+      "area": "Address bar",
+      "slug": "urlbar-results",
+      "selector": "#urlbar-results",
+      "name": "Address bar dropdown",
+      "description": "Suggestion list shown while typing. Rendered inside the window, so it is themeable.",
+      "references": [],
+      "modes": {
+        "light": {
+          "found": true,
+          "visible": false,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(21, 20, 26)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(21, 20, 26)",
+            "box-shadow": "none",
+            "font-size": "13.75px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "auto",
+            "opacity": "1"
+          },
+          "shot": null,
+          "tag": "div"
+        },
+        "dark": {
+          "found": true,
+          "visible": false,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(251, 251, 254)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(251, 251, 254)",
+            "box-shadow": "none",
+            "font-size": "13.75px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "auto",
+            "opacity": "1"
+          },
+          "shot": null,
+          "tag": "div"
+        }
+      }
+    },
+    {
+      "area": "Tabs",
+      "slug": "tabbrowser-tabs",
+      "selector": "#tabbrowser-tabs",
+      "name": "Tab container",
+      "description": "Wraps every tab plus the new-tab button.",
+      "references": [],
+      "modes": {
+        "light": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(21, 20, 26)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(21, 20, 26)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "44px",
+            "opacity": "1"
+          },
+          "shot": "light/tabbrowser-tabs.png",
+          "tag": "tabs"
+        },
+        "dark": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(251, 251, 254)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(251, 251, 254)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "44px",
+            "opacity": "1"
+          },
+          "shot": "dark/tabbrowser-tabs.png",
+          "tag": "tabs"
+        }
+      }
+    },
+    {
+      "area": "Tabs",
+      "slug": "selected-tab",
+      "selector": ".tabbrowser-tab[selected]",
+      "name": "Selected tab",
+      "description": "The active tab. Most tab colour work targets this.",
+      "references": [
+        {
+          "file": "chrome/userChrome.css",
+          "line": 69,
+          "text": ".tabbrowser-tab .tab-content {"
+        },
+        {
+          "file": "chrome/userChrome.css",
+          "line": 73,
+          "text": ".tabbrowser-tab[selected] .tab-content {"
+        },
+        {
+          "file": "chrome/userChrome.css",
+          "line": 80,
+          "text": ".tabbrowser-tab[selected] .tab-content::after {"
+        }
+      ],
+      "modes": {
+        "light": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(21, 20, 26)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(21, 20, 26)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "44px",
+            "opacity": "1"
+          },
+          "shot": "light/selected-tab.png",
+          "tag": "tab"
+        },
+        "dark": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(251, 251, 254)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(251, 251, 254)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "44px",
+            "opacity": "1"
+          },
+          "shot": "dark/selected-tab.png",
+          "tag": "tab"
+        }
+      }
+    },
+    {
+      "area": "Tabs",
+      "slug": "pinned-container",
+      "selector": "#pinned-tabs-container",
+      "name": "Pinned tabs container",
+      "description": "Holds pinned tabs; spacing here affects the join with normal tabs.",
+      "references": [],
+      "modes": {
+        "light": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(21, 20, 26)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(21, 20, 26)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "44px",
+            "opacity": "1"
+          },
+          "shot": "light/pinned-container.png",
+          "tag": "arrowscrollbox"
+        },
+        "dark": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(251, 251, 254)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(251, 251, 254)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "44px",
+            "opacity": "1"
+          },
+          "shot": "dark/pinned-container.png",
+          "tag": "arrowscrollbox"
+        }
+      }
+    },
+    {
+      "area": "Tabs",
+      "slug": "tab-close",
+      "selector": ".tab-close-button",
+      "name": "Tab close button",
+      "description": "Per-tab close control. The install script can move it to the left.",
+      "references": [],
+      "modes": {
+        "light": {
+          "found": true,
+          "visible": false,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(21, 20, 26)",
+            "border-radius": "5px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(21, 20, 26)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "6px",
+            "margin-inline-end": "-4px",
+            "height": "24px",
+            "opacity": "1"
+          },
+          "shot": null,
+          "tag": "image"
+        },
+        "dark": {
+          "found": true,
+          "visible": false,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(251, 251, 254)",
+            "border-radius": "5px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(251, 251, 254)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "6px",
+            "margin-inline-end": "-4px",
+            "height": "24px",
+            "opacity": "1"
+          },
+          "shot": null,
+          "tag": "image"
+        }
+      }
+    },
+    {
+      "area": "Tabs",
+      "slug": "newtab-button",
+      "selector": "#tabs-newtab-button",
+      "name": "New tab button",
+      "description": "The + at the end of the tab strip.",
+      "references": [],
+      "modes": {
+        "light": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(21, 20, 26)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(21, 20, 26)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "44px",
+            "opacity": "1"
+          },
+          "shot": "light/newtab-button.png",
+          "tag": "toolbarbutton"
+        },
+        "dark": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(251, 251, 254)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(251, 251, 254)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "44px",
+            "opacity": "1"
+          },
+          "shot": "dark/newtab-button.png",
+          "tag": "toolbarbutton"
+        }
+      }
+    },
+    {
+      "area": "Tabs",
+      "slug": "tab-audio",
+      "selector": ".tab-audio-button",
+      "name": "Tab audio button",
+      "description": "Speaker / mute toggle shown on a tab that is playing sound.",
+      "references": [],
+      "modes": {
+        "light": {
+          "found": true,
+          "visible": false,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(21, 20, 26)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(21, 20, 26)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "5.5px",
+            "height": "fit-content",
+            "opacity": "1"
+          },
+          "shot": null,
+          "tag": "moz-button"
+        },
+        "dark": {
+          "found": true,
+          "visible": false,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(251, 251, 254)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(251, 251, 254)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "5.5px",
+            "height": "fit-content",
+            "opacity": "1"
+          },
+          "shot": null,
+          "tag": "moz-button"
+        }
+      }
+    },
+    {
+      "area": "Tabs",
+      "slug": "container-tab",
+      "selector": ".tabbrowser-tab[usercontextid]",
+      "name": "Container tab",
+      "description": "A tab opened in a container, carrying its identity colour.",
+      "references": [
+        {
+          "file": "chrome/userChrome.css",
+          "line": 69,
+          "text": ".tabbrowser-tab .tab-content {"
+        },
+        {
+          "file": "chrome/userChrome.css",
+          "line": 73,
+          "text": ".tabbrowser-tab[selected] .tab-content {"
+        },
+        {
+          "file": "chrome/userChrome.css",
+          "line": 80,
+          "text": ".tabbrowser-tab[selected] .tab-content::after {"
+        }
+      ],
+      "modes": {
+        "light": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(21, 20, 26)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(21, 20, 26)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "44px",
+            "opacity": "1"
+          },
+          "shot": "light/container-tab.png",
+          "tag": "tab"
+        },
+        "dark": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(251, 251, 254)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(251, 251, 254)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "44px",
+            "opacity": "1"
+          },
+          "shot": "dark/container-tab.png",
+          "tag": "tab"
+        }
+      }
+    },
+    {
+      "area": "Toolbar buttons",
+      "slug": "back-button",
+      "selector": "#back-button",
+      "name": "Back button",
+      "description": "Navigation back.",
+      "references": [],
+      "modes": {
+        "light": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(27, 31, 42)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(27, 31, 42)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "42px",
+            "opacity": "0.5"
+          },
+          "shot": "light/back-button.png",
+          "tag": "toolbarbutton"
+        },
+        "dark": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(238, 241, 248)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(238, 241, 248)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "42px",
+            "opacity": "0.5"
+          },
+          "shot": "dark/back-button.png",
+          "tag": "toolbarbutton"
+        }
+      }
+    },
+    {
+      "area": "Toolbar buttons",
+      "slug": "reload-button",
+      "selector": "#reload-button",
+      "name": "Reload button",
+      "description": "Reload / stop.",
+      "references": [],
+      "modes": {
+        "light": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(27, 31, 42)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(27, 31, 42)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "42px",
+            "opacity": "1"
+          },
+          "shot": "light/reload-button.png",
+          "tag": "toolbarbutton"
+        },
+        "dark": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(238, 241, 248)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(238, 241, 248)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "42px",
+            "opacity": "1"
+          },
+          "shot": "dark/reload-button.png",
+          "tag": "toolbarbutton"
+        }
+      }
+    },
+    {
+      "area": "Toolbar buttons",
+      "slug": "firefox-view",
+      "selector": "#firefox-view-button",
+      "name": "Firefox View button",
+      "description": "The leftmost control on the tab strip.",
+      "references": [],
+      "modes": {
+        "light": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(21, 20, 26)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(21, 20, 26)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "44px",
+            "opacity": "1"
+          },
+          "shot": "light/firefox-view.png",
+          "tag": "toolbarbutton"
+        },
+        "dark": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(251, 251, 254)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(251, 251, 254)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "44px",
+            "opacity": "1"
+          },
+          "shot": "dark/firefox-view.png",
+          "tag": "toolbarbutton"
+        }
+      }
+    },
+    {
+      "area": "Toolbar buttons",
+      "slug": "appmenu-button",
+      "selector": "#PanelUI-menu-button",
+      "name": "App menu button",
+      "description": "The hamburger. Its panel is a native OS window and cannot be screenshotted.",
+      "references": [],
+      "modes": {
+        "light": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(27, 31, 42)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(27, 31, 42)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "42px",
+            "opacity": "1"
+          },
+          "shot": "light/appmenu-button.png",
+          "tag": "toolbarbutton"
+        },
+        "dark": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(238, 241, 248)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(238, 241, 248)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "42px",
+            "opacity": "1"
+          },
+          "shot": "dark/appmenu-button.png",
+          "tag": "toolbarbutton"
+        }
+      }
+    },
+    {
+      "area": "Toolbar buttons",
+      "slug": "extensions-button",
+      "selector": "#unified-extensions-button",
+      "name": "Extensions button",
+      "description": "Unified extensions control.",
+      "references": [],
+      "modes": {
+        "light": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(27, 31, 42)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(27, 31, 42)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "42px",
+            "opacity": "1"
+          },
+          "shot": "light/extensions-button.png",
+          "tag": "toolbarbutton"
+        },
+        "dark": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(238, 241, 248)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(238, 241, 248)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "42px",
+            "opacity": "1"
+          },
+          "shot": "dark/extensions-button.png",
+          "tag": "toolbarbutton"
+        }
+      }
+    },
+    {
+      "area": "Toolbar buttons",
+      "slug": "account-button",
+      "selector": "#fxa-toolbar-menu-button",
+      "name": "Account button",
+      "description": "Firefox Account menu.",
+      "references": [],
+      "modes": {
+        "light": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(27, 31, 42)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(27, 31, 42)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "42px",
+            "opacity": "1"
+          },
+          "shot": "light/account-button.png",
+          "tag": "toolbarbutton"
+        },
+        "dark": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgba(0, 0, 0, 0)",
+            "color": "rgb(238, 241, 248)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(238, 241, 248)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "42px",
+            "opacity": "1"
+          },
+          "shot": "dark/account-button.png",
+          "tag": "toolbarbutton"
+        }
+      }
+    },
+    {
+      "area": "Find bar",
+      "slug": "findbar",
+      "selector": "findbar",
+      "name": "Find bar",
+      "description": "Docked at the bottom of the content area when you press Ctrl/Cmd+F.",
+      "references": [
+        {
+          "file": "chrome/userChrome.css",
+          "line": 92,
+          "text": "findbar {"
+        }
+      ],
+      "modes": {
+        "light": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgb(234, 238, 251)",
+            "color": "rgb(21, 20, 26)",
+            "border-radius": "0px",
+            "border-top-width": "1px",
+            "border-top-color": "rgb(211, 219, 245)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "6px",
+            "margin-inline-end": "0px",
+            "height": "41px",
+            "opacity": "1"
+          },
+          "shot": "light/findbar.png",
+          "tag": "findbar"
+        },
+        "dark": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgb(35, 40, 58)",
+            "color": "rgb(251, 251, 254)",
+            "border-radius": "0px",
+            "border-top-width": "1px",
+            "border-top-color": "rgb(51, 59, 85)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "6px",
+            "margin-inline-end": "0px",
+            "height": "41px",
+            "opacity": "1"
+          },
+          "shot": "dark/findbar.png",
+          "tag": "findbar"
+        }
+      }
+    },
+    {
+      "area": "Content",
+      "slug": "browser-stack",
+      "selector": "#browser",
+      "name": "Content area",
+      "description": "Where the page renders. Styled by userContent.css rather than userChrome.css.",
+      "references": [],
+      "modes": {
+        "light": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgb(249, 249, 251)",
+            "color": "rgb(21, 20, 26)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(21, 20, 26)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "363.5px",
+            "opacity": "1"
+          },
+          "shot": "light/browser-stack.png",
+          "tag": "hbox"
+        },
+        "dark": {
+          "found": true,
+          "visible": true,
+          "styles": {
+            "background-color": "rgb(43, 42, 51)",
+            "color": "rgb(251, 251, 254)",
+            "border-radius": "0px",
+            "border-top-width": "0px",
+            "border-top-color": "rgb(251, 251, 254)",
+            "box-shadow": "none",
+            "font-size": "11px",
+            "padding-top": "0px",
+            "margin-inline-end": "0px",
+            "height": "363.5px",
+            "opacity": "1"
+          },
+          "shot": "dark/browser-stack.png",
+          "tag": "hbox"
+        }
+      }
+    }
+  ]
+}

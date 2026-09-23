@@ -1,0 +1,66 @@
+name: Website
+
+on:
+  pull_request:
+    paths: ['website/**', 'README.md', 'fxcss/__init__.py', 'pyproject.toml', '.github/workflows/website.yml']
+  push:
+    branches: [main]
+    paths: ['website/**', 'README.md', 'fxcss/__init__.py', 'pyproject.toml', '.github/workflows/website.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Ensure ShellCheck is available
+        run: |
+          if ! command -v shellcheck >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y shellcheck
+          fi
+      - run: npm ci
+      - run: npm run content
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: bash -n public/install.sh && shellcheck public/install.sh
+      - run: npm run test:installer
+      - run: npm audit --audit-level=moderate
+      - run: npm run build
+      - name: Verify the production server
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+        run: |
+          set -euo pipefail
+          npm start -- --ip 127.0.0.1 --port 4318 --log-level error >"$RUNNER_TEMP/website.log" 2>&1 &
+          preview_pid=$!
+          trap 'kill "$preview_pid" 2>/dev/null || true' EXIT
+          ready=false
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1:4318/ >/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != true ]; then
+            cat "$RUNNER_TEMP/website.log"
+            exit 1
+          fi
+          node scripts/check-site.mjs http://127.0.0.1:4318
