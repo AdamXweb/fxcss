@@ -18,7 +18,8 @@ def expected_views(variants=(), modes=("light", "dark")):
             + [f"variant-{slug}" for slug in sorted(variants)])
 
 
-def write_coverage(directory, info, expected, unsupported=None, failed=None):
+def write_coverage(directory, info, expected, unsupported=None, failed=None,
+                   interrupted=False):
     unsupported, failed = unsupported or {}, failed or {}
     views = {}
     for name in expected:
@@ -28,6 +29,9 @@ def write_coverage(directory, info, expected, unsupported=None, failed=None):
             views[name] = {"status": "captured"}
         elif name in unsupported:
             views[name] = {"status": "unsupported", "reason": unsupported[name]}
+        elif interrupted:
+            views[name] = {"status": "not_completed",
+                           "reason": "capture stopped before this view completed"}
         else:
             views[name] = {"status": "failed", "reason": "expected view was not captured"}
     report = {"format": 1, "browser": info, "views": views}

@@ -1359,9 +1359,9 @@ def _dialog_shot(session: "Session", outdir: Path, name: str, timeout=45.0):
         print(f"  note: {name} timed out; skipping that view", flush=True)
         return
     if result.get("skip"):
-        print(f"  note: {result['skip']}; skipping {name}", flush=True)
         if result["skip"] == "no in-window modal prompts on this Firefox":
             return "no in-window modal prompts"
+        print(f"  note: {result['skip']}; skipping {name}", flush=True)
         return
     png = base64.b64decode(result["shot"].split(",", 1)[1])
     if len(png) < 2000:
@@ -1381,11 +1381,16 @@ def capture_views(session: Session, outdir: Path, modes=("light", "dark"),
         if path.stem in capture.expected_views() or capture.VARIANT.fullmatch(path.stem):
             path.unlink()
     coverage = {"info": {}, "unsupported": {}, "failed": {}}
+    interrupted = False
     try:
         info = _capture_views(session, outdir, modes, variants, toolbar, coverage)
+    except KeyboardInterrupt:
+        interrupted = True
+        raise
     finally:
         capture.write_coverage(outdir, coverage["info"], expected,
-                               coverage["unsupported"], coverage["failed"])
+                               coverage["unsupported"], coverage["failed"],
+                               interrupted=interrupted)
     capture.validate_coverage(outdir, expected)
     return info
 
@@ -1439,7 +1444,9 @@ def _capture_views(session: Session, outdir: Path, modes=("light", "dark"),
         # _shot -- no Marionette command may run while the dialog is up.
         unsupported = _dialog_shot(session, outdir, f"{mode}-04-dialog")
         if unsupported:
-            coverage["unsupported"][f"{mode}-04-dialog"] = unsupported
+            name = f"{mode}-04-dialog"
+            coverage["unsupported"][name] = unsupported
+            print(f"  unsupported {name}: {unsupported}", flush=True)
 
     # Extra chrome states, captured once rather than per colour scheme: each is
     # about a distinct piece of UI appearing, not about light versus dark.
@@ -1574,8 +1581,10 @@ def _capture_views(session: Session, outdir: Path, modes=("light", "dark"),
             version = re.match(r"\d+", str(info.get("version", "")))
             if version and int(version[0]) < 133:
                 coverage["unsupported"]["extra-14-vertical-tabs"] = "Firefox before 133"
-            print("  note: vertical tabs unavailable on this Firefox "
-                  "(needs 133+); skipping that view", flush=True)
+                print("  unsupported extra-14-vertical-tabs: Firefox before 133", flush=True)
+            else:
+                print("  note: vertical tabs unavailable on this Firefox "
+                      "(needs 133+); skipping that view", flush=True)
 
     with Session(session.repo, session.firefox) as tb:
         tb.setup_window()

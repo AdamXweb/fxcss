@@ -10,7 +10,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from . import capture, core, __version__
+from . import capture, compare, core, __version__
 from .fetch import VARIANT_DIRS
 
 
@@ -127,7 +127,12 @@ class CaptureProgress:
             if line.startswith("  captured "):
                 self.count += 1
                 name = line.removeprefix("  captured ").split(".png", 1)[0]
-                print(f"  capture {self.count}/{self.total}: {name}",
+                print(f"  view {self.count}/{self.total}: {name} captured",
+                      file=self.terminal, flush=True)
+            elif line.startswith("  unsupported "):
+                self.count += 1
+                name, _, reason = line.removeprefix("  unsupported ").partition(": ")
+                print(f"  view {self.count}/{self.total}: {name} unsupported ({reason})",
                       file=self.terminal, flush=True)
             elif line.startswith(("  note:", "  warning:")):
                 print(line, file=self.terminal, flush=True)
@@ -167,6 +172,30 @@ def result_label(result):
     if result.get("comparison_note") == "no baseline configured":
         return "passed; visual comparison not run"
     return "passed"
+
+
+def environment_label(info):
+    """Describe a capture with the fields that explain visual differences."""
+    if not isinstance(info, dict):
+        return "unknown environment"
+    label = f"Firefox {info.get('version', 'unknown')} on {info.get('os', 'unknown')}"
+    details = []
+    if info.get("dpr") is not None:
+        details.append(f"DPR {info['dpr']}")
+    outer = info.get("outer")
+    if isinstance(outer, (list, tuple)) and len(outer) == 2:
+        details.append(f"window {outer[0]}×{outer[1]}")
+    return label + (f" ({', '.join(details)})" if details else "")
+
+
+def environment_differences(baseline, current):
+    if not isinstance(baseline, dict) or not isinstance(current, dict):
+        return []
+    fields = (("version", "Firefox version"), ("os", "OS"),
+              ("dpr", "DPR"), ("outer", "window size"))
+    return [label for key, label in fields
+            if baseline.get(key) is not None and current.get(key) is not None
+            and baseline[key] != current[key]]
 
 
 BASELINE_MARKER = ".fxcss-baseline.json"
@@ -237,21 +266,37 @@ def write_report(directory, settings, results, status, baseline_updated):
     for result in results:
         label = result["firefox"].replace("|", "\\|").replace("<", "&lt;")
         lines += [f"## {label}", "", f"Result: **{result_label(result)}**", ""]
-        info = result.get("render_info", {})
-        if info:
-            lines += [f"Firefox {info.get('version', 'unknown')} on {info.get('os', 'unknown')}", ""]
         key = result["key"]
         audit_code = result.get("audit_exit_code")
         audit_state = "not completed" if audit_code is None else ("passed", "findings", "error")[audit_code]
         coverage = result.get("coverage", {}).get("views", {})
+        info = result.get("render_info") or result.get("coverage", {}).get("browser", {})
+        baseline_info = result.get("baseline_info")
+        if baseline_info is not None:
+            lines += [f"Baseline: {environment_label(baseline_info)}  ",
+                      f"Current: {environment_label(info)}", ""]
+            differences = environment_differences(baseline_info, info or {})
+            if differences:
+                lines += ["Capture environments differ in " + ", ".join(differences)
+                          + "; consider this when reviewing visual changes.", ""]
+        elif info:
+            lines += [environment_label(info), ""]
         captured_count = sum(isinstance(v, dict) and v.get("status") == "captured"
                              for v in coverage.values())
+        unfinished_count = sum(isinstance(v, dict) and v.get("status") == "not_completed"
+                               for v in coverage.values())
+        partial_counts = [f"{captured_count} captured"]
+        if unfinished_count:
+            partial_counts.append(f"{unfinished_count} unfinished")
         capture_state = "complete" if result.get("captured") else (
-            f"partial ({captured_count} captured)" if captured_count else "not completed")
+            f"partial ({', '.join(partial_counts)})"
+            if captured_count or unfinished_count else "not completed")
         lines += [f"Selector audit: **{audit_state}**", "",
                   f"Screenshot capture: **{capture_state}**", ""]
         if result.get("error"):
             lines += ["Error: " + result["error"].replace("<", "&lt;"), ""]
+        if unfinished_count:
+            lines += [f"{unfinished_count} views did not finish before the interruption.", ""]
         coverage_path = directory / key / "shots" / capture.REPORT
         if coverage_path.is_file():
             lines += [f"- [Screenshot coverage]({key}/shots/{capture.REPORT})"]
@@ -264,9 +309,17 @@ def write_report(directory, settings, results, status, baseline_updated):
                 lines.append(f"- [{name}]({key}/{name})")
         if (directory / key / "fix.diff").exists():
             lines.append(f"- [Suggested selector patch]({key}/fix.diff)")
-        if any((directory / key / "shots").glob("*.png")):
-            partial = " (partial)" if not result.get("captured") else ""
-            lines += [f"- [Browser captures{partial}]({key}/shots/)", ""]
+        image_paths = {path.stem: path for path in (directory / key / "shots").glob("*.png")}
+        images = [image_paths.pop(name) for name in coverage if name in image_paths]
+        images += sorted(image_paths.values())
+        if images:
+            partial = ", partial run" if not result.get("captured") else ""
+            lines += [f"Captured views ({len(images)}{partial}):", ""]
+            for path in images:
+                title, mode = compare.title_for(path.stem)
+                label = f"{title} ({mode})" if mode in ("light", "dark") else title
+                lines += [f"- [{label} (`{path.stem}`)]({key}/shots/{path.name})"]
+            lines.append("")
         if "comparison" in result:
             summary = result["comparison"]
             advisory = (summary["any_change"] and result["exit_code"] == 0)
@@ -358,7 +411,13 @@ def run(args):
             result["coverage"] = capture.validate_coverage(dest / "shots", expected)
             compare._captures(dest / "shots")
             result["captured"] = True
-            print(f"  screenshot capture: complete ({progress.count} captured)", flush=True)
+            view_states = [view["status"] for view in result["coverage"]["views"].values()]
+            captured_count = view_states.count("captured")
+            unsupported_count = view_states.count("unsupported")
+            summary = f"{len(view_states)}/{len(expected)} views accounted for; {captured_count} captured"
+            if unsupported_count:
+                summary += f", {unsupported_count} unsupported"
+            print(f"  screenshot capture: complete ({summary})", flush=True)
             info = dest / "shots/render-info.json"
             if info.exists():
                 result["render_info"] = json.loads(info.read_text(encoding="utf-8"))
@@ -371,7 +430,7 @@ def run(args):
             else:
                 phase = "visual comparison"
                 print("  visual comparison: running", flush=True)
-                capture.validate_coverage(baseline / key)
+                result["baseline_info"] = capture.validate_coverage(baseline / key)["browser"]
                 with (dest / "comparison.txt").open("w", encoding="utf-8") as log:
                     with contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
                         code = compare.run(baseline / key, dest / "shots", dest / "diff", browser)
