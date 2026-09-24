@@ -1,4 +1,4 @@
-import { SiteHeader } from '../components/site-chrome';
+import { SiteHeader, Footer } from '../components/site-chrome';
 import { DocsFrame } from '../components/docs-navigation';
 import content from '../../content/docs.json';
 export default function DocsLayout({
@@ -22,6 +22,7 @@ export default function DocsLayout({
       <DocsFrame pages={pages} version={content.version}>
         {children}
       </DocsFrame>
+      <Footer />
     </div>
   );
 }
