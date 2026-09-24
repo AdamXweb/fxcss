@@ -37,8 +37,17 @@ for (const route of routes) {
   );
   const csp = response.headers.get('content-security-policy');
   assert.ok(csp?.includes("object-src 'none'"), `${route}: production CSP`);
+  assert.ok(
+    csp.includes('https://queue.simpleanalyticscdn.com'),
+    `${route}: analytics collection allowed by CSP`,
+  );
   const nonce = csp.match(/'nonce-([^']+)'/)?.[1];
   assert.ok(nonce, `${route}: script nonce`);
+  assert.match(
+    html,
+    /<script\b[^>]*src="https:\/\/scripts\.simpleanalyticscdn\.com\/latest\.js"[^>]*>/,
+    `${route}: Simple Analytics script`,
+  );
   for (const match of html.matchAll(/<script\b([^>]*)>/g)) {
     assert.ok(
       match[1].includes(`nonce="${nonce}"`),
