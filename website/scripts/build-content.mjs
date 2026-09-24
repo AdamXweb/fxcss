@@ -108,10 +108,31 @@ const docs = [];
 for (const page of pages) {
   const codes = [];
   const headings = [];
+  const search = [];
+  const searchText = (html) =>
+    sanitizeHtml(html.replace(/<\/(?:p|li|div|tr|h[1-6])>/g, ' '), {
+      allowedTags: [],
+      allowedAttributes: {},
+    })
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/\s+/g, ' ')
+      .trim();
+  const addPassage = (html, id) => {
+    const text = searchText(html);
+    if (!text) return null;
+    const passageId = id || `passage-${search.length + 1}`;
+    search.push({ id: passageId, text });
+    return passageId;
+  };
   const renderer = new Renderer();
   renderer.code = ({ text, lang }) => {
     const index = codes.push(text) - 1;
-    return `<div class="doc-code"><div class="doc-code-header"><span>${esc(lang || 'example')}</span><button type="button" data-copy-index="${index}" aria-label="Copy code example ${index + 1}">Copy</button></div><pre><code>${esc(text)}</code></pre></div>`;
+    const id = addPassage(esc(text));
+    return `<div class="doc-code" id="${id}"><div class="doc-code-header"><span>${esc(lang || 'example')}</span><button type="button" data-copy-index="${index}" aria-label="Copy code example ${index + 1}">Copy</button></div><pre><code>${esc(text)}</code></pre></div>`;
   };
   const seen = new Map();
   renderer.heading = function (token) {
@@ -122,7 +143,24 @@ for (const page of pages) {
     const id = n ? `${base}-${n}` : base;
     const level = Math.max(2, token.depth - 2);
     headings.push({ id, text });
-    return `<h${level} id="${id}">${this.parser.parseInline(token.tokens)}</h${level}>`;
+    const inline = this.parser.parseInline(token.tokens);
+    addPassage(inline, id);
+    return `<h${level} id="${id}">${inline}</h${level}>`;
+  };
+  renderer.paragraph = function (token) {
+    const inline = this.parser.parseInline(token.tokens);
+    const id = addPassage(inline);
+    return `<p${id ? ` id="${id}"` : ''}>${inline}</p>`;
+  };
+  renderer.listitem = function (token) {
+    const item = this.parser.parse(token.tokens);
+    const id = addPassage(item);
+    return `<li${id ? ` id="${id}"` : ''}>${item}</li>`;
+  };
+  renderer.table = function (token) {
+    const table = Renderer.prototype.table.call(this, token);
+    const id = addPassage(table);
+    return table.replace('<table>', `<table id="${id}">`);
   };
   renderer.link = function (token) {
     const href = linkHref(token.href);
@@ -177,7 +215,10 @@ for (const page of pages) {
     },
     allowedSchemes: ['http', 'https', 'mailto'],
     transformTags: {
-      table: () => ({ tagName: 'table', attribs: { class: 'doc-table' } }),
+      table: (_tagName, attribs) => ({
+        tagName: 'table',
+        attribs: { class: 'doc-table', id: attribs.id },
+      }),
     },
   });
   const description = markdown
@@ -197,6 +238,7 @@ for (const page of pages) {
     html,
     codes,
     headings,
+    search,
     sourceAnchor: page.anchor,
   });
 }

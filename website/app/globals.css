@@ -1464,6 +1464,41 @@ html {
   color: #66718a;
   padding: 8px;
 }
+.docs-search-result {
+  display: block;
+  padding: 11px 9px;
+  border-bottom: 1px solid #e0e5ef;
+  border-radius: 4px;
+}
+.docs-search-result:hover,
+.docs-search-result:focus-visible {
+  background: #e9eef7;
+}
+.docs-search-result-title,
+.docs-search-result-excerpt,
+.docs-search-result-chapter {
+  display: block;
+}
+.docs-search-result-title {
+  color: #344566;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.docs-search-result-excerpt {
+  color: #596a84;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  margin-top: 4px;
+}
+.docs-search-result-chapter {
+  color: #6d7b91;
+  font-size: 0.6875rem;
+  margin-top: 5px;
+}
+.docs-search-result mark {
+  color: #4433a7;
+  background: #e5e0ff;
+}
 .mobile-docs-nav {
   display: none;
 }
@@ -1516,6 +1551,14 @@ html {
   line-height: 1.8;
   color: #50627e;
   overflow-wrap: break-word;
+}
+.doc-body [id] {
+  scroll-margin-top: 120px;
+}
+.doc-body :target {
+  outline: 2px solid #aaa0eb;
+  outline-offset: 5px;
+  border-radius: 4px;
 }
 .doc-body h2,
 .doc-body h3,
