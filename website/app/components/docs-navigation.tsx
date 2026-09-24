@@ -1,19 +1,43 @@
-"use client";
-import { useState } from "react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { Search, X, ChevronDown } from "lucide-react";
-import { Sidebar, SidebarProvider } from "@/components/ui/sidebar";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
-export type NavPage = {
-  slug: string;
-  title: string;
-  description: string;
-  chapter: string;
-  group: string;
-};
+'use client';
+import { useState } from 'react';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { Search, X, ChevronDown } from 'lucide-react';
+import { Sidebar, SidebarProvider } from '@/components/ui/sidebar';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import {
+  Collapsible,
+  CollapsibleTrigger,
+  CollapsibleContent,
+} from '@/components/ui/collapsible';
+import { searchDocs, type SearchableDoc } from '@/lib/docs-search';
+export type NavPage = SearchableDoc;
+
+function Highlight({ text, query }: { text: string; query: string }) {
+  const terms = [
+    ...new Set(
+      query
+        .trim()
+        .split(/\s+/)
+        .map((term) => term.toLocaleLowerCase()),
+    ),
+  ]
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length);
+  if (!terms.length) return text;
+  const escaped = terms.map((term) =>
+    term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+  );
+  const parts = text.split(new RegExp(`(${escaped.join('|')})`, 'gi'));
+  return parts.map((part, index) =>
+    terms.includes(part.toLocaleLowerCase()) ? (
+      <mark key={index}>{part}</mark>
+    ) : (
+      part
+    ),
+  );
+}
 export function DocsFrame({
   pages,
   version,
@@ -24,11 +48,10 @@ export function DocsFrame({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
-  const matches = pages.filter((p) =>
-    `${p.title} ${p.description} ${p.chapter}`.toLowerCase().includes(query.toLowerCase().trim()),
-  );
+  const searching = Boolean(query.trim());
+  const matches = searchDocs(pages, query);
   const groups = [...new Set(pages.map((p) => p.chapter))];
   const nav = (
     <nav aria-label="Documentation">
@@ -45,7 +68,7 @@ export function DocsFrame({
             variant="ghost"
             size="icon-sm"
             aria-label="Clear search"
-            onClick={() => setQuery("")}
+            onClick={() => setQuery('')}
           >
             <X size={15} />
           </Button>
@@ -53,48 +76,71 @@ export function DocsFrame({
       </label>
       <Link
         href="/docs"
-        className={`getting-started ${pathname === "/docs" ? "selected" : ""}`}
-        aria-current={pathname === "/docs" ? "page" : undefined}
+        className={`getting-started ${pathname === '/docs' ? 'selected' : ''}`}
+        aria-current={pathname === '/docs' ? 'page' : undefined}
         onClick={() => setOpen(false)}
       >
         Getting started
       </Link>
-      {query && (
+      {searching && (
         <output className="search-count">
-          {matches.length} matching {matches.length === 1 ? "page" : "pages"}
+          {matches.length} matching {matches.length === 1 ? 'page' : 'pages'}
         </output>
       )}
-      <div className="command-navigation">
-        {groups.map((group) => {
-          const list = matches.filter((p) => p.chapter === group);
-          if (!list.length) return null;
-          return (
+      {searching ? (
+        <div className="docs-search-results">
+          {matches.map(({ page, href, excerpt }) => (
+            <Link
+              href={href}
+              key={page.slug}
+              className="docs-search-result"
+              onClick={() => setOpen(false)}
+            >
+              <span className="docs-search-result-title">
+                <Highlight text={page.title} query={query} />
+              </span>
+              <span className="docs-search-result-excerpt">
+                <Highlight text={excerpt} query={query} />
+              </span>
+              <span className="docs-search-result-chapter">{page.chapter}</span>
+            </Link>
+          ))}
+          {matches.length === 0 && (
+            <output className="no-results">
+              No matching pages. Try a command or a shorter phrase.
+            </output>
+          )}
+        </div>
+      ) : (
+        <div className="command-navigation">
+          {groups.map((group) => (
             <section className="nav-group" key={group}>
               <h2>{group}</h2>
-              {list.map((p) => (
-                <Link
-                  href={`/docs/${p.slug}`}
-                  key={p.slug}
-                  className={`guide-command ${pathname === `/docs/${p.slug}` ? "selected" : ""}`}
-                  aria-current={pathname === `/docs/${p.slug}` ? "page" : undefined}
-                  onClick={() => setOpen(false)}
-                >
-                  {p.group === "command" ? (
-                    <code>{p.title.replace("fxcss ", "")}</code>
-                  ) : p.title === group ? (
-                    "Overview"
-                  ) : (
-                    p.title
-                  )}
-                </Link>
-              ))}
+              {pages
+                .filter((p) => p.chapter === group)
+                .map((p) => (
+                  <Link
+                    href={`/docs/${p.slug}`}
+                    key={p.slug}
+                    className={`guide-command ${pathname === `/docs/${p.slug}` ? 'selected' : ''}`}
+                    aria-current={
+                      pathname === `/docs/${p.slug}` ? 'page' : undefined
+                    }
+                    onClick={() => setOpen(false)}
+                  >
+                    {p.group === 'command' ? (
+                      <code>{p.title.replace('fxcss ', '')}</code>
+                    ) : p.title === group ? (
+                      'Overview'
+                    ) : (
+                      p.title
+                    )}
+                  </Link>
+                ))}
             </section>
-          );
-        })}
-        {matches.length === 0 && (
-          <output className="no-results">No matching pages. Try “theme” or “capture”.</output>
-        )}
-      </div>
+          ))}
+        </div>
+      )}
       <div className="docs-version">Documentation for fxcss {version}</div>
     </nav>
   );
@@ -102,7 +148,11 @@ export function DocsFrame({
     <SidebarProvider className="guide-layout">
       <Sidebar collapsible="none" className="guide-sidebar">
         <div className="desktop-docs-nav">{nav}</div>
-        <Collapsible open={open} onOpenChange={setOpen} className="mobile-docs-nav">
+        <Collapsible
+          open={open}
+          onOpenChange={setOpen}
+          className="mobile-docs-nav"
+        >
           <CollapsibleTrigger className="mobile-nav-trigger">
             Browse documentation <ChevronDown size={17} />
           </CollapsibleTrigger>

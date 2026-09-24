@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
+import { searchDocs } from '../lib/docs-search.ts';
 const read = (p) => fs.readFileSync(new URL(p, import.meta.url));
 const docs = JSON.parse(read('../content/docs.json'));
 const manifest = JSON.parse(read('../public/evidence/manifest.json'));
@@ -35,6 +36,11 @@ test('generated documentation has valid local links, assets, and code controls',
   for (const page of docs.pages) {
     assert.ok(page.html.trim(), page.slug);
     assert.doesNotMatch(page.html, /<script\b|\son\w+=|href="javascript:/i);
+    assert.equal(new Set(page.search.map((passage) => passage.id)).size, page.search.length);
+    for (const passage of page.search) {
+      assert.ok(passage.text.trim(), `${page.slug}: empty search passage`);
+      assert.ok(page.html.includes(`id="${passage.id}"`), `${page.slug}: ${passage.id}`);
+    }
     const indices = [...page.html.matchAll(/data-copy-index="(\d+)"/g)].map(
       (m) => Number(m[1]),
     );
@@ -54,6 +60,25 @@ test('generated documentation has valid local links, assets, and code controls',
         );
     }
   }
+});
+test('full-text search finds command options and links to their passage', () => {
+  const results = searchDocs(docs.pages, '--profile');
+  assert.ok(results.length >= 2);
+  assert.equal(results[0].page.slug, 'install');
+  assert.match(results[0].excerpt, /--profile/i);
+  for (const { page, href } of results) {
+    const anchor = href.split('#')[1];
+    assert.ok(anchor, href);
+    assert.ok(page.search.some((passage) => passage.id === anchor));
+    assert.ok(page.html.includes(`id="${anchor}"`));
+  }
+  assert.ok(
+    searchDocs(docs.pages, 'Firefox profile').some(
+      ({ page }) => page.slug === 'install',
+    ),
+  );
+  assert.equal(searchDocs(docs.pages, 'no such command').length, 0);
+  assert.equal(searchDocs(docs.pages, 'unfindable-command-option').length, 0);
 });
 test('screenshot assets match the recorded evidence without pixel edits', () => {
   assert.deepEqual(JSON.parse(read('../content/evidence.json')), manifest);
