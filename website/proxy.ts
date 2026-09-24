@@ -15,11 +15,11 @@ export function proxy(request: NextRequest) {
   const nonce = crypto.randomUUID().replaceAll('-', '');
   const csp = [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://scripts.simpleanalyticscdn.com`,
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data:",
+    "img-src 'self' data: https://queue.simpleanalyticscdn.com",
     "font-src 'self'",
-    "connect-src 'self'",
+    "connect-src 'self' https://queue.simpleanalyticscdn.com",
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'none'",
