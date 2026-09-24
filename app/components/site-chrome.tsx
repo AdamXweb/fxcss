@@ -41,27 +41,52 @@ export function SiteHeader({ docs = false }: { docs?: boolean }) {
 }
 export function Footer() {
   return (
-    <footer className="site-footer content-width">
-      <nav aria-label="Project links">
-        <a href={REPO} rel="noopener">Source</a>
-        <a href={`${REPO}/issues`} rel="noopener">Report a bug</a>
-        <a href={`${REPO}/releases`} rel="noopener">Releases</a>
-        <a href="https://github.com/adamXbot/.github/blob/main/STATUS.md" rel="noopener">
-          Project status
-        </a>
-        <a href={`${REPO}/blob/main/LICENSE`} rel="noopener">MIT licence</a>
-      </nav>
-      <p>
-        © {new Date().getUTCFullYear()}{' '}
-        <a href="https://adam.kostarelas.com" rel="me">Adam Kostarelas</a>.
-        {' '}One of the apps at{' '}
-        <a href="https://adamxweb.com/">adamxweb.com</a>.
-      </p>
-      <nav className="footer-site-links" aria-label="Site links">
-        <Link href="/docs">Documentation</Link>
-        <a href="https://adamxweb.com/contact" rel="noopener">Contact</a>
-      </nav>
-      <p className="footer-note">No cookies or analytics on this site.</p>
+    <footer className="site-footer">
+      <div className="content-width">
+        <div className="footer-main">
+          <div className="footer-intro">
+            <Brand />
+            <p>Made for people who make Firefox their own.</p>
+          </div>
+          <nav aria-label="Product links">
+            <h2>Product</h2>
+            <Link href="/docs">Documentation</Link>
+            <Link href="/docs/installation">Install</Link>
+            <Link href="/docs/screenshot-evidence">Screenshot evidence</Link>
+          </nav>
+          <nav aria-label="Source and community">
+            <h2>Source &amp; community</h2>
+            <a href={REPO} rel="noopener">Source code</a>
+            <a href={`${REPO}/issues`} rel="noopener">Report a bug</a>
+            <a href={`${REPO}/releases`} rel="noopener">Releases</a>
+            <a href={`${REPO}/blob/main/LICENSE`} rel="noopener">MIT licence</a>
+            <a href="https://adamxweb.com/contact" rel="noopener">Contact</a>
+          </nav>
+        </div>
+        <div className="footer-credit">
+          <p>
+            © {new Date().getUTCFullYear()} fxcss · made by{' '}
+            <a
+              className="footer-maker"
+              href="https://github.com/AdamXweb"
+              rel="me noopener"
+              aria-label="adamxweb on GitHub"
+            >
+              <Image
+                unoptimized
+                src="/assets/adamxweb-avatar.jpg"
+                width={16}
+                height={16}
+                alt=""
+              />
+              adamxweb
+            </a>
+            {' '}· One of the apps at{' '}
+            <a href="https://adamxweb.com/">adamxweb.com</a>.
+          </p>
+          <p>No cookies or analytics on this site.</p>
+        </div>
+      </div>
     </footer>
   );
 }
