@@ -402,19 +402,23 @@ class SessionCleanupTests(unittest.TestCase):
         self.assertIsNone(session.proc)
         self.assertIsNone(session.m)
 
-    def test_persistent_missing_document_stops_after_one_restart_and_cleans_up(self):
-        from unittest.mock import Mock
+    def test_persistent_missing_document_stops_after_bounded_restarts_and_cleans_up(self):
+        from unittest.mock import Mock, patch
         from fxcss import core
-        session = core.Session.__new__(core.Session)
-        session._start_browser = Mock()
-        session._stop_browser = Mock()
-        session._wait_for_initial_document = Mock(side_effect=core.BrowserStartupError("no document"))
-        session.__exit__ = Mock()
-        with self.assertRaisesRegex(core.BrowserStartupError, "no document"):
-            session.__enter__()
-        self.assertEqual(session._start_browser.call_count, 2)
-        self.assertEqual(session._stop_browser.call_count, 2)
-        session.__exit__.assert_called_once_with()
+        for platform, attempts in (("linux", 2), ("win32", 3)):
+            with self.subTest(platform=platform):
+                session = core.Session.__new__(core.Session)
+                session._start_browser = Mock()
+                session._stop_browser = Mock()
+                session._wait_for_initial_document = Mock(
+                    side_effect=core.BrowserStartupError("no document"))
+                session.__exit__ = Mock()
+                with patch.object(core.sys, "platform", platform):
+                    with self.assertRaisesRegex(core.BrowserStartupError, "no document"):
+                        session.__enter__()
+                self.assertEqual(session._start_browser.call_count, attempts)
+                self.assertEqual(session._stop_browser.call_count, attempts)
+                session.__exit__.assert_called_once_with()
 
     def test_unrelated_startup_error_is_cleaned_up_without_retry(self):
         from unittest.mock import Mock
@@ -433,9 +437,23 @@ class SessionCleanupTests(unittest.TestCase):
         session = core.Session.__new__(core.Session)
         session.m = Mock()
         session.m.script.return_value = {"ready": False, "document": None}
-        with patch.object(core.time, "monotonic", side_effect=[0, 6]):
+        with patch.object(core.sys, "platform", "linux"), patch.object(
+                core.time, "monotonic", side_effect=[0, 6]):
             with self.assertRaisesRegex(core.BrowserStartupError, "initial page document.*None"):
                 session._wait_for_initial_document()
+
+    def test_windows_initial_document_gets_more_time(self):
+        from unittest.mock import Mock, patch
+        from fxcss import core
+        session = core.Session.__new__(core.Session)
+        session.m = Mock()
+        session.m.script.return_value = {"ready": False, "document": None}
+        with patch.object(core.sys, "platform", "win32"), patch.object(
+                core.time, "monotonic", side_effect=[0, 6, 21]), patch.object(
+                core.time, "sleep"):
+            with self.assertRaisesRegex(core.BrowserStartupError, "in 20s"):
+                session._wait_for_initial_document()
+        self.assertEqual(session.m.script.call_count, 2)
 
 
 class SessionSetupTests(unittest.TestCase):

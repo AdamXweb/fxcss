@@ -86,6 +86,58 @@ class WorkflowBehaviorTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("no pixel difference", result.stdout)
 
+    def test_website_changes_skip_expensive_ci_for_pushes_and_pull_requests(self):
+        ci = (Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text()
+        body = script(ci, "Identify website-only changes")
+        repo = self.root / "scope"
+        repo.mkdir()
+
+        def git(*args):
+            result = subprocess.run(["git", *args], cwd=repo, check=True,
+                                    capture_output=True, text=True)
+            return result.stdout.strip()
+
+        git("init")
+        git("config", "user.name", "CI test")
+        git("config", "user.email", "ci@example.invalid")
+        (repo / "website").mkdir()
+        (repo / "fxcss").mkdir()
+        (repo / "README.md").write_text("before")
+        (repo / "website/index.html").write_text("before")
+        (repo / "fxcss/core.py").write_text("before")
+        git("add", ".")
+        git("commit", "-m", "base")
+        base = git("rev-parse", "HEAD")
+
+        (repo / "README.md").write_text("website documentation")
+        (repo / "website/index.html").write_text("website update")
+        git("add", ".")
+        git("commit", "-m", "website")
+        site = git("rev-parse", "HEAD")
+
+        (repo / "fxcss/core.py").write_text("toolkit update")
+        git("add", ".")
+        git("commit", "-m", "toolkit")
+        toolkit = git("rev-parse", "HEAD")
+
+        output = self.root / "ci-scope-output"
+
+        def scope(event, before, head):
+            output.write_text("")
+            env = dict(os.environ, EVENT_NAME=event, PR_BASE=before,
+                       PR_HEAD=head, PUSH_BASE=before, PUSH_HEAD=head,
+                       RUNNER_TEMP=str(self.root), GITHUB_OUTPUT=str(output))
+            result = subprocess.run(["bash", "-c", body], cwd=repo,
+                                    env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return output.read_text().strip()
+
+        self.assertEqual(scope("pull_request", base, site), "full=false")
+        self.assertEqual(scope("push", base, site), "full=false")
+        self.assertEqual(scope("pull_request", base, toolkit), "full=true")
+        self.assertEqual(scope("push", site, toolkit), "full=true")
+        self.assertEqual(scope("workflow_call", base, site), "full=true")
+
     @unittest.skipUnless(shutil.which("bash"), "publishing requires bash")
     def test_publishing_keeps_crops_and_full_images(self):
         bindir = self.root / "bin"

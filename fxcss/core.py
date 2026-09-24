@@ -458,15 +458,18 @@ class Session:
         self._window_ready = False
 
     def __enter__(self):
+        # Windows can connect Marionette before its first content process is
+        # ready. Give that process time, then try a fresh launch if it stalls.
+        attempts = 3 if sys.platform == "win32" else 2
         try:
-            for attempt in range(2):
+            for attempt in range(attempts):
                 self._start_browser()
                 try:
                     self._wait_for_initial_document()
                     return self
                 except BrowserStartupError as exc:
                     self._stop_browser()
-                    if attempt:
+                    if attempt == attempts - 1:
                         raise
                     print(f"  note: {exc}; restarting the temporary Firefox process",
                           flush=True)
@@ -517,11 +520,13 @@ class Session:
                     proc.kill()
                 proc.wait(timeout=5)
 
-    def _wait_for_initial_document(self, timeout=5):
+    def _wait_for_initial_document(self, timeout=None):
         # A Windows startup can leave every browser connected but without a
         # WindowGlobal or child process. Its chrome accepts commands, yet new
         # tabs never load. Detect this before adding fixture tabs so startup
         # can retry with a fresh process and the same prepared theme profile.
+        if timeout is None:
+            timeout = 20 if sys.platform == "win32" else 5
         deadline = time.monotonic() + timeout
         while True:
             state = self.m.script(INITIAL_DOCUMENT_STATE)
