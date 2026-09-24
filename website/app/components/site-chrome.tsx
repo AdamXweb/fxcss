@@ -42,11 +42,26 @@ export function SiteHeader({ docs = false }: { docs?: boolean }) {
 export function Footer() {
   return (
     <footer className="site-footer content-width">
-      <Brand />
-      <span>Made for people who make Firefox their own.</span>
-      <a href={`${REPO}/blob/main/LICENSE`} target="_blank" rel="noreferrer">
-        MIT licensed <ArrowUpRight size={14} />
-      </a>
+      <nav aria-label="Project links">
+        <a href={REPO} rel="noopener">Source</a>
+        <a href={`${REPO}/issues`} rel="noopener">Report a bug</a>
+        <a href={`${REPO}/releases`} rel="noopener">Releases</a>
+        <a href="https://github.com/adamXbot/.github/blob/main/STATUS.md" rel="noopener">
+          Project status
+        </a>
+        <a href={`${REPO}/blob/main/LICENSE`} rel="noopener">MIT licence</a>
+      </nav>
+      <p>
+        © {new Date().getUTCFullYear()}{' '}
+        <a href="https://adam.kostarelas.com" rel="me">Adam Kostarelas</a>.
+        {' '}One of the apps at{' '}
+        <a href="https://adamxweb.com/">adamxweb.com</a>.
+      </p>
+      <nav className="footer-site-links" aria-label="Site links">
+        <Link href="/docs">Documentation</Link>
+        <a href="https://adamxweb.com/contact" rel="noopener">Contact</a>
+      </nav>
+      <p className="footer-note">No cookies or analytics on this site.</p>
     </footer>
   );
 }
