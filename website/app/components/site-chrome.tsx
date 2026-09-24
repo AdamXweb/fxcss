@@ -82,7 +82,7 @@ export function Footer() {
               adamxweb
             </a>
           </p>
-          <p>No cookies or analytics on this site.</p>
+          <p>No cookies on this site.</p>
         </div>
       </div>
     </footer>
