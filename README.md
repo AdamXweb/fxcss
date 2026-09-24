@@ -41,7 +41,7 @@ The Website GitHub Actions workflow runs the same checks on relevant changes wit
 
 `README.md` in the repository root is the reference source. `npm run content` generates and sanitises `content/docs.json`; it runs automatically before development and production builds. Source hashes and tests detect stale generated content and missing command pages. A recorded copy in `content/source/` lets standalone hosting checkouts rebuild without the enclosing Python repository; builds in the full repository refresh that copy automatically. The website's getting-started overview remains deliberately short and links to the full generated guides.
 
-`app/components/` contains the shared navigation, documentation controls, comparison, and copy controls. `app/docs/[slug]/page.tsx` renders the generated pages. `proxy.ts` supplies a fresh Content Security Policy nonce and security headers for each production application response. `public/_headers` covers static assets. There are no accounts, forms, analytics, remote fonts, or site databases.
+`app/components/` contains the shared navigation, documentation controls, comparison, and copy controls. `app/docs/[slug]/page.tsx` renders the generated pages. `proxy.ts` supplies a fresh Content Security Policy nonce and security headers for each production application response. `public/_headers` covers static assets. There are no accounts, forms, remote fonts, or site databases.
 
 ## Screenshot evidence
 
