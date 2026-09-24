@@ -683,27 +683,39 @@ code,
   font-size: 14px;
 }
 .site-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 28px 0 35px;
+  margin: 24px auto 0;
+  padding: 24px 0 56px;
   border-top: 1px solid #e5e5ef;
   color: #818391;
-  font-size: 12px;
+  font-size: 14px;
+  text-align: center;
 }
-.site-footer .brand {
-  font-size: 25px;
-  color: #34364b;
-}
-.site-footer .brand img {
-  width: 27px;
-  height: 27px;
-}
-.site-footer > a:last-child {
+.site-footer nav {
   display: flex;
-  gap: 5px;
-  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 22px;
+  margin-bottom: 14px;
+}
+.site-footer a {
+  color: #34364b;
+  font-weight: 500;
+}
+.site-footer a:hover {
+  text-decoration: underline;
+}
+.site-footer p {
+  margin: 6px 0;
+}
+.site-footer .footer-site-links {
+  gap: 6px 18px;
+  margin: 10px 0 4px;
+}
+.site-footer .footer-site-links a {
+  font-size: 13.5px;
+}
+.site-footer .footer-note {
+  font-size: 12px;
 }
 @media (min-width: 1600px) {
   .showcase-hero {
@@ -853,13 +865,6 @@ code,
     grid-template-columns: 1fr;
     padding: 26px;
     gap: 25px;
-  }
-  .site-footer {
-    flex-wrap: wrap;
-  }
-  .site-footer > span {
-    order: 3;
-    width: 100%;
   }
 }
 @media (prefers-reduced-motion: reduce) {
