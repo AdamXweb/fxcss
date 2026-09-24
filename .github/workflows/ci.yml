@@ -24,8 +24,52 @@ env:
   PYTHONUTF8: '1'
 
 jobs:
+  changes:
+    name: Decide CI scope
+    runs-on: ubuntu-latest
+    outputs:
+      full: ${{ steps.scope.outputs.full }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Identify website-only changes
+        id: scope
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BASE: ${{ github.event.before }}
+          PUSH_HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          changed="$RUNNER_TEMP/ci-changed-files"
+          full=true
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            if git diff --name-only -z "$PR_BASE...$PR_HEAD" > "$changed"; then
+              full=false
+            fi
+          elif [[ "$EVENT_NAME" == push && "$PUSH_BASE" != 0000000000000000000000000000000000000000 ]]; then
+            if git diff --name-only -z "$PUSH_BASE" "$PUSH_HEAD" > "$changed"; then
+              full=false
+            fi
+          fi
+          if [[ "$full" == false ]]; then
+            while IFS= read -r -d '' path; do
+              case "$path" in
+                website/*|README.md|.github/workflows/website.yml) ;;
+                *) full=true; break ;;
+              esac
+            done < "$changed"
+          fi
+          echo "full=$full" >> "$GITHUB_OUTPUT"
+          echo "Run full CI: $full"
+
   units:
     name: Unit tests (py${{ matrix.python }})
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -44,6 +88,8 @@ jobs:
 
   profiles:
     name: Profile recovery (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     strategy:
@@ -59,6 +105,8 @@ jobs:
       - run: python -m unittest tests.test_profile_safety tests.test_units.InstallThemeTests tests.test_units.UninstallThemeTests tests.test_units.RollbackTests tests.test_units.OriginBackupTests -v
 
   build-package:
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -86,6 +134,8 @@ jobs:
 
   smoke:
     name: ${{ matrix.label }}
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     strategy:
