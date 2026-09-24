@@ -328,8 +328,8 @@ fxcss profiles --json                # machine-readable
 ```
 
 Read-only. Firefox keeps its profiles in directories named after a hash, so
-"which profile has the theme in it" is a genuinely hard question to answer by
-looking:
+it can be hard to tell which profile has the theme by looking at folder
+names:
 
 ```console
 $ fxcss profiles --check
@@ -731,7 +731,7 @@ you want plain screenshots — `fxcss compare` writes a different shape, below.
 fxcss shot --out shots --variants all
 ```
 
-`--variants` additionally captures one view per optional stylesheet the theme
+`--variants` also captures one view per optional stylesheet the theme
 ships (`custom/`, `optional/`, `variants/`…), each loaded on its own and removed
 again — so `tabs-swapclose` or `compact-tabs` are checked by CI without a
 separate install. Name specific ones (`--variants a,b`) or take them all.
