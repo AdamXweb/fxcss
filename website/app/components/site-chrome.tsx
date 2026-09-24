@@ -81,8 +81,6 @@ export function Footer() {
               />
               adamxweb
             </a>
-            {' '}· One of the apps at{' '}
-            <a href="https://adamxweb.com/">adamxweb.com</a>.
           </p>
           <p>No cookies or analytics on this site.</p>
         </div>
