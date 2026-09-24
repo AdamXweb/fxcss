@@ -82,7 +82,13 @@ export function Footer() {
               adamxweb
             </a>
           </p>
-          <p>No cookies on this site.</p>
+          <p>
+            No cookies.{' '}
+            <a href="https://www.simpleanalytics.com/privacy-policy" rel="noopener">
+              Simple Analytics
+            </a>{' '}
+            counts page views and outbound clicks.
+          </p>
         </div>
       </div>
     </footer>

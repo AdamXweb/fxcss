@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { CSPProvider } from "@base-ui/react/csp-provider";
+import { OutboundClickTracking } from "./components/outbound-click-tracking";
 import { SITE_ORIGIN } from "../lib/site";
 import "./globals.css";
 export const metadata: Metadata = {
@@ -34,6 +35,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           Skip to content
         </a>
         <CSPProvider nonce={nonce}>{children}</CSPProvider>
+        <OutboundClickTracking />
+        <script
+          async
+          nonce={nonce}
+          src="https://scripts.simpleanalyticscdn.com/latest.js"
+        />
       </body>
     </html>
   );
