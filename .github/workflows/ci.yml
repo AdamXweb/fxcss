@@ -340,7 +340,8 @@ jobs:
           # ordinary window must not pass the state-specific capture checks.
           cp -r fxcss/templates/starter "$RUNNER_TEMP/state-theme"
           cat >> "$RUNNER_TEMP/state-theme/chrome/userChrome.css" <<'CSS'
-          #sidebar-header { background-color: #ff2d55 !important; }
+          /* The revamped sidebar hides #sidebar-header; its container stays visible. */
+          #sidebar-box { border: 6px solid #ff2d55 !important; }
           #tabbrowser-tabs[orient="vertical"] { background-color: #34c759 !important; }
           #home-button { background-color: #ff9500 !important; }
           .tabbrowser-tab[soundplaying]:not([muted]) .tab-content { background: #e6194b !important; }
