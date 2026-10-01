@@ -1095,7 +1095,7 @@ text.
 For a custom workflow, the core capture-and-compare steps are:
 
 ```yaml
-- run: pip install "fxcss[images]==0.22.0"
+- run: pip install "fxcss[images]==0.22.1"
 - run: fxcss shot --theme base --out shots/base
 - run: fxcss shot --theme head --out shots/head
 - run: fxcss compare --base shots/base --head shots/head --out out/ --platform ${{ runner.os }}
@@ -1250,7 +1250,7 @@ the [releases page](https://github.com/AdamXweb/fxcss/releases) has the latest.
 CI runners' Pythons are not externally managed, so plain pip is fine there:
 
 ```bash
-pip install "fxcss[images]==0.22.0"
+pip install "fxcss[images]==0.22.1"
 ```
 
 Upgrade an existing pipx installation with `pipx upgrade fxcss`.
