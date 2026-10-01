@@ -995,6 +995,43 @@ class CompletionTests(unittest.TestCase):
                 ["fxcss", "install", str(theme), "--with", "theme-nord,"], 4)
             self.assertNotIn("theme-nord,theme-nord", got)
 
+    def test_sheet_combinations_complete_after_plus(self):
+        from fxcss.complete import candidates
+        cases = {
+            "compact-tabs+theme-": ["compact-tabs+theme-dracula", "compact-tabs+theme-nord"],
+            "compact-tabs+": ["compact-tabs+theme-dracula", "compact-tabs+theme-nord"],
+            "compact-tabs+theme-nord+theme-": ["compact-tabs+theme-nord+theme-dracula"],
+            "theme-nord+theme-n": [],
+        }
+        with tempfile.TemporaryDirectory() as td:
+            theme = self._theme(td)
+            for command, option in (("tweaks", "--combo"), ("shot", "--variants")):
+                for current, expected in cases.items():
+                    with self.subTest(option=option, current=current):
+                        words = ["fxcss", command, "--theme", str(theme), option, current]
+                        self.assertEqual(candidates(words, 5), expected)
+
+    def test_sheet_combinations_preserve_comma_separated_captures(self):
+        from fxcss.complete import candidates
+        cases = {
+            "theme-nord,compact-tabs+theme-": [
+                "theme-nord,compact-tabs+theme-dracula",
+                "theme-nord,compact-tabs+theme-nord"],
+            "compact-tabs+theme-nord,theme-": [
+                "compact-tabs+theme-nord,theme-dracula",
+                "compact-tabs+theme-nord,theme-nord"],
+            "compact-tabs+theme-nord,compact-tabs+theme-": [
+                "compact-tabs+theme-nord,compact-tabs+theme-dracula"],
+            "theme-nord,theme-": ["theme-nord,theme-dracula"],
+        }
+        with tempfile.TemporaryDirectory() as td:
+            theme = self._theme(td)
+            for command, option in (("tweaks", "--combo"), ("shot", "--variants")):
+                for current, expected in cases.items():
+                    with self.subTest(option=option, current=current):
+                        words = ["fxcss", command, "--theme", str(theme), option, current]
+                        self.assertEqual(candidates(words, 5), expected)
+
     def test_path_options_defer_to_the_shell(self):
         from fxcss.complete import candidates
         self.assertEqual(candidates(["fxcss", "shot", "--out", ""], 3), [])
