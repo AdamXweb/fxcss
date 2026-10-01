@@ -115,8 +115,11 @@ def new_theme(target: Path):
     determinism and sensitivity checks run against.
     """
     root = resources.files("fxcss") / "templates" / "starter"
-    if target.exists() and any(target.iterdir()):
-        raise FileExistsError(f"{target} exists and is not empty")
+    if target.exists():
+        if not target.is_dir():
+            raise FileExistsError(f"{target} exists and is not a directory")
+        if any(target.iterdir()):
+            raise FileExistsError(f"{target} exists and is not empty")
     created = []
     for entry in root.rglob("*"):
         if not entry.is_file():

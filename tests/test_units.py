@@ -1196,6 +1196,39 @@ class NewThemeTests(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 new_theme(target)
 
+    def test_refuses_existing_file_without_changing_it(self):
+        from fxcss.scaffold import new_theme
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "existing theme.css"
+            target.write_text("/* preserve this */")
+            with self.assertRaisesRegex(FileExistsError, "not a directory"):
+                new_theme(target)
+            self.assertEqual(target.read_text(), "/* preserve this */")
+
+    def test_scaffolds_into_an_empty_directory(self):
+        from fxcss.scaffold import new_theme
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td)
+            created = new_theme(target)
+            self.assertIn(Path("chrome/userChrome.css"), created)
+            self.assertTrue((target / "chrome" / "userChrome.css").is_file())
+
+    def test_cli_reports_existing_file_as_a_usage_error(self):
+        from contextlib import redirect_stderr, redirect_stdout
+        from io import StringIO
+        from fxcss import cli
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "existing theme.css"
+            target.write_text("/* preserve this */")
+            errors = StringIO()
+            with redirect_stdout(StringIO()), redirect_stderr(errors):
+                result = cli.main(["new", str(target)])
+            self.assertEqual(result, 2)
+            self.assertIn("error:", errors.getvalue())
+            self.assertIn("not a directory", errors.getvalue())
+            self.assertNotIn("Traceback", errors.getvalue())
+            self.assertEqual(target.read_text(), "/* preserve this */")
+
 
 class FirefoxDiscoveryTests(unittest.TestCase):
     def fake_apps(self, td, names):
