@@ -815,6 +815,37 @@ class ScaffoldTests(unittest.TestCase):
         self.assertIsNone(https_repo_url(""))
         self.assertIsNone(https_repo_url("not a remote"))
 
+    def test_ssh_repo_urls(self):
+        from fxcss.scaffold import https_repo_url
+        cases = {
+            "ssh://git@github.com/o/r.git": "https://github.com/o/r",
+            "ssh://github.com/o/r": "https://github.com/o/r",
+            "ssh://git@[::1]:2222/o/r.git": "https://[::1]/o/r",
+            "ssh://git@github.com/o/r.git/": "https://github.com/o/r",
+            "ssh://git@code.example.org:2222/team/theme.git":
+                "https://code.example.org/team/theme",
+        }
+        for remote, expected in cases.items():
+            with self.subTest(remote=remote):
+                self.assertEqual(https_repo_url(remote), expected)
+        for remote in ("ssh:///o/r.git", "ssh://git@github.com", "ssh://["):
+            with self.subTest(remote=remote):
+                self.assertIsNone(https_repo_url(remote))
+
+    def test_showcase_uses_the_ssh_origin_url(self):
+        import subprocess
+        from fxcss.scaffold import write_workflows
+        with tempfile.TemporaryDirectory() as td:
+            theme = Path(td)
+            subprocess.run(["git", "init", "--quiet", str(theme)], check=True)
+            subprocess.run(["git", "-C", str(theme), "remote", "add", "origin",
+                            "ssh://git@github.com/o/r.git"], check=True)
+            write_workflows(theme, [], showcase=True, version="9.9.9")
+            workflow = (theme / ".github/workflows/showcase.yml").read_text()
+            self.assertIn("default: 'https://github.com/o/r'", workflow)
+            self.assertIn("DEFAULT_URLS: >-\n    https://github.com/o/r", workflow)
+            self.assertNotIn("https://example.com", workflow)
+
     def test_write_workflows_and_skip(self):
         from fxcss.scaffold import write_workflows
         with tempfile.TemporaryDirectory() as td:
