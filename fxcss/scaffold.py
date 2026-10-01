@@ -17,6 +17,7 @@ import re
 import subprocess
 from importlib import resources
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from . import __version__
 from .fetch import VARIANT_DIRS
@@ -37,6 +38,19 @@ def https_repo_url(remote):
     if not remote:
         return None
     remote = remote.strip()
+    if remote.startswith("ssh://"):
+        try:
+            url = urlsplit(remote)
+            host = url.hostname
+        except ValueError:
+            return None
+        path = url.path.rstrip("/").removesuffix(".git").lstrip("/")
+        if not host or not path or url.query or url.fragment:
+            return None
+        # SSH usernames and ports belong to the transport, not the web URL.
+        if ":" in host:
+            host = f"[{host}]"
+        return f"https://{host}/{path}"
     match = re.match(r"^git@([^:]+):(.+?)(?:\.git)?$", remote)
     if match:
         return f"https://{match.group(1)}/{match.group(2)}"
