@@ -24,7 +24,8 @@ PATH_OPTIONS = frozenset({
     "--baseline", "--profile", "--config",
 })
 
-# Options taking a comma-separated list of the theme's optional stylesheets.
+# Options taking optional stylesheets; --variants/--combo also combine them
+# with '+', while commas separate captures.
 SHEET_OPTIONS = frozenset({"--with", "--variants", "--combo"})
 
 SHELLS = ("bash", "zsh", "fish")
@@ -114,6 +115,24 @@ def _comma_aware(current, candidates):
             if c.startswith(tail) and c not in chosen]
 
 
+def _combo_aware(current, candidates):
+    """Complete the last sheet in a combination, preserving earlier captures.
+
+    Sheets already in this combination are omitted, but may be reused in a
+    different comma-separated capture. Completed captures are not re-offered.
+    """
+    head, comma, pending = current.rpartition(",")
+    combo, plus, tail = pending.rpartition("+")
+    if not plus:
+        return _comma_aware(current, candidates)
+    chosen = set(combo.split("+"))
+    completed = set(head.split(","))
+    prefix = head + comma + combo + plus
+    return [prefix + c for c in candidates
+            if c.startswith(tail) and c not in chosen
+            and combo + plus + c not in completed]
+
+
 def candidates(words, cword, cwd=None):
     """Completion candidates for a command line.
 
@@ -132,7 +151,10 @@ def candidates(words, cword, cwd=None):
     if previous == "--firefox":
         return [c for c in channel_names() if c.startswith(current)]
     if previous in SHEET_OPTIONS:
-        return _comma_aware(current, sheet_names(words, cwd))
+        names = sheet_names(words, cwd)
+        if previous in ("--variants", "--combo"):
+            return _combo_aware(current, names)
+        return _comma_aware(current, names)
 
     command = next((w for w in words[1:cword] if not w.startswith("-")
                     and w in options), None)
