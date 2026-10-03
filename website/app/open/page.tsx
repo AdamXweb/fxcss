@@ -5,7 +5,7 @@ import { SiteHeader, Footer, REPO } from '../components/site-chrome';
 export const metadata: Metadata = {
   title: 'Website data',
   description:
-    'Every service fxcss.com uses: Cloudflare for its domain name, OpenAI Sites for hosting and Simple Analytics for visit counts, and what each one receives.',
+    'Every service fxcss.com uses: Cloudflare for its domain name and hosting, and Simple Analytics for visit counts, and what each one receives.',
   alternates: { canonical: '/open' },
   openGraph: { url: '/open' },
 };
@@ -45,15 +45,14 @@ export default function WebsiteData() {
             <div>
               <dt>Hosting</dt>
               <dd>
-                <strong>OpenAI Sites.</strong> Runs the site’s code and delivers
-                its pages and files, including the setup script. OpenAI receives
-                the details it needs to deliver each page: your Internet
-                Protocol (IP) address, browser details, the page you asked for
-                and the time. It also counts unique visitors and page views, and
-                shows us the totals.{' '}
-                <a href="https://openai.com/policies/privacy-policy/">
-                  OpenAI’s privacy policy
-                </a>
+                <strong>Cloudflare Workers.</strong> Runs the site’s code on
+                Cloudflare’s network, in the data centre nearest to you,
+                delivers its pages and files, including the setup script, and
+                protects the site from attacks. Cloudflare receives the details
+                it needs to deliver each page: your Internet Protocol (IP)
+                address, browser details, the page you asked for and the time.
+                It keeps a log of the requests the site’s code handles, and of
+                any errors, for up to 7 days.
               </dd>
             </div>
             <div>
@@ -84,16 +83,11 @@ export default function WebsiteData() {
             contain no personal data, so they hold nothing about you to show,
             correct or delete.
           </p>
-          <p>
-            OpenAI keeps the site and its logs, and Sites does not yet let us
-            choose the country they are kept in.
-          </p>
 
           <h2 id="open-statistics">Open statistics</h2>
           <p>
-            We believe in making data open where we can. The site’s Simple
-            Analytics visit counts are public, so you can see exactly what we
-            see there.
+            We believe in making data open where we can. The site’s visit
+            counts are public, so you can see exactly what we see.
           </p>
           <p>
             <a href="https://dashboard.simpleanalytics.com/fxcss.com">
