@@ -8,10 +8,13 @@ const routes = [
   '/',
   '/docs',
   '/docs/screenshot-evidence',
+  '/open',
   ...data.pages.map((p) => '/docs/' + p.slug),
 ];
 let assetCount = 0;
 const checkedAssets = new Set();
+// Browser storage keys that client code passes to sessionStorage. /open must name each one.
+const sessionKeys = new Set();
 for (const route of routes) {
   const response = await fetch(new URL(route, base));
   assert.equal(response.status, 200, route);
@@ -55,6 +58,11 @@ for (const route of routes) {
     );
   }
   assert.doesNotMatch(html, /\beval\(/, `${route}: eval in production markup`);
+  assert.match(
+    html,
+    /<a\b[^>]*href="\/open"[^>]*>Website data<\/a>/,
+    `${route}: footer link to the website data page`,
+  );
   for (const match of html.matchAll(
     /(?:href|src)="(\/(?:assets|evidence|catalogue|_vinext|_next)\/[^"?#]+)(?:[?#][^"]*)?"/g,
   )) {
@@ -68,9 +76,36 @@ for (const route of routes) {
         result.headers.get('content-type')?.startsWith('image/'),
         asset,
       );
+    if (asset.endsWith('.js')) {
+      const code = await result.text();
+      assert.doesNotMatch(
+        code,
+        /document\.cookie|cookieStore|localStorage|indexedDB/,
+        `${asset}: cookies or lasting browser storage that /open does not list`,
+      );
+      for (const [, key] of code.matchAll(
+        /sessionStorage\.setItem\(\s*([\w$]+|`[^`]*`|"[^"]*"|'[^']*')/g,
+      )) {
+        // Minified code passes a constant; find the string it was assigned.
+        const name = key.replaceAll('$', '\\$');
+        const literal = /^[`"']/.test(key)
+          ? key.slice(1, -1)
+          : code.match(
+              new RegExp(`(?<![\\w$.])${name}\\s*=\\s*([\`"'])(.*?)\\1`),
+            )?.[2];
+        assert.ok(literal, `${asset}: unidentified sessionStorage key ${key}`);
+        sessionKeys.add(literal);
+      }
+    }
     assetCount++;
   }
 }
+const notice = await (await fetch(new URL('/open', base))).text();
+for (const key of sessionKeys)
+  assert.ok(
+    notice.includes(`<code>${key}</code>`),
+    `/open must list the ${key} browser storage key`,
+  );
 for (const route of [
   '/this-page-does-not-exist',
   '/docs/this-command-does-not-exist',
@@ -116,5 +151,5 @@ assert.equal([...xml.matchAll(/<loc>/g)].length, routes.length);
 for (const route of routes)
   assert.ok(xml.includes(`<loc>https://fxcss.com${route}</loc>`), route);
 console.log(
-  `Passed: ${routes.length} pages, ${assetCount} assets, installer, canonical URLs, sitemap, redirects, and production security headers.`,
+  `Passed: ${routes.length} pages, ${assetCount} assets, installer, canonical URLs, sitemap, redirects, production security headers, and ${sessionKeys.size} browser storage keys listed on /open.`,
 );

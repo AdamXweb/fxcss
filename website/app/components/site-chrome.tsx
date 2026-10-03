@@ -60,6 +60,7 @@ export function Footer() {
             <a href={`${REPO}/issues`} rel="noopener">Report a bug</a>
             <a href={`${REPO}/releases`} rel="noopener">Releases</a>
             <a href={`${REPO}/blob/main/LICENSE`} rel="noopener">MIT licence</a>
+            <Link href="/open">Website data</Link>
             <a href="https://adamxweb.com/contact" rel="noopener">Contact</a>
           </nav>
         </div>

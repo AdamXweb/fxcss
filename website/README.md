@@ -43,7 +43,9 @@ The Website GitHub Actions workflow runs the same checks on relevant changes wit
 
 `app/components/` contains the shared navigation, documentation controls, comparison, and copy controls. `app/docs/[slug]/page.tsx` renders the generated pages. `proxy.ts` supplies a fresh Content Security Policy nonce and security headers for each production application response. `public/_headers` covers static assets. There are no accounts, forms, remote fonts, or site databases.
 
-The root layout loads Simple Analytics for page views. A delegated click listener records outbound links as `outbound_<hostname>` events, including the destination URL without its query string or fragment. It covers links added by client-side navigation and respects Simple Analytics' Do Not Track behavior. Same-tab links wait for the event request for at most 800 ms before navigating. The script and collection endpoint are allowed by the production Content Security Policy; no inline click handlers are needed. Add `fxcss.com` to the Simple Analytics dashboard before launch.
+The root layout loads Simple Analytics for page views. A delegated click listener records outbound links as `outbound_<hostname>` events, including the destination URL without its query string or fragment. It covers links added by client-side navigation and respects Simple Analytics' Do Not Track behavior. Same-tab links wait for the event request for at most 800 ms before navigating. The script and collection endpoint are allowed by the production Content Security Policy; no inline click handlers are needed. Add `fxcss.com` to the Simple Analytics dashboard before launch and make the dashboard public, because `/open` links to it.
+
+`/open` (`app/open/page.tsx`) is the website data notice: every outside service, cookie, and browser storage key the site uses. Update it with any new service or storage. `npm test` fails when the production policy allows an outside host the notice does not name, or when site code uses cookies or browser storage. The production check compares the session storage keys in the client build with the notice.
 
 ## Screenshot evidence
 

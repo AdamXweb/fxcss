@@ -31,6 +31,7 @@ test('generated documentation has valid local links, assets, and code controls',
     '/',
     '/docs',
     '/docs/screenshot-evidence',
+    '/open',
     ...docs.pages.map((p) => '/docs/' + p.slug),
   ]);
   for (const page of docs.pages) {
@@ -137,4 +138,58 @@ test('catalogue images are backed by measured Firefox elements', () => {
         );
     }
   }
+});
+test('the website data page names every outside service and storage use', () => {
+  const page = read('../app/open/page.tsx').toString().replace(/\s+/g, ' ');
+  assert.deepEqual(
+    [...page.matchAll(/<h2 id="[^"]+">([^<]+)<\/h2>/g)].map((m) => m[1]),
+    [
+      'Services this website uses',
+      'How your data is stored',
+      'Open statistics',
+      'Cookies and browser storage',
+      'What is not on this site',
+      'The fxcss tool',
+      'More detail',
+    ],
+  );
+  // Every outside host the pages load or send to must be a service /open names.
+  const providers = {
+    'scripts.simpleanalyticscdn.com': 'Simple Analytics',
+    'queue.simpleanalyticscdn.com': 'Simple Analytics',
+  };
+  const hosts = new Set(
+    [
+      ...`${read('../proxy.ts')}\n${read('../app/layout.tsx')}`.matchAll(
+        /https:\/\/([a-z0-9.-]+)/g,
+      ),
+    ].map((m) => m[1]),
+  );
+  for (const host of hosts) {
+    assert.ok(providers[host], `${host}: add its service to /open`);
+    assert.ok(page.includes(providers[host]), host);
+  }
+  const loaded = [...new Set(Object.values(providers))].join(' and ');
+  assert.ok(page.includes(`the site loads only ${loaded}.`));
+  for (const [, href] of page.matchAll(/href="([^"]+)"/g))
+    assert.match(href, /^https:\/\//, href);
+  // /open says the site's source sets no cookies or storage. check-site.mjs
+  // compares the framework's session storage keys in the build with /open.
+  const code = ['app', 'components', 'hooks', 'lib'].flatMap((dir) =>
+    fs
+      .readdirSync(new URL(`../${dir}/`, import.meta.url), { recursive: true })
+      .filter((file) => /\.(tsx?|m?js)$/.test(file))
+      .map((file) => `../${dir}/${file}`),
+  );
+  for (const file of [...code, '../proxy.ts'])
+    assert.doesNotMatch(
+      read(file).toString(),
+      /document\.cookie|cookieStore|localStorage|sessionStorage|indexedDB|set-cookie/i,
+      `${file}: list this storage on /open`,
+    );
+  assert.match(
+    read('../app/components/site-chrome.tsx').toString(),
+    /<Link href="\/open">Website data<\/Link>/,
+  );
+  assert.match(read('../app/sitemap.xml/route.ts').toString(), /"\/open"/);
 });
