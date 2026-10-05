@@ -59,6 +59,12 @@ python3 website/scripts/capture-evidence.py
 
 This launches disposable Firefox sessions, captures 20 states before and after one light-mode accent change, checks the measured difference, and regenerates the catalogue. It preserves the original captures and capture-coverage reports. `/docs/screenshot-evidence` explains the measurements and links to the source files.
 
+## Homepage film
+
+The homepage plays a 57-second silent film between the introduction and the three starting points. `public/media/fxcss-film.mp4` is H.264 at 1920x1080 (CRF 27, BT.709, `+faststart`, about 5 MB); `public/media/fxcss-film-poster.jpg` is its frame at 2.5 seconds. The video uses `preload="none"`, so visitors download only the poster until they press play. The film's end card has no URL or install command, because the page carries both.
+
+The film is rendered from an HTML source outside this repository. Its on-screen commands and output match fxcss's real CLI, and the theme colours come from WhiteSur's `custom/theme-*.css`. Replace both files together when the film changes.
+
 ## Publishing
 
 The site is prepared for **https://fxcss.com**. `/install.sh` serves the interactive installer directly as plain text. Canonical URLs, the sitemap, and setup examples use that domain. Publish the matching package metadata when the domain is live. See [DEPLOYMENT.md](DEPLOYMENT.md) for the launch and Cloudflare DNS handoff.
