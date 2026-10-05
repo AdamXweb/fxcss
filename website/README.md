@@ -1,6 +1,6 @@
 # fxcss website
 
-The Showcase homepage and Field guide documentation, prepared as one local website. The application uses the existing Sites/Vinext starter and produces a Cloudflare-compatible Worker build.
+The Showcase homepage and Field guide documentation, prepared as one local website. The application is built with vinext (the Next.js App Router on Vite) and runs as a Cloudflare Worker.
 
 ## Local development
 
@@ -63,4 +63,4 @@ This launches disposable Firefox sessions, captures 20 states before and after o
 
 The site is prepared for **https://fxcss.com**. `/install.sh` serves the interactive installer directly as plain text. Canonical URLs, the sitemap, and setup examples use that domain. Publish the matching package metadata when the domain is live. See [DEPLOYMENT.md](DEPLOYMENT.md) for the launch and Cloudflare DNS handoff.
 
-Nothing has been published. `.openai/hosting.json` has no registered Site ID. The validated output is `dist/server/index.js` plus `dist/client/`; use the Sites hosting workflow to register and deploy this existing project. Production scripts require the generated Worker configuration. The public installer must work without a browser session or a sign-in redirect. Do not serve the development server publicly.
+Nothing has been published yet. The site runs as the Cloudflare Worker `fxcss-website`, configured in `vite.config.ts`; the `deploy` script attaches the `fxcss.com` and `www.fxcss.com` custom domains. `npm run build` writes `dist/server/index.js`, `dist/client/` and the generated `dist/server/wrangler.json`, and `npm run deploy` publishes them. Production scripts require the generated Worker configuration. The public installer must work without a browser session or a sign-in redirect. Do not serve the development server publicly.

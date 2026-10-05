@@ -4,7 +4,9 @@
 
 The source and production build are prepared for `https://fxcss.com`. They include the interactive shell installer at `/install.sh`, canonical page URLs, `/sitemap.xml`, and `/robots.txt`. The installer is a public static asset with a plain-text content type, revalidation on every request, and no sign-in requirement in the application.
 
-The domain's public nameservers were `dorthy.ns.cloudflare.com` and `scott.ns.cloudflare.com` when checked on 2026-09-05. No apex A record was returned. Hosting and DNS have not been changed by this preparation. `.openai/hosting.json` is still unregistered; there is no deployed Site ID to reuse yet.
+The site runs as a Cloudflare Worker named `fxcss-website`. `vite.config.ts` holds its configuration (the name, the compatibility date and Workers Logs), and the `deploy` script in `package.json` attaches the `fxcss.com` and `www.fxcss.com` custom domains. It has no database, storage or secrets. `npm run build` writes the Worker (`dist/server/index.js`), its static files (`dist/client/`) and the generated `dist/server/wrangler.json`, and `npm run deploy` publishes them. Don't edit the generated file; change `vite.config.ts` and rebuild.
+
+The domain's public nameservers were `dorthy.ns.cloudflare.com` and `scott.ns.cloudflare.com` when checked on 2026-09-05, so the zone is on Cloudflare. No apex A record was returned. Nothing has been deployed yet.
 
 ## Launch sequence
 
@@ -22,15 +24,32 @@ The domain's public nameservers were `dorthy.ns.cloudflare.com` and `scott.ns.cl
    npm run build
    ```
 
-2. Use the Sites hosting workflow for this existing application. Register it once, retain its Site ID in `.openai/hosting.json`, and save the exact validated source and Worker build. The output is `dist/server/index.js` and `dist/client/`. Keep the enclosing fxcss repository intact; use a dedicated staging checkout if the hosting workflow requires a repository rooted at the website. `content/docs.json` and `content/evidence.json` are already generated. Their recorded inputs in `content/source/` make the website independently buildable; working in the full repository refreshes those inputs from the root README and package version.
+   `content/docs.json` and `content/evidence.json` are already generated. Their recorded inputs in `content/source/` make the website independently buildable; working in the full repository refreshes those inputs from the root README and package version.
 
-3. Publish with **public access** when launch is authorized. The shell installer must be accessible to an anonymous HTTP client; an owner-only preview or sign-in-gated deployment cannot serve the advertised setup command.
+2. Check the deploy without publishing anything. This needs no Cloudflare login:
 
-4. Attach `fxcss.com` as a custom domain through Sites. Use the exact apex A targets and validation records returned by the domain operation in Cloudflare DNS. Do not invent an IP address, use the source repository endpoint, or point DNS at localhost. Leave unrelated records intact. Wait until both the domain and its TLS certificate report active.
+   ```sh
+   npm run deploy -- --dry-run
+   ```
 
-5. Enable an HTTPS redirect at the hosting edge so it also covers static assets. If `www.fxcss.com` is desired, register that hostname as well and use the returned CNAME and validation records. Application page requests for `www.fxcss.com` redirect to the canonical apex, preserving the path and query. Configure the same host redirect at the edge for static asset requests.
+3. Sign in to the Cloudflare account that holds the `fxcss.com` zone, with `npx wrangler login` (browser sign-in) or an API token made from Cloudflare's "Edit Cloudflare Workers" template. Then publish:
 
-6. Validate the public domain without authentication:
+   ```sh
+   npm run deploy
+   ```
+
+   Wrangler creates the `fxcss-website` Worker and attaches both custom domains. Cloudflare adds their DNS records and certificates itself, so don't create A or CNAME records for `fxcss.com` or `www.fxcss.com` by hand, and remove any existing records for those two names first. Leave unrelated records intact. Wait until both custom domains show as active in the dashboard.
+
+   To deploy on every push instead, connect the repository with Cloudflare Workers Builds:
+   - root directory `website`;
+   - build command `npm ci && npm run build`;
+   - deploy command `npm run deploy`.
+
+4. Turn on two zone settings. The Worker's `proxy.ts` sends plain HTTP and `www` page requests to `https://fxcss.com`, but static files such as `/install.sh` are served before the Worker runs, so the zone has to cover them:
+   - **SSL/TLS → Edge Certificates → Always Use HTTPS.**
+   - A redirect rule from `www.fxcss.com/*` to `https://fxcss.com/${1}`, keeping the query string. In the dashboard: Rules → Redirect Rules, with the "Redirect from WWW to root" template.
+
+5. Validate the public domain without authentication:
 
    ```sh
    npm run check:production -- https://fxcss.com
@@ -38,13 +57,13 @@ The domain's public nameservers were `dorthy.ns.cloudflare.com` and `scott.ns.cl
    bash /tmp/fxcss-install-check.sh --help
    ```
 
-   The check requires the exact script bytes, HTTP 200 without a sign-in redirect, `text/plain`, the expected cache policy, all canonical URLs, and the complete sitemap. Also verify that `http://fxcss.com/install.sh` redirects to HTTPS. The `--help` command does not install anything.
+   The check requires the exact script bytes, HTTP 200 without a sign-in redirect, `text/plain`, the expected cache policy, all canonical URLs, and the complete sitemap. Also verify that `http://fxcss.com/install.sh` and `https://www.fxcss.com/install.sh` redirect to `https://fxcss.com/install.sh`. The `--help` command does not install anything.
 
    Add `fxcss.com` to Simple Analytics. In a browser, verify that `latest.js` loads, a page view reaches `queue.simpleanalyticscdn.com`, and an external link click appears as an `outbound_<hostname>` event. Analytics should remain absent when Do Not Track is enabled. The site uses Simple Analytics directly; the separate `a.adamxweb.com` proxy is not a dependency.
 
    Make the Simple Analytics dashboard public, because `/open` links to `https://dashboard.simpleanalytics.com/fxcss.com`.
 
-7. Publish the matching repository documentation and package metadata with the launch. These changes advertise `fxcss.com`; the domain should be active before they reach users.
+6. Publish the matching repository documentation and package metadata with the launch. These changes advertise `fxcss.com`; the domain should be active before they reach users.
 
 ## Installer behavior
 

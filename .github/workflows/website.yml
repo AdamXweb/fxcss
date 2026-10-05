@@ -43,6 +43,10 @@ jobs:
       - run: npm run test:installer
       - run: npm audit --audit-level=moderate
       - run: npm run build
+      - name: Dry-run the Cloudflare Worker deploy
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+        run: npm run deploy -- --dry-run
       - name: Verify the production server
         env:
           WRANGLER_SEND_METRICS: 'false'
