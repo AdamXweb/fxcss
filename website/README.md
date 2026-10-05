@@ -61,7 +61,7 @@ This launches disposable Firefox sessions, captures 20 states before and after o
 
 ## Homepage film
 
-The homepage plays a 57-second silent film between the introduction and the three starting points. `public/media/fxcss-film.mp4` is H.264 at 1920x1080 (CRF 27, BT.709, `+faststart`, about 5 MB); `public/media/fxcss-film-poster.jpg` is its frame at 2.5 seconds. The video uses `preload="none"`, so visitors download only the poster until they press play. The film's end card has no URL or install command, because the page carries both.
+The homepage plays a 57-second silent film between the introduction and the three starting points. `public/media/fxcss-film.mp4` is H.264 at 1920x1080 (CRF 27, BT.709, `+faststart`, about 5 MB); `public/media/fxcss-film-poster.jpg` is its frame at 2.5 seconds with a "Get started on your first theme today." play card added on the right; that card appears only on the poster, not in the film. The video uses `preload="none"`, so visitors download only the poster until they press play. The film ends on the logo, without a URL or install command, because the page carries both.
 
 The film is rendered from an HTML source outside this repository. Its on-screen commands and output match fxcss's real CLI, and the theme colours come from WhiteSur's `custom/theme-*.css`. Replace both files together when the film changes.
 
