@@ -5,6 +5,7 @@ export function GET() {
     "/",
     "/docs",
     "/docs/screenshot-evidence",
+    "/open",
     ...content.pages.map((page) => `/docs/${page.slug}`),
   ];
   const entries = paths.map((path) => `<url><loc>${SITE_ORIGIN}${path}</loc></url>`).join("");

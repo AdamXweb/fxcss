@@ -42,6 +42,8 @@ The domain's public nameservers were `dorthy.ns.cloudflare.com` and `scott.ns.cl
 
    Add `fxcss.com` to Simple Analytics. In a browser, verify that `latest.js` loads, a page view reaches `queue.simpleanalyticscdn.com`, and an external link click appears as an `outbound_<hostname>` event. Analytics should remain absent when Do Not Track is enabled. The site uses Simple Analytics directly; the separate `a.adamxweb.com` proxy is not a dependency.
 
+   Make the Simple Analytics dashboard public, because `/open` links to `https://dashboard.simpleanalytics.com/fxcss.com`.
+
 7. Publish the matching repository documentation and package metadata with the launch. These changes advertise `fxcss.com`; the domain should be active before they reach users.
 
 ## Installer behavior
