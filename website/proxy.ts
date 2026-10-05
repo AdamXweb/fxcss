@@ -1,5 +1,22 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
+// Sent with every production response the Worker makes, redirects included.
+// Static files are served before the Worker runs, so public/_headers gives
+// them the same headers.
+const SECURITY_HEADERS = {
+  'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+};
+
+function withSecurityHeaders(response: NextResponse) {
+  for (const [name, value] of Object.entries(SECURITY_HEADERS))
+    response.headers.set(name, value);
+  return response;
+}
+
 export function proxy(request: NextRequest) {
   const url = new URL(request.url);
   if (
@@ -9,7 +26,7 @@ export function proxy(request: NextRequest) {
     url.hostname = 'fxcss.com';
     url.protocol = 'https:';
     url.port = '';
-    return NextResponse.redirect(url, 308);
+    return withSecurityHeaders(NextResponse.redirect(url, 308));
   }
   if (process.env.NODE_ENV !== 'production') return NextResponse.next();
   const nonce = crypto.randomUUID().replaceAll('-', '');
@@ -23,19 +40,14 @@ export function proxy(request: NextRequest) {
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'none'",
-    "frame-ancestors 'self'",
+    "frame-ancestors 'none'",
   ].join('; ');
   const headers = new Headers(request.headers);
   // Replace any client-supplied policy before the renderer reads its nonce.
   headers.set('Content-Security-Policy', csp);
-  const response = NextResponse.next({ request: { headers } });
-  response.headers.set('X-Content-Type-Options', 'nosniff');
-  response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-  response.headers.set(
-    'Permissions-Policy',
-    'camera=(), microphone=(), geolocation=()',
+  const response = withSecurityHeaders(
+    NextResponse.next({ request: { headers } }),
   );
-  response.headers.set('X-Frame-Options', 'SAMEORIGIN');
   response.headers.set('Content-Security-Policy', csp);
   response.headers.set('Cache-Control', 'private, no-store');
   return response;

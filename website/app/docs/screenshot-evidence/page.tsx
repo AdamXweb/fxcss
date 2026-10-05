@@ -2,10 +2,11 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import evidence from "../../../content/evidence.json";
 import { Comparison } from "../../components/comparison";
+import { shareCard } from "../../../lib/share-card";
 export const metadata: Metadata = {
   title: "Screenshot evidence",
   alternates: { canonical: "/docs/screenshot-evidence" },
-  openGraph: { url: "/docs/screenshot-evidence" },
+  ...shareCard({ url: "/docs/screenshot-evidence" }),
   description: "How the fxcss website’s screenshots were captured and verified.",
 };
 export default function EvidencePage() {
