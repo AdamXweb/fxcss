@@ -95,10 +95,7 @@ export default function Home() {
             Python + Firefox
           </p>
         </section>
-        <section
-          className="film content-width"
-          aria-label="fxcss in under a minute"
-        >
+        <section className="film content-width" aria-label="fxcss in under a minute">
           {/* The film has no audio track; its words are on screen. */}
           <video
             controls
