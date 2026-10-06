@@ -17,7 +17,11 @@ import {
 import { SiteHeader, Footer } from './components/site-chrome';
 import { CopyCommand } from './components/copy-command';
 import { ComparisonDemo } from './components/comparison';
+import content from '../content/docs.json';
 const INSTALL = SETUP_COMMAND;
+// The release the documentation was generated from. The Refresh docs workflow
+// moves it when a release reaches PyPI, so the pill never needs editing.
+const RELEASE = content.version;
 function Journeys() {
   const paths = [
     {
@@ -71,8 +75,19 @@ export default function Home() {
         <div className="hero-band">
           <div className="hero-grain" aria-hidden="true" />
           <section className="showcase-hero content-width">
-            <div className="eyebrow">
-              <span className="status-dot" /> THE FIREFOX THEME TOOLKIT
+            <div className="hero-kicker">
+              <div className="eyebrow">
+                <span className="status-dot" /> THE FIREFOX THEME TOOLKIT
+              </div>
+              <a
+                className="release-pill"
+                href={`https://github.com/AdamXweb/fxcss/releases/tag/v${RELEASE}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                v{RELEASE} <span>What&apos;s new</span>{' '}
+                <ArrowUpRight size={13} />
+              </a>
             </div>
             <h1>
               Your browser.

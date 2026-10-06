@@ -54,27 +54,11 @@ jobs:
       - name: Verify the production server
         env:
           WRANGLER_SEND_METRICS: 'false'
-        run: |
-          set -euo pipefail
-          npm start -- --ip 127.0.0.1 --port 4318 --log-level error >"$RUNNER_TEMP/website.log" 2>&1 &
-          preview_pid=$!
-          trap 'kill "$preview_pid" 2>/dev/null || true' EXIT
-          ready=false
-          for attempt in {1..30}; do
-            if curl -fsS http://127.0.0.1:4318/ >/dev/null; then
-              ready=true
-              break
-            fi
-            sleep 1
-          done
-          if [ "$ready" != true ]; then
-            cat "$RUNNER_TEMP/website.log"
-            exit 1
-          fi
-          node scripts/check-site.mjs http://127.0.0.1:4318
+        run: scripts/check-built-site.sh
 
   # The documentation is a recorded copy of main's README (content/source).
-  # Nothing on main rebuilds this branch, so say when that copy is behind.
+  # Refresh docs normally keeps it current, but a refresh can fail or wait for
+  # PyPI, so say when that copy is behind.
   # A warning, not a failure: README edits on main should not block site work.
   docs-freshness:
     runs-on: ubuntu-latest

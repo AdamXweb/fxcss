@@ -120,6 +120,14 @@ content main_checkout: _installed
     @test -f "{{main_checkout}}/fxcss/__init__.py" || { echo "▸ {{main_checkout}} is not a checkout of fxcss main"; exit 1; }
     FXCSS_SOURCE="{{main_checkout}}" npm run content
 
+# The same refresh, run on GitHub by the Refresh docs workflow: regenerate from
+# main, check, push here, and Workers Builds deploys. Releases and README
+# changes on main start it on their own; this is for a manual rerun.
+[doc("Regenerate the docs from main on GitHub and publish them")]
+refresh:
+    gh workflow run refresh-docs.yml --repo AdamXweb/fxcss --ref website
+    @echo "▸ Started. Follow it with: gh run watch --repo AdamXweb/fxcss"
+
 # Recaptures the homepage comparison and the parts catalogue with fxcss itself.
 # Needs Firefox and Pillow, and opens Firefox windows for about ten minutes.
 [doc("Recapture the comparison screenshots with fxcss: just evidence ../fxcss")]

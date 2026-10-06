@@ -286,9 +286,36 @@ code,
   text-align: center;
   padding: 18px 0 14px;
 }
-.showcase-hero > .eyebrow {
+.hero-kicker {
+  display: flex;
+  flex-wrap: wrap;
   justify-content: center;
+  align-items: center;
+  gap: 10px 14px;
+}
+.hero-kicker > .eyebrow {
   color: #584e72;
+}
+.release-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 11px;
+  border: 1px solid #dcd5fb;
+  border-radius: 999px;
+  background: #ffffffb3;
+  color: #4127c4;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  transition: border-color 0.16s;
+}
+.release-pill > span {
+  color: #58576a;
+  font-weight: 600;
+}
+.release-pill:hover {
+  border-color: #5333e6;
 }
 .showcase h1 {
   margin: 12px 0;
