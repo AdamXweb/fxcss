@@ -9,8 +9,13 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 
-ROOT = Path(__file__).resolve().parents[2]
-SITE = ROOT / 'website'
+# The site is the `website` branch; fxcss and its starter theme are on `main`.
+# Pass a checkout of main: `python3 scripts/capture-evidence.py ../fxcss`
+# (or `just evidence ../fxcss`).
+if len(sys.argv) != 2 or not (Path(sys.argv[1]) / 'fxcss' / '__init__.py').is_file():
+    sys.exit('usage: capture-evidence.py <checkout of fxcss main>')
+ROOT = Path(sys.argv[1]).resolve()
+SITE = Path(__file__).resolve().parents[1]
 WORK = SITE / 'work' / 'screenshots'
 PUBLIC = SITE / 'public' / 'evidence'
 sys.path.insert(0, str(ROOT))
