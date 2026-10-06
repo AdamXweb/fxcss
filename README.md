@@ -1,3 +1,4 @@
+
 # fxcss
 
 <p align="center">
@@ -36,6 +37,9 @@ Choose what you want to do next:
 For local development and testing, run commands from the theme's root (the
 folder containing `chrome/`), or pass `--theme /path/to/theme`. Use
 `fxcss <command> --help` for its options.
+
+https://github.com/user-attachments/assets/83dc3c67-6cad-432a-b841-d602a135a396
+
 
 ## Explore the toolkit
 
