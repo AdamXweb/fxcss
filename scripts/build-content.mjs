@@ -6,11 +6,17 @@ import { marked, Renderer } from 'marked';
 import sanitizeHtml from 'sanitize-html';
 
 const site = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const root = path.dirname(site);
+// The site lives on the `website` branch; the README it documents lives on
+// `main`. FXCSS_SOURCE points at a checkout of main (`just content ../fxcss`)
+// to refresh the recorded copy in content/source. Without it, the build uses
+// that recorded copy, so the branch builds on its own.
+const root = process.env.FXCSS_SOURCE
+  ? path.resolve(process.env.FXCSS_SOURCE)
+  : null;
 const source = path.join(site, 'content/source');
 let readme;
 let version;
-try {
+if (root) {
   const packageSource = await fs.readFile(
     path.join(root, 'fxcss/__init__.py'),
     'utf8',
@@ -20,9 +26,7 @@ try {
   await fs.mkdir(source, { recursive: true });
   await fs.writeFile(path.join(source, 'README.md'), readme);
   await fs.writeFile(path.join(source, 'version.txt'), version + '\n');
-} catch (error) {
-  if (error.code !== 'ENOENT') throw error;
-  // Hosting checkouts contain the website alone, with its recorded doc sources.
+} else {
   readme = await fs.readFile(path.join(source, 'README.md'), 'utf8');
   version = (
     await fs.readFile(path.join(source, 'version.txt'), 'utf8')
@@ -270,15 +274,12 @@ await fs.copyFile(
   path.join(site, 'content/evidence.json'),
 );
 await fs.mkdir(path.join(site, 'public/assets'), { recursive: true });
-try {
+if (root)
   await fs.copyFile(
     path.join(root, 'docs/icon.png'),
     path.join(site, 'public/assets/icon.png'),
   );
-} catch (error) {
-  if (error.code !== 'ENOENT') throw error;
-  await fs.access(path.join(site, 'public/assets/icon.png'));
-}
+await fs.access(path.join(site, 'public/assets/icon.png'));
 console.log(
   `Generated ${docs.length} documentation pages for fxcss ${version}.`,
 );

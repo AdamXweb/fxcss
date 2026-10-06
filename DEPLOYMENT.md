@@ -10,38 +10,36 @@ The domain's public nameservers were `dorthy.ns.cloudflare.com` and `scott.ns.cl
 
 ## Launch sequence
 
-1. Run the Website checks and build from `website/`:
+The site deploys from this `website` branch. From a fresh clone (`git clone --branch website https://github.com/AdamXweb/fxcss.git`):
+
+1. Install, check and build:
 
    ```sh
-   npm ci
-   npm run content
-   npm run typecheck
-   npm run lint
-   npm test
-   npm run test:installer
-   bash -n public/install.sh
-   shellcheck public/install.sh
-   npm run build
+   just setup
+   just check
+   just build
    ```
 
-   `content/docs.json` and `content/evidence.json` are already generated. Their recorded inputs in `content/source/` make the website independently buildable; working in the full repository refreshes those inputs from the root README and package version.
+   `content/docs.json` and `content/evidence.json` are already generated from the recorded sources in `content/source/`, so the branch builds on its own. `just content ../fxcss` refreshes those sources from a checkout of `main` first, if the README has changed there.
 
 2. Check the deploy without publishing anything. This needs no Cloudflare login:
 
    ```sh
-   npm run deploy -- --dry-run
+   just dry-run
    ```
 
-3. Sign in to the Cloudflare account that holds the `fxcss.com` zone, with `npx wrangler login` (browser sign-in) or an API token made from Cloudflare's "Edit Cloudflare Workers" template. Then publish:
+3. Sign in to the Cloudflare account that holds the `fxcss.com` zone, then publish:
 
    ```sh
-   npm run deploy
+   just login
+   just deploy
    ```
 
-   Wrangler creates the `fxcss-website` Worker and attaches both custom domains. Cloudflare adds their DNS records and certificates itself, so don't create A or CNAME records for `fxcss.com` or `www.fxcss.com` by hand, and remove any existing records for those two names first. Leave unrelated records intact. Wait until both custom domains show as active in the dashboard.
+   `just first-deploy` runs `check`, `build`, `dry-run` and `deploy` in that order. Wrangler creates the `fxcss-website` Worker and attaches both custom domains. Cloudflare adds their DNS records and certificates itself, so don't create A or CNAME records for `fxcss.com` or `www.fxcss.com` by hand, and remove any existing records for those two names first. Leave unrelated records intact. Wait until both custom domains show as active in the dashboard. Instead of `just login`, wrangler also accepts an API token made from Cloudflare's "Edit Cloudflare Workers" template in `CLOUDFLARE_API_TOKEN`.
 
    To deploy on every push instead, connect the repository with Cloudflare Workers Builds:
-   - root directory `website`;
+   - production branch `website`;
+   - root directory `/` (the repository root);
    - build command `npm ci && npm run build`;
    - deploy command `npm run deploy`.
 
@@ -52,12 +50,12 @@ The domain's public nameservers were `dorthy.ns.cloudflare.com` and `scott.ns.cl
 5. Validate the public domain without authentication:
 
    ```sh
-   npm run check:production -- https://fxcss.com
+   just verify https://fxcss.com
    curl -fsSLo /tmp/fxcss-install-check.sh https://fxcss.com/install.sh
    bash /tmp/fxcss-install-check.sh --help
    ```
 
-   The check requires the exact script bytes, HTTP 200 without a sign-in redirect, `text/plain`, the expected cache policy, all canonical URLs, and the complete sitemap. Also verify that `http://fxcss.com/install.sh` and `https://www.fxcss.com/install.sh` redirect to `https://fxcss.com/install.sh`. The `--help` command does not install anything.
+   `just verify` also reports whether the homepage film answers range requests with `206 Partial Content`; Safari needs that to play it, and if it doesn't, serve the film from R2 or Cloudflare Stream. The check requires the exact script bytes, HTTP 200 without a sign-in redirect, `text/plain`, the expected cache policy, all canonical URLs, and the complete sitemap. Also verify that `http://fxcss.com/install.sh` and `https://www.fxcss.com/install.sh` redirect to `https://fxcss.com/install.sh`. The `--help` command does not install anything.
 
    Add `fxcss.com` to Simple Analytics. In a browser, verify that `latest.js` loads, a page view reaches `queue.simpleanalyticscdn.com`, and an external link click appears as an `outbound_<hostname>` event. Analytics should remain absent when Do Not Track is enabled. The site uses Simple Analytics directly; the separate `a.adamxweb.com` proxy is not a dependency.
 

@@ -1,15 +1,37 @@
 # fxcss website
 
-The Showcase homepage and Field guide documentation, prepared as one local website. The application is built with vinext (the Next.js App Router on Vite) and runs as a Cloudflare Worker.
+The Showcase homepage and Field guide documentation for https://fxcss.com. The application is built with vinext (the Next.js App Router on Vite) and runs as a Cloudflare Worker.
 
-## Local development
+This is the `website` branch of [AdamXweb/fxcss](https://github.com/AdamXweb/fxcss). fxcss itself, and the README the documentation is generated from, live on `main`. The two share no files: website changes go to pull requests against `website`, toolkit changes against `main`.
 
-Requires Node.js 22.13 or newer.
+## Commands
+
+`just` is the front door; `just --list` shows every recipe. Each one runs an npm script, a wrangler command or a file under `scripts/`, and checks what it needs first: run them out of order and it names the recipe to run instead.
+
+| Command | What it does |
+| --- | --- |
+| `just setup` | Install the locked dependencies (Node.js 22.13 or newer). |
+| `just dev` | Development server on http://127.0.0.1:4317. |
+| `just check` | What Website CI checks before building: docs, types, lint, tests, the installer, and the dependency audit. |
+| `just build` | Build the Worker into `dist/`. |
+| `just preview` | Serve the built Worker on http://127.0.0.1:4318, under the production runtime. |
+| `just verify [url]` | Check every page, asset, redirect and security header of a running site; `just verify https://fxcss.com` checks the live one. |
+| `just dry-run` | Check the deploy without uploading anything or signing in. |
+| `just login` | Sign in to Cloudflare with wrangler. |
+| `just deploy` | Upload the Worker and attach `fxcss.com` and `www.fxcss.com`. |
+| `just first-deploy` | `check`, `build`, `dry-run` and `deploy` in order, then the two zone settings to turn on. |
+| `just tail` | Stream the deployed Worker's logs. |
+| `just content ../fxcss` | Refresh the documentation from a checkout of `main`. |
+| `just evidence ../fxcss` | Recapture the comparison screenshots with fxcss (opens Firefox windows). |
+| `just clean` | Remove build output and caches. |
+
+From a fresh clone:
 
 ```sh
-cd website
-npm ci
-npm run dev -- --host 127.0.0.1 --port 4317
+git clone --branch website https://github.com/AdamXweb/fxcss.git fxcss-website
+cd fxcss-website
+just setup
+just dev
 ```
 
 Open http://localhost:4317. `/docs` contains getting-started paths, search, and the full command reference. Every documentation page has its own URL. The old sample URLs redirect to the selected design.
@@ -17,29 +39,32 @@ Open http://localhost:4317. `/docs` contains getting-started paths, search, and 
 ## Production build and checks
 
 ```sh
-npm run content
-npm run typecheck
-npm run lint
-npm test
-npm run test:installer
-bash -n public/install.sh
-shellcheck public/install.sh
-npm audit --audit-level=moderate
-npm run build
-npm start -- --ip 127.0.0.1 --port 4318
+just check
+just build
+just preview
 ```
 
 In another terminal:
 
 ```sh
-npm run check:production -- http://127.0.0.1:4318
+just verify
 ```
 
-The Website GitHub Actions workflow runs the same checks on relevant changes without deploying. The production check visits every documentation page, validates asset responses and the security headers on pages, redirects and static files, checks that every page carries the share card and that each labelled control's name contains its visible text, and verifies not-found responses and redirects. Browser checks cover navigation, search, code copying, keyboard-operated comparison controls, and narrow layouts.
+`npm run check:audit` runs `npm audit` and fails on any advisory at moderate or above, except those listed with a reason in `scripts/audit.mjs`. The one accepted today, GHSA-vfj7-8cjw-p6xm in `braces`, has no patched release and only reaches build tools, not the deployed Worker; the script notes when it can be removed.
+
+The Website GitHub Actions workflow (`.github/workflows/website.yml`) runs the same checks, plus a deploy dry run, on every pull request and push to `website`, without deploying. A second job warns when the recorded documentation is behind `main`. The production check visits every documentation page, validates asset responses and the security headers on pages, redirects and static files, checks that every page carries the share card and that each labelled control's name contains its visible text, and verifies not-found responses and redirects. Browser checks cover navigation, search, code copying, keyboard-operated comparison controls, and narrow layouts.
 
 ## Documentation source
 
-`README.md` in the repository root is the reference source. `npm run content` generates and sanitises `content/docs.json`; it runs automatically before development and production builds. Source hashes and tests detect stale generated content and missing command pages. A recorded copy in `content/source/` lets standalone hosting checkouts rebuild without the enclosing Python repository; builds in the full repository refresh that copy automatically. The website's getting-started overview remains deliberately short and links to the full generated guides.
+`README.md` on `main` is the reference source. This branch keeps a recorded copy of it, and of the fxcss version, in `content/source/`. `npm run content` generates and sanitises `content/docs.json` from that copy; it runs automatically before development and production builds. Source hashes and tests detect stale generated content and missing command pages.
+
+After the README or version changes on `main`, refresh the copy from a checkout of `main` and commit `content/`:
+
+```sh
+just content ../fxcss
+```
+
+That sets `FXCSS_SOURCE` for `scripts/build-content.mjs`, which also copies `docs/icon.png`. Website CI compares the recorded copy with `main` on every run and warns when it is behind. The website's getting-started overview remains deliberately short and links to the full generated guides.
 
 `app/components/` contains the shared navigation, documentation controls, comparison, and copy controls. `app/docs/[slug]/page.tsx` renders the generated pages. `proxy.ts` supplies a fresh Content Security Policy nonce and security headers for each production application response. `public/_headers` gives static files the same headers, and the static catalogue its own policy. `lib/share-card.ts` gives every page the share image, `public/assets/og-card.png`. There are no accounts, forms, remote fonts, or site databases.
 
@@ -51,10 +76,10 @@ The root layout loads Simple Analytics for page views. A delegated click listene
 
 All current theme screenshots come from fxcss running the bundled starter in disposable profiles. `public/evidence/manifest.json` records Firefox and fxcss versions, the exact CSS change, image dimensions, measured differences, and SHA-256 checksums. `public/catalogue/` is the actual catalogue generated by fxcss. The original PNG captures are unchanged; the homepage displays matching regions using CSS. The highlighted image is generated by fxcss's own comparison renderer.
 
-To refresh the evidence, run from the repository root with Firefox and fxcss's Pillow image dependency installed:
+To refresh the evidence, with Firefox and fxcss's Pillow image dependency installed, pass a checkout of `main` (the capture runs that copy of fxcss and its starter theme):
 
 ```sh
-python3 website/scripts/capture-evidence.py
+just evidence ../fxcss
 ```
 
 This launches disposable Firefox sessions, captures 20 states for the unchanged starter and for two light-mode changes (the active tab accent, the homepage's small example, and the toolbar colour, its obvious example), checks the measured differences, and regenerates the catalogue. It preserves the original captures and capture-coverage reports. `/docs/screenshot-evidence` explains the measurements and links to the source files.
@@ -67,6 +92,6 @@ The film is rendered from an HTML source outside this repository. Its on-screen 
 
 ## Publishing
 
-The site is prepared for **https://fxcss.com**. `/install.sh` serves the interactive installer directly as plain text. Canonical URLs, the sitemap, and setup examples use that domain. Publish the matching package metadata when the domain is live. See [DEPLOYMENT.md](DEPLOYMENT.md) for the launch and Cloudflare DNS handoff.
+The site is prepared for **https://fxcss.com**. `/install.sh` serves the interactive installer directly as plain text. Canonical URLs, the sitemap, and setup examples use that domain. Publish the matching package metadata when the domain is live. See [DEPLOYMENT.md](DEPLOYMENT.md) for the launch, the Cloudflare zone settings and deploying on every push.
 
 Nothing has been published yet. The site runs as the Cloudflare Worker `fxcss-website`, configured in `vite.config.ts`; the `deploy` script attaches the `fxcss.com` and `www.fxcss.com` custom domains. `npm run build` writes `dist/server/index.js`, `dist/client/` and the generated `dist/server/wrangler.json`, and `npm run deploy` publishes them. Production scripts require the generated Worker configuration. The public installer must work without a browser session or a sign-in redirect. Do not serve the development server publicly.
