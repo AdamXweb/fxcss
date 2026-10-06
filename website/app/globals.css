@@ -550,10 +550,9 @@ code,
   align-items: center;
   gap: 5px;
 }
-/* Film grain behind the top of the homepage, like the homepage film's. The
-   sticky header keeps its solid background, so the grain fades in below it and
-   fades out behind the film. Reduced motion stops the flicker (see the
-   prefers-reduced-motion rule), leaving a still texture. */
+/* A still film grain behind the top of the homepage, like the homepage film's.
+   The sticky header keeps its solid background, so the grain fades in below it
+   and fades out behind the film. */
 .hero-band {
   position: relative;
   isolation: isolate;
@@ -562,8 +561,10 @@ code,
   position: absolute;
   inset: 0;
   z-index: -1;
-  overflow: hidden;
   pointer-events: none;
+  background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='g' x='0' y='0'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .05  0 0 0 0 .05  0 0 0 0 .17  2.6 0 0 0 -1.05'/></filter><rect width='240' height='240' filter='url(%23g)'/></svg>");
+  background-size: 240px 240px;
+  opacity: 0.3;
   -webkit-mask-image: linear-gradient(
     transparent 0,
     #000 72px,
@@ -576,42 +577,6 @@ code,
     #000 46%,
     transparent 82%
   );
-}
-.hero-grain::before {
-  content: '';
-  position: absolute;
-  inset: -160px;
-  background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='g' x='0' y='0'><feTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .05  0 0 0 0 .05  0 0 0 0 .17  2.8 0 0 0 -1.45'/></filter><rect width='240' height='240' filter='url(%23g)'/></svg>");
-  background-size: 240px 240px;
-  opacity: 0.2;
-  animation: hero-grain 0.8s steps(1) infinite;
-  will-change: transform;
-}
-@keyframes hero-grain {
-  0% {
-    transform: translate(0, 0);
-  }
-  12.5% {
-    transform: translate(-37px, 23px);
-  }
-  25% {
-    transform: translate(51px, -41px);
-  }
-  37.5% {
-    transform: translate(-89px, -13px);
-  }
-  50% {
-    transform: translate(17px, 77px);
-  }
-  62.5% {
-    transform: translate(-61px, 49px);
-  }
-  75% {
-    transform: translate(83px, 11px);
-  }
-  87.5% {
-    transform: translate(-23px, -71px);
-  }
 }
 .film {
   padding: 8px 0 24px;
