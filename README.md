@@ -75,6 +75,7 @@ repository to `fxcss try`.
 fxcss try adamXweb/WhiteSurFirefoxThemeMacOS
 fxcss try github.com/owner/theme --with compact-tabs
 fxcss try owner/theme --info            # report what's there, launch nothing
+fxcss try ~/src/my-theme                # a theme folder on this computer
 ```
 
 **Test-drive a theme before committing to it.** Downloads it, installs it into a
@@ -110,6 +111,29 @@ SHA. `--with name,name` layers on the theme's optional stylesheets so you can se
 a variant without hunting through install flags. `--shot dir` captures the
 standard screenshots instead of opening a window, and `--keep dir` leaves the
 download behind so you can start editing it with `watch`.
+
+#### Private repositories and local folders
+
+A private repository looks exactly like a missing one to anyone who cannot read
+it. fxcss sends `GITHUB_TOKEN` or `GH_TOKEN` when either is set; otherwise, if a
+repository is not publicly visible, it asks the GitHub CLI for its login
+(`gh auth token`) and tries again. So after `gh auth login`, private themes your
+account can read work like public ones. A token also raises GitHub's rate limit.
+
+A theme that is not on GitHub, or not pushed yet, can be tried from its folder:
+`fxcss try ~/src/my-theme`. The folder is read where it is and never modified;
+`--with`, `--shot` and `--info` work as usual, while `--ref` and `--commit` do
+not apply.
+
+When a repository cannot be read, fxcss says why and what to try next rather
+than printing a traceback:
+
+```
+error: GitHub has no public repository owner/theme.
+  Check the name at https://github.com/owner/theme
+  If it is private, sign in with `gh auth login` or set GITHUB_TOKEN to a token that can read it.
+  For a theme on this computer, pass its folder instead, such as ~/src/my-theme
+```
 
 #### It does not run the theme's install script
 

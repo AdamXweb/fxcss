@@ -199,9 +199,26 @@ def cmd_try(args):
     from . import fetch
 
     _install_signal_handlers()
-    owner, name = fetch.parse_repo(args.repo)
+    # A folder on this computer, as `install` accepts: a theme being written,
+    # or one that is not on GitHub. It is read where it is, never modified.
+    local = Path(args.repo).expanduser()
+    if local.is_dir():
+        owner = name = None
+        if args.ref or args.commit:
+            print("  --ref and --commit choose a GitHub version; using the folder as it is.")
+    elif args.repo.startswith(("/", "~", ".")) or "\\" in args.repo:
+        print(f"error: no folder at {local}", file=sys.stderr)
+        return 2
+    else:
+        try:
+            owner, name = fetch.parse_repo(args.repo)
+        except fetch.RepoSpecError as exc:
+            print(f"error: {exc} Or pass the path of a theme folder.", file=sys.stderr)
+            return 2
 
-    if args.ref:
+    if owner is None:
+        ref, why, info = None, None, None
+    elif args.ref:
         ref, why = args.ref, f"ref {args.ref}"
         info = None
     else:
@@ -217,17 +234,24 @@ def cmd_try(args):
     workdir = Path(tempfile.mkdtemp(prefix="fxcss-try-"))
     keep = args.keep.resolve() if args.keep else None
     try:
-        print(f"\n  fetching {why} …")
-        repo_root = fetch.download(owner, name, ref, workdir / "src")
+        if owner is None:
+            repo_root = local.resolve()
+            print(f"\n  trying {repo_root}")
+        else:
+            print(f"\n  fetching {why} …")
+            repo_root = fetch.download(owner, name, ref, workdir / "src")
         theme_root = fetch.find_theme_root(repo_root)
         if theme_root is None:
-            print("\n  No chrome/userChrome.css anywhere in this repository, so "
-                  "there is\n  nothing for Firefox to load. Is it a userChrome theme?")
+            where = "folder" if owner is None else "repository"
+            print(f"\n  No userChrome.css anywhere in this {where}, so there is\n"
+                  "  nothing for Firefox to load. Is it a userChrome theme?",
+                  file=sys.stderr)
             return 2
 
         facts = fetch.describe(repo_root, theme_root)
         where = theme_root.relative_to(repo_root)
-        print(f"  theme found at {where if str(where) != '.' else 'the repository root'}"
+        top = "the top of the folder" if owner is None else "the repository root"
+        print(f"  theme found at {where if str(where) != '.' else top}"
               f"  ({facts['stylesheets']} stylesheets, {facts['bytes'] // 1024} KB)")
 
         if facts["scripts"]:
@@ -1868,10 +1892,10 @@ def build_parser():
     sub = ap.add_subparsers(dest="cmd", required=False)
 
     tr = sub.add_parser(
-        "try", help="download a theme from GitHub and test-drive it",
+        "try", help="test-drive a theme from GitHub or a folder in a throwaway profile",
         epilog="Looking for themes? Browse firefoxcss-store.github.io or "
                "r/FirefoxCSS — anything with a userChrome.css on GitHub works.")
-    tr.add_argument("repo", help="owner/name, or a github.com URL")
+    tr.add_argument("repo", help="owner/name, a github.com URL, or a local theme folder")
     tr.add_argument("--firefox", default=None,
                     help="a channel/fork name (e.g. nightly, dev, esr) or a binary path")
     tr.add_argument("--ref", default=None, help="tag, branch or commit to fetch")
@@ -2203,7 +2227,14 @@ def main(argv=None):
         sys.stdout.reconfigure(line_buffering=True)
     except AttributeError:
         pass
-    return args.func(args)
+    from .fetch import FetchError
+    try:
+        return args.func(args)
+    except FetchError as exc:
+        # Expected problems (a missing or private repository, no network, a
+        # refused download) get a message saying what to try, not a traceback.
+        print(f"\nerror: {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":
