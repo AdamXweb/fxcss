@@ -23,6 +23,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import tarfile
 import tempfile
 import urllib.error
@@ -30,6 +31,14 @@ import urllib.request
 from pathlib import Path
 
 API = "https://api.github.com"
+
+
+class FetchError(RuntimeError):
+    """A problem reaching or reading a theme, reported as a message, not a traceback."""
+
+
+class RepoSpecError(FetchError, ValueError):
+    """The argument is neither owner/name nor a github.com URL."""
 USER_AGENT = "fxcss (+https://github.com/AdamXweb/fxcss)"
 
 # A theme is small. Anything wildly bigger than this is not one, and unpacking it
@@ -55,19 +64,61 @@ FLAG_LINE = re.compile(r"^\s*[-*+]\s*`?(-{1,2}[\w-]+)`?\s*[—:-]?\s+(.{4,120}?)
 def parse_repo(spec: str):
     match = REPO_SPEC.match(spec.strip())
     if not match:
-        raise ValueError(
+        raise RepoSpecError(
             f"could not read {spec!r} as a GitHub repo. "
             "Use owner/name or a github.com URL.")
     return match.group(1), match.group(2)
 
 
+# A token is optional. GITHUB_TOKEN or GH_TOKEN, when set, is sent with every
+# request: it raises the anonymous rate limit and opens private repositories.
+# Without one, fxcss asks the GitHub CLI for its login, but only after an
+# anonymous request found nothing, since a private repository looks exactly
+# like a missing one to anyone who cannot read it.
+_cli_login = {"token": None, "tried": False}
+
+
+def _token():
+    """The token in use and where it came from, or (None, None)."""
+    for var in ("GITHUB_TOKEN", "GH_TOKEN"):
+        if os.environ.get(var):
+            return os.environ[var], var
+    if _cli_login["token"]:
+        return _cli_login["token"], "gh auth token"
+    return None, None
+
+
+def _use_cli_login():
+    """Pick up `gh auth token` once. True when a new token is now in use."""
+    if _token()[0] or _cli_login["tried"]:
+        return False
+    _cli_login["tried"] = True
+    gh = shutil.which("gh")
+    if not gh:
+        return False
+    try:
+        result = subprocess.run([gh, "auth", "token"], capture_output=True,
+                                text=True, timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    token = result.stdout.strip()
+    if result.returncode != 0 or not token:
+        return False
+    _cli_login["token"] = token
+    return True
+
+
 def _request(url, accept="application/vnd.github+json"):
     headers = {"User-Agent": USER_AGENT, "Accept": accept}
-    # Only raises the anonymous rate limit; never required.
-    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    token = _token()[0]
     if token:
         headers["Authorization"] = f"Bearer {token}"
     return urllib.request.Request(url, headers=headers)
+
+
+def _unreachable(exc):
+    return FetchError(f"could not reach GitHub ({getattr(exc, 'reason', exc)}). "
+                      "Check the connection and try again.")
 
 
 def _api(path):
@@ -77,18 +128,49 @@ def _api(path):
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
             return None
+        if exc.code == 401:
+            raise FetchError(
+                f"GitHub rejected the token from {_token()[1]} (401 Unauthorized). "
+                "It may have expired or been revoked: replace it, or unset it to "
+                "use public repositories without one.") from exc
         if exc.code in (403, 429):
-            raise RuntimeError(
-                "GitHub refused the request (rate limit). Set GITHUB_TOKEN to "
-                "raise it, or pass --ref to skip the lookups.") from exc
-        raise
+            raise FetchError(
+                "GitHub refused the request (rate limit). Set GITHUB_TOKEN, or "
+                "sign in with `gh auth login`, to raise it; or pass --ref to "
+                "skip the lookups.") from exc
+        raise FetchError(f"GitHub answered {exc.code} {exc.reason} for {path}") from exc
+    except urllib.error.URLError as exc:
+        raise _unreachable(exc) from exc
+
+
+def not_found(owner, name):
+    """What to say when a repository cannot be read, and what to try next."""
+    token, source = _token()
+    if token:
+        first = (f"no repository {owner}/{name} that the GitHub token from "
+                 f"{source} can read.")
+        access = ("  If it is private, use a token or `gh` login whose account "
+                  "can read it.")
+    else:
+        first = f"GitHub has no public repository {owner}/{name}."
+        access = ("  If it is private, sign in with `gh auth login` or set "
+                  "GITHUB_TOKEN to a token that can read it.")
+    return FetchError("\n".join([
+        first,
+        f"  Check the name at https://github.com/{owner}/{name}",
+        access,
+        "  For a theme on this computer, pass its folder instead, "
+        "such as ~/src/my-theme",
+    ]))
 
 
 def resolve(owner, name):
     """Report what is available: the default branch tip and the latest release."""
     repo = _api(f"/repos/{owner}/{name}")
+    if repo is None and _use_cli_login():
+        repo = _api(f"/repos/{owner}/{name}")
     if repo is None:
-        raise RuntimeError(f"no such repository: {owner}/{name}")
+        raise not_found(owner, name)
 
     branch = repo.get("default_branch", "main")
     commit = _api(f"/repos/{owner}/{name}/commits/{branch}") or {}
@@ -283,23 +365,41 @@ def _safe_members(archive, destination: Path):
             continue
         target = (root / member.name).resolve()
         if not str(target).startswith(str(root) + os.sep):
-            raise RuntimeError(f"archive tried to write outside the target: {member.name}")
+            raise FetchError(f"archive tried to write outside the target: {member.name}")
         total += max(member.size, 0)
         if total > MAX_UNPACKED_BYTES:
-            raise RuntimeError("archive unpacks to more than 200 MB; refusing")
+            raise FetchError("archive unpacks to more than 200 MB; refusing")
         yield member
 
 
 def download(owner, name, ref, into: Path):
     """Download and unpack a repository at a ref. Returns the unpacked root."""
     url = f"https://codeload.github.com/{owner}/{name}/tar.gz/{ref}"
-    try:
+
+    def fetch():
         with urllib.request.urlopen(_request(url, accept="*/*"), timeout=180) as response:
-            payload = response.read(MAX_ARCHIVE_BYTES + 1)
+            return response.read(MAX_ARCHIVE_BYTES + 1)
+
+    try:
+        try:
+            payload = fetch()
+        except urllib.error.HTTPError as exc:
+            # With --ref there was no lookup first, so this may be the first
+            # sign that the repository is private.
+            if exc.code != 404 or not _use_cli_login():
+                raise
+            payload = fetch()
     except urllib.error.HTTPError as exc:
-        raise RuntimeError(f"could not download {owner}/{name}@{ref}: {exc}") from exc
+        if exc.code == 404:
+            raise FetchError(
+                f"could not download {owner}/{name} at {ref!r}: that repository "
+                "or ref was not found.\n"
+                f"  {not_found(owner, name).args[0].splitlines()[0]}") from exc
+        raise FetchError(f"could not download {owner}/{name}@{ref}: {exc}") from exc
+    except urllib.error.URLError as exc:
+        raise _unreachable(exc) from exc
     if len(payload) > MAX_ARCHIVE_BYTES:
-        raise RuntimeError("archive is larger than 80 MB; refusing")
+        raise FetchError("archive is larger than 80 MB; refusing")
 
     into.mkdir(parents=True, exist_ok=True)
     with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:

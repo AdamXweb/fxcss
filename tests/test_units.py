@@ -349,6 +349,106 @@ class ParseRepoTests(unittest.TestCase):
                 parse_repo(spec)
 
 
+class FetchFailureTests(unittest.TestCase):
+    """A repository that cannot be read is a message, not a traceback."""
+
+    def setUp(self):
+        import os
+        from unittest import mock
+        from fxcss import fetch
+        self.fetch = fetch
+        # No token from the environment, and a fresh gh-login lookup each test.
+        self.env = mock.patch.dict(os.environ, {}, clear=False)
+        self.env.start()
+        for var in ("GITHUB_TOKEN", "GH_TOKEN"):
+            os.environ.pop(var, None)
+        self.addCleanup(self.env.stop)
+        self.login = mock.patch.dict(fetch._cli_login, {"token": None, "tried": False})
+        self.login.start()
+        self.addCleanup(self.login.stop)
+
+    def run_cli(self, *argv):
+        import contextlib
+        import io
+        from fxcss import cli
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = cli.main(list(argv))
+        return code, out.getvalue(), err.getvalue()
+
+    def test_missing_public_repo_explains_what_to_try(self):
+        from unittest import mock
+        with mock.patch.object(self.fetch, "_api", return_value=None), \
+                mock.patch.object(self.fetch.shutil, "which", return_value=None):
+            code, _, err = self.run_cli("try", "owner/missing", "--info")
+        self.assertEqual(code, 2)
+        self.assertNotIn("Traceback", err)
+        self.assertIn("GitHub has no public repository owner/missing", err)
+        self.assertIn("gh auth login", err)
+        self.assertIn("pass its folder instead", err)
+
+    def test_private_repo_uses_the_gh_login_after_an_anonymous_miss(self):
+        from unittest import mock
+        seen = []
+
+        def api(path):
+            token = self.fetch._token()[0]
+            seen.append(token)
+            if token != "gho_example":
+                return None
+            return {"default_branch": "main"} if path == "/repos/me/private" else None
+
+        done = mock.Mock(returncode=0, stdout="gho_example\n")
+        with mock.patch.object(self.fetch, "_api", side_effect=api), \
+                mock.patch.object(self.fetch.shutil, "which", return_value="/usr/bin/gh"), \
+                mock.patch.object(self.fetch.subprocess, "run", return_value=done) as run:
+            info = self.fetch.resolve("me", "private")
+        self.assertEqual(info["default_branch"], "main")
+        self.assertEqual(seen[0], None)  # the first lookup is anonymous
+        self.assertEqual(seen[1], "gho_example")
+        run.assert_called_once()
+        self.assertEqual(self.fetch._token(), ("gho_example", "gh auth token"))
+
+    def test_not_found_with_a_token_names_where_it_came_from(self):
+        import os
+        os.environ["GITHUB_TOKEN"] = "ghp_example"
+        message = str(self.fetch.not_found("me", "private"))
+        self.assertIn("token from GITHUB_TOKEN can read", message)
+
+    def test_unreachable_network_is_a_message(self):
+        import urllib.error
+        from unittest import mock
+        failure = urllib.error.URLError("Connection refused")
+        with mock.patch.object(self.fetch.urllib.request, "urlopen", side_effect=failure):
+            with self.assertRaisesRegex(self.fetch.FetchError, "could not reach GitHub"):
+                self.fetch.resolve("owner", "name")
+
+    def test_spec_errors_are_still_value_errors(self):
+        with self.assertRaises(ValueError):
+            self.fetch.parse_repo("owner")
+
+    def test_try_reads_a_local_folder(self):
+        with tempfile.TemporaryDirectory() as td:
+            (Path(td) / "chrome").mkdir()
+            (Path(td) / "chrome/userChrome.css").write_text("#nav-bar { }\n")
+            code, out, _ = self.run_cli("try", td, "--info")
+        self.assertEqual(code, 0)
+        self.assertIn("trying", out)
+        self.assertIn("theme found at the top of the folder", out)
+
+    def test_try_reports_a_missing_folder(self):
+        code, _, err = self.run_cli("try", "./no-such-theme-folder", "--info")
+        self.assertEqual(code, 2)
+        self.assertIn("no folder at", err)
+
+    def test_try_reports_a_folder_without_a_theme(self):
+        with tempfile.TemporaryDirectory() as td:
+            (Path(td) / "README.md").write_text("not a theme\n")
+            code, _, err = self.run_cli("try", td, "--info")
+        self.assertEqual(code, 2)
+        self.assertIn("No userChrome.css anywhere in this folder", err)
+
+
 class FlagLineTests(unittest.TestCase):
     def test_readme_flag_bullets_parse(self):
         from fxcss.fetch import FLAG_LINE
