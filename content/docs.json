@@ -1,6 +1,6 @@
 {
-  "version": "0.22.1",
-  "sourceSha256": "78856ec0dd9a6675b74a439a8177f5c4ffe8e694fda532e970bcbddf3ea14f57",
+  "version": "0.23.0",
+  "sourceSha256": "f78e94cbe2f40ff33d352116a75fa6a9421019400ee223374373a004523af832",
   "pages": [
     {
       "slug": "using-and-managing-themes",
@@ -29,12 +29,17 @@
       "chapter": "Using and managing themes",
       "group": "command",
       "description": "Test-drive a theme before committing to it. Downloads it, installs it into a throwaway profile, and opens Firefox so you can actually use it. Your own profile is never touched — close the wi",
-      "html": "<div class=\"doc-code\" id=\"passage-1\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>fxcss try adamXweb/WhiteSurFirefoxThemeMacOS\nfxcss try github.com/owner/theme --with compact-tabs\nfxcss try owner/theme --info            # report what's there, launch nothing</code></pre></div><p id=\"passage-2\"><strong>Test-drive a theme before committing to it.</strong> Downloads it, installs it into a\nthrowaway profile, and opens Firefox so you can actually use it. Your own profile\nis never touched — close the window and nothing remains.</p><p id=\"passage-3\">It reports what it found before doing anything:</p><div class=\"doc-code\" id=\"passage-4\"><div class=\"doc-code-header\"><span>example</span><button type=\"button\" data-copy-index=\"1\" aria-label=\"Copy code example 2\">Copy</button></div><pre><code>  adamxweb/whitesurfirefoxthememacos  ★614  MIT\n    MacOS Big Sur like theme for Firefox on MacOS &amp; Windows.\n    latest release   v1.6.3  (2025-07-26)\n    latest commit    b10c574  (2025-07-26)  Merge pull request #167 …\n\n  fetching release v1.6.3 …\n  theme found at the repository root  (39 stylesheets, 134 KB)\n\n  This theme ships install.sh. fxcss does not run it —\n  it installs the files itself, which is all those scripts do.\n\n  Options its README documents:\n    -c     Left hand side tab close button\n    -p     Makes tabs height compact like current Safari\n    …\n\n  Optional stylesheets you can layer on with --with:\n    compact-tabs, hideextension, noidentity, tabs-swapclose, …</code></pre></div><p id=\"passage-5\">Releases are preferred over branch tips, since that is what the author blessed;\n<code>--commit</code> takes the latest commit instead, and <code>--ref</code> takes any tag, branch or\nSHA. <code>--with name,name</code> layers on the theme's optional stylesheets so you can see\na variant without hunting through install flags. <code>--shot dir</code> captures the\nstandard screenshots instead of opening a window, and <code>--keep dir</code> leaves the\ndownload behind so you can start editing it with <code>watch</code>.</p><h2 id=\"it-does-not-run-the-themes-install-script\">It does not run the theme's install script</h2><p id=\"passage-7\">fxcss installs the theme's files and supported preferences itself. It reports\nany installer it finds and reads the options documented in the theme's README.\nA theme that requires additional setup outside those files and preferences may\nstill need manual steps.</p><p id=\"passage-8\">What is left is the theme's own content: CSS, SVG, and occasionally a <code>.js</code> file.\nFirefox does not execute a <code>.js</code> file sitting in a profile's chrome folder; that\nrequires an autoconfig hook in the <em>application</em> directory, which fxcss does not\ncreate. Archives are size-capped and path-checked on extraction, and symlinks in\nthem are skipped.</p><p id=\"passage-9\">If you decide you want the theme permanently, <code>fxcss install</code> is the same\nresolution and the same file copying — pointed, deliberately, at your real\nprofile.</p>",
+      "html": "<div class=\"doc-code\" id=\"passage-1\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>fxcss try adamXweb/WhiteSurFirefoxThemeMacOS\nfxcss try github.com/owner/theme --with compact-tabs\nfxcss try owner/theme --info            # report what's there, launch nothing\nfxcss try ~/src/my-theme                # a theme folder on this computer</code></pre></div><p id=\"passage-2\"><strong>Test-drive a theme before committing to it.</strong> Downloads it, installs it into a\nthrowaway profile, and opens Firefox so you can actually use it. Your own profile\nis never touched — close the window and nothing remains.</p><p id=\"passage-3\">It reports what it found before doing anything:</p><div class=\"doc-code\" id=\"passage-4\"><div class=\"doc-code-header\"><span>example</span><button type=\"button\" data-copy-index=\"1\" aria-label=\"Copy code example 2\">Copy</button></div><pre><code>  adamxweb/whitesurfirefoxthememacos  ★614  MIT\n    MacOS Big Sur like theme for Firefox on MacOS &amp; Windows.\n    latest release   v1.6.3  (2025-07-26)\n    latest commit    b10c574  (2025-07-26)  Merge pull request #167 …\n\n  fetching release v1.6.3 …\n  theme found at the repository root  (39 stylesheets, 134 KB)\n\n  This theme ships install.sh. fxcss does not run it —\n  it installs the files itself, which is all those scripts do.\n\n  Options its README documents:\n    -c     Left hand side tab close button\n    -p     Makes tabs height compact like current Safari\n    …\n\n  Optional stylesheets you can layer on with --with:\n    compact-tabs, hideextension, noidentity, tabs-swapclose, …</code></pre></div><p id=\"passage-5\">Releases are preferred over branch tips, since that is what the author blessed;\n<code>--commit</code> takes the latest commit instead, and <code>--ref</code> takes any tag, branch or\nSHA. <code>--with name,name</code> layers on the theme's optional stylesheets so you can see\na variant without hunting through install flags. <code>--shot dir</code> captures the\nstandard screenshots instead of opening a window, and <code>--keep dir</code> leaves the\ndownload behind so you can start editing it with <code>watch</code>.</p><h2 id=\"private-repositories-and-local-folders\">Private repositories and local folders</h2><p id=\"passage-7\">A private repository looks exactly like a missing one to anyone who cannot read\nit. fxcss sends <code>GITHUB_TOKEN</code> or <code>GH_TOKEN</code> when either is set; otherwise, if a\nrepository is not publicly visible, it asks the GitHub CLI for its login\n(<code>gh auth token</code>) and tries again. So after <code>gh auth login</code>, private themes your\naccount can read work like public ones. A token also raises GitHub's rate limit.</p><p id=\"passage-8\">A theme that is not on GitHub, or not pushed yet, can be tried from its folder:\n<code>fxcss try ~/src/my-theme</code>. The folder is read where it is and never modified;\n<code>--with</code>, <code>--shot</code> and <code>--info</code> work as usual, while <code>--ref</code> and <code>--commit</code> do\nnot apply.</p><p id=\"passage-9\">When a repository cannot be read, fxcss says why and what to try next rather\nthan printing a traceback:</p><div class=\"doc-code\" id=\"passage-10\"><div class=\"doc-code-header\"><span>example</span><button type=\"button\" data-copy-index=\"2\" aria-label=\"Copy code example 3\">Copy</button></div><pre><code>error: GitHub has no public repository owner/theme.\n  Check the name at https://github.com/owner/theme\n  If it is private, sign in with `gh auth login` or set GITHUB_TOKEN to a token that can read it.\n  For a theme on this computer, pass its folder instead, such as ~/src/my-theme</code></pre></div><h2 id=\"it-does-not-run-the-themes-install-script\">It does not run the theme's install script</h2><p id=\"passage-12\">fxcss installs the theme's files and supported preferences itself. It reports\nany installer it finds and reads the options documented in the theme's README.\nA theme that requires additional setup outside those files and preferences may\nstill need manual steps.</p><p id=\"passage-13\">What is left is the theme's own content: CSS, SVG, and occasionally a <code>.js</code> file.\nFirefox does not execute a <code>.js</code> file sitting in a profile's chrome folder; that\nrequires an autoconfig hook in the <em>application</em> directory, which fxcss does not\ncreate. Archives are size-capped and path-checked on extraction, and symlinks in\nthem are skipped.</p><p id=\"passage-14\">If you decide you want the theme permanently, <code>fxcss install</code> is the same\nresolution and the same file copying — pointed, deliberately, at your real\nprofile.</p>",
       "codes": [
-        "fxcss try adamXweb/WhiteSurFirefoxThemeMacOS\nfxcss try github.com/owner/theme --with compact-tabs\nfxcss try owner/theme --info            # report what's there, launch nothing",
-        "  adamxweb/whitesurfirefoxthememacos  ★614  MIT\n    MacOS Big Sur like theme for Firefox on MacOS & Windows.\n    latest release   v1.6.3  (2025-07-26)\n    latest commit    b10c574  (2025-07-26)  Merge pull request #167 …\n\n  fetching release v1.6.3 …\n  theme found at the repository root  (39 stylesheets, 134 KB)\n\n  This theme ships install.sh. fxcss does not run it —\n  it installs the files itself, which is all those scripts do.\n\n  Options its README documents:\n    -c     Left hand side tab close button\n    -p     Makes tabs height compact like current Safari\n    …\n\n  Optional stylesheets you can layer on with --with:\n    compact-tabs, hideextension, noidentity, tabs-swapclose, …"
+        "fxcss try adamXweb/WhiteSurFirefoxThemeMacOS\nfxcss try github.com/owner/theme --with compact-tabs\nfxcss try owner/theme --info            # report what's there, launch nothing\nfxcss try ~/src/my-theme                # a theme folder on this computer",
+        "  adamxweb/whitesurfirefoxthememacos  ★614  MIT\n    MacOS Big Sur like theme for Firefox on MacOS & Windows.\n    latest release   v1.6.3  (2025-07-26)\n    latest commit    b10c574  (2025-07-26)  Merge pull request #167 …\n\n  fetching release v1.6.3 …\n  theme found at the repository root  (39 stylesheets, 134 KB)\n\n  This theme ships install.sh. fxcss does not run it —\n  it installs the files itself, which is all those scripts do.\n\n  Options its README documents:\n    -c     Left hand side tab close button\n    -p     Makes tabs height compact like current Safari\n    …\n\n  Optional stylesheets you can layer on with --with:\n    compact-tabs, hideextension, noidentity, tabs-swapclose, …",
+        "error: GitHub has no public repository owner/theme.\n  Check the name at https://github.com/owner/theme\n  If it is private, sign in with `gh auth login` or set GITHUB_TOKEN to a token that can read it.\n  For a theme on this computer, pass its folder instead, such as ~/src/my-theme"
       ],
       "headings": [
+        {
+          "id": "private-repositories-and-local-folders",
+          "text": "Private repositories and local folders"
+        },
         {
           "id": "it-does-not-run-the-themes-install-script",
           "text": "It does not run the theme's install script"
@@ -43,7 +48,7 @@
       "search": [
         {
           "id": "passage-1",
-          "text": "fxcss try adamXweb/WhiteSurFirefoxThemeMacOS fxcss try github.com/owner/theme --with compact-tabs fxcss try owner/theme --info # report what's there, launch nothing"
+          "text": "fxcss try adamXweb/WhiteSurFirefoxThemeMacOS fxcss try github.com/owner/theme --with compact-tabs fxcss try owner/theme --info # report what's there, launch nothing fxcss try ~/src/my-theme # a theme folder on this computer"
         },
         {
           "id": "passage-2",
@@ -62,19 +67,39 @@
           "text": "Releases are preferred over branch tips, since that is what the author blessed; --commit takes the latest commit instead, and --ref takes any tag, branch or SHA. --with name,name layers on the theme's optional stylesheets so you can see a variant without hunting through install flags. --shot dir captures the standard screenshots instead of opening a window, and --keep dir leaves the download behind so you can start editing it with watch."
         },
         {
+          "id": "private-repositories-and-local-folders",
+          "text": "Private repositories and local folders"
+        },
+        {
+          "id": "passage-7",
+          "text": "A private repository looks exactly like a missing one to anyone who cannot read it. fxcss sends GITHUB_TOKEN or GH_TOKEN when either is set; otherwise, if a repository is not publicly visible, it asks the GitHub CLI for its login (gh auth token) and tries again. So after gh auth login, private themes your account can read work like public ones. A token also raises GitHub's rate limit."
+        },
+        {
+          "id": "passage-8",
+          "text": "A theme that is not on GitHub, or not pushed yet, can be tried from its folder: fxcss try ~/src/my-theme. The folder is read where it is and never modified; --with, --shot and --info work as usual, while --ref and --commit do not apply."
+        },
+        {
+          "id": "passage-9",
+          "text": "When a repository cannot be read, fxcss says why and what to try next rather than printing a traceback:"
+        },
+        {
+          "id": "passage-10",
+          "text": "error: GitHub has no public repository owner/theme. Check the name at https://github.com/owner/theme If it is private, sign in with `gh auth login` or set GITHUB_TOKEN to a token that can read it. For a theme on this computer, pass its folder instead, such as ~/src/my-theme"
+        },
+        {
           "id": "it-does-not-run-the-themes-install-script",
           "text": "It does not run the theme's install script"
         },
         {
-          "id": "passage-7",
+          "id": "passage-12",
           "text": "fxcss installs the theme's files and supported preferences itself. It reports any installer it finds and reads the options documented in the theme's README. A theme that requires additional setup outside those files and preferences may still need manual steps."
         },
         {
-          "id": "passage-8",
+          "id": "passage-13",
           "text": "What is left is the theme's own content: CSS, SVG, and occasionally a .js file. Firefox does not execute a .js file sitting in a profile's chrome folder; that requires an autoconfig hook in the application directory, which fxcss does not create. Archives are size-capped and path-checked on extraction, and symlinks in them are skipped."
         },
         {
-          "id": "passage-9",
+          "id": "passage-14",
           "text": "If you decide you want the theme permanently, fxcss install is the same resolution and the same file copying — pointed, deliberately, at your real profile."
         }
       ],
@@ -1227,9 +1252,9 @@
       "chapter": "GitHub Actions workflows",
       "group": "guide",
       "description": "For a custom workflow, the core capture-and-compare steps are: These steps assume the two theme revisions are checked out, Firefox is installed and a display is available. Browser chrome req",
-      "html": "<p id=\"passage-1\">For a custom workflow, the core capture-and-compare steps are:</p><div class=\"doc-code\" id=\"passage-2\"><div class=\"doc-code-header\"><span>yaml</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>- run: pip install \"fxcss[images]==0.22.1\"\n- run: fxcss shot --theme base --out shots/base\n- run: fxcss shot --theme head --out shots/head\n- run: fxcss compare --base shots/base --head shots/head --out out/ --platform ${{ runner.os }}</code></pre></div><p id=\"passage-3\">These steps assume the two theme revisions are checked out, Firefox is\ninstalled and a display is available. Browser chrome requires a rendered\nwindow: macOS and Windows runners have a display; Linux needs Xvfb. Firefox's\nheadless mode does not render the browser chrome.</p><p id=\"passage-4\">Start with <code>fxcss init</code> for the complete setup. The\n<a href=\"/docs/github-actions-workflows\">workflow examples</a> explain the generated files. If your\nproject needs a visual pass/fail policy, read <code>compare</code>'s <code>summary.json</code> and\napply its chosen threshold.</p><p id=\"passage-5\"><a href=\"https://github.com/AdamXweb/fxcss\" target=\"_blank\" rel=\"noreferrer noopener\">theme previews by fxcss</a></p>",
+      "html": "<p id=\"passage-1\">For a custom workflow, the core capture-and-compare steps are:</p><div class=\"doc-code\" id=\"passage-2\"><div class=\"doc-code-header\"><span>yaml</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>- run: pip install \"fxcss[images]==0.23.0\"\n- run: fxcss shot --theme base --out shots/base\n- run: fxcss shot --theme head --out shots/head\n- run: fxcss compare --base shots/base --head shots/head --out out/ --platform ${{ runner.os }}</code></pre></div><p id=\"passage-3\">These steps assume the two theme revisions are checked out, Firefox is\ninstalled and a display is available. Browser chrome requires a rendered\nwindow: macOS and Windows runners have a display; Linux needs Xvfb. Firefox's\nheadless mode does not render the browser chrome.</p><p id=\"passage-4\">Start with <code>fxcss init</code> for the complete setup. The\n<a href=\"/docs/github-actions-workflows\">workflow examples</a> explain the generated files. If your\nproject needs a visual pass/fail policy, read <code>compare</code>'s <code>summary.json</code> and\napply its chosen threshold.</p><p id=\"passage-5\"><a href=\"https://github.com/AdamXweb/fxcss\" target=\"_blank\" rel=\"noreferrer noopener\">theme previews by fxcss</a></p>",
       "codes": [
-        "- run: pip install \"fxcss[images]==0.22.1\"\n- run: fxcss shot --theme base --out shots/base\n- run: fxcss shot --theme head --out shots/head\n- run: fxcss compare --base shots/base --head shots/head --out out/ --platform ${{ runner.os }}"
+        "- run: pip install \"fxcss[images]==0.23.0\"\n- run: fxcss shot --theme base --out shots/base\n- run: fxcss shot --theme head --out shots/head\n- run: fxcss compare --base shots/base --head shots/head --out out/ --platform ${{ runner.os }}"
       ],
       "headings": [],
       "search": [
@@ -1239,7 +1264,7 @@
         },
         {
           "id": "passage-2",
-          "text": "- run: pip install \"fxcss[images]==0.22.1\" - run: fxcss shot --theme base --out shots/base - run: fxcss shot --theme head --out shots/head - run: fxcss compare --base shots/base --head shots/head --out out/ --platform ${{ runner.os }}"
+          "text": "- run: pip install \"fxcss[images]==0.23.0\" - run: fxcss shot --theme base --out shots/base - run: fxcss shot --theme head --out shots/head - run: fxcss compare --base shots/base --head shots/head --out out/ --platform ${{ runner.os }}"
         },
         {
           "id": "passage-3",
@@ -1449,11 +1474,11 @@
       "chapter": "Troubleshooting and configuration",
       "group": "guide",
       "description": "fxcss is on PyPI. Install it with pipx, which gives it its own environment and puts fxcss on your PATH: No pipx yet? brew install pipx (macOS), sudo apt install pipx (Debian and Ubuntu), or ",
-      "html": "<p id=\"passage-1\">fxcss is <a href=\"https://pypi.org/project/fxcss/\" target=\"_blank\" rel=\"noreferrer noopener\">on PyPI</a>. Install it with <strong>pipx</strong>,\nwhich gives it its own environment and puts <code>fxcss</code> on your PATH:</p><div class=\"doc-code\" id=\"passage-2\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>pipx install \"fxcss[images]\"</code></pre></div><p id=\"passage-3\">No pipx yet? <code>brew install pipx</code> (macOS), <code>sudo apt install pipx</code> (Debian and\nUbuntu), or <code>python3 -m pip install --user pipx</code> elsewhere.</p><blockquote>\n<p id=\"passage-4\"><strong>Why not plain pip?</strong> On current Homebrew, Debian and Ubuntu Pythons,\n<code>python3 -m pip install</code> refuses with <code>error: externally-managed-environment</code>\n— that's <a href=\"https://peps.python.org/pep-0668/\" target=\"_blank\" rel=\"noreferrer noopener\">PEP 668</a> protecting your system\nPython, not fxcss being broken. pipx is the intended answer for installing an\napplication. pip still works fine <em>inside a virtual environment</em>:</p><div class=\"doc-code\" id=\"passage-5\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"1\" aria-label=\"Copy code example 2\">Copy</button></div><pre><code>python3 -m venv ~/.venvs/fxcss &amp;&amp; ~/.venvs/fxcss/bin/pip install \"fxcss[images]\"</code></pre></div></blockquote>\n<p id=\"passage-6\">For CI, or anywhere a surprise upgrade would be unwelcome, pin the release —\nthe <a href=\"https://github.com/AdamXweb/fxcss/releases\" target=\"_blank\" rel=\"noreferrer noopener\">releases page</a> has the latest.\nCI runners' Pythons are not externally managed, so plain pip is fine there:</p><div class=\"doc-code\" id=\"passage-7\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"2\" aria-label=\"Copy code example 3\">Copy</button></div><pre><code>pip install \"fxcss[images]==0.22.1\"</code></pre></div><p id=\"passage-8\">Upgrade an existing pipx installation with <code>pipx upgrade fxcss</code>.</p>",
+      "html": "<p id=\"passage-1\">fxcss is <a href=\"https://pypi.org/project/fxcss/\" target=\"_blank\" rel=\"noreferrer noopener\">on PyPI</a>. Install it with <strong>pipx</strong>,\nwhich gives it its own environment and puts <code>fxcss</code> on your PATH:</p><div class=\"doc-code\" id=\"passage-2\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>pipx install \"fxcss[images]\"</code></pre></div><p id=\"passage-3\">No pipx yet? <code>brew install pipx</code> (macOS), <code>sudo apt install pipx</code> (Debian and\nUbuntu), or <code>python3 -m pip install --user pipx</code> elsewhere.</p><blockquote>\n<p id=\"passage-4\"><strong>Why not plain pip?</strong> On current Homebrew, Debian and Ubuntu Pythons,\n<code>python3 -m pip install</code> refuses with <code>error: externally-managed-environment</code>\n— that's <a href=\"https://peps.python.org/pep-0668/\" target=\"_blank\" rel=\"noreferrer noopener\">PEP 668</a> protecting your system\nPython, not fxcss being broken. pipx is the intended answer for installing an\napplication. pip still works fine <em>inside a virtual environment</em>:</p><div class=\"doc-code\" id=\"passage-5\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"1\" aria-label=\"Copy code example 2\">Copy</button></div><pre><code>python3 -m venv ~/.venvs/fxcss &amp;&amp; ~/.venvs/fxcss/bin/pip install \"fxcss[images]\"</code></pre></div></blockquote>\n<p id=\"passage-6\">For CI, or anywhere a surprise upgrade would be unwelcome, pin the release —\nthe <a href=\"https://github.com/AdamXweb/fxcss/releases\" target=\"_blank\" rel=\"noreferrer noopener\">releases page</a> has the latest.\nCI runners' Pythons are not externally managed, so plain pip is fine there:</p><div class=\"doc-code\" id=\"passage-7\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"2\" aria-label=\"Copy code example 3\">Copy</button></div><pre><code>pip install \"fxcss[images]==0.23.0\"</code></pre></div><p id=\"passage-8\">Upgrade an existing pipx installation with <code>pipx upgrade fxcss</code>.</p>",
       "codes": [
         "pipx install \"fxcss[images]\"",
         "python3 -m venv ~/.venvs/fxcss && ~/.venvs/fxcss/bin/pip install \"fxcss[images]\"",
-        "pip install \"fxcss[images]==0.22.1\""
+        "pip install \"fxcss[images]==0.23.0\""
       ],
       "headings": [],
       "search": [
@@ -1483,7 +1508,7 @@
         },
         {
           "id": "passage-7",
-          "text": "pip install \"fxcss[images]==0.22.1\""
+          "text": "pip install \"fxcss[images]==0.23.0\""
         },
         {
           "id": "passage-8",
@@ -1665,8 +1690,8 @@
       "title": "Contributing",
       "chapter": "Contributing",
       "group": "guide",
-      "description": "Issues and pull requests welcome — particularly landmark definitions for UI parts the catalogue doesn't cover yet, and reports of selectors that changed in a new Firefox release. To work on ",
-      "html": "<p id=\"passage-1\">Issues and pull requests welcome — particularly landmark definitions for UI\nparts the catalogue doesn't cover yet, and reports of selectors that changed in\na new Firefox release.</p><p id=\"passage-2\">To work on fxcss itself, clone and install it in an editable environment:</p><div class=\"doc-code\" id=\"passage-3\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>git clone https://github.com/AdamXweb/fxcss.git\ncd fxcss &amp;&amp; python3 -m pip install -e \".[images]\"</code></pre></div><p id=\"passage-4\">And if you would rather install nothing at all, the repo runs as-is:</p><div class=\"doc-code\" id=\"passage-5\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"1\" aria-label=\"Copy code example 2\">Copy</button></div><pre><code>python3 -m fxcss &lt;command&gt;</code></pre></div>",
+      "description": "Issues and pull requests welcome — particularly landmark definitions for UI parts the catalogue doesn't cover yet, and reports of selectors that changed in a new Firefox release. The fxcss.c",
+      "html": "<p id=\"passage-1\">Issues and pull requests welcome — particularly landmark definitions for UI\nparts the catalogue doesn't cover yet, and reports of selectors that changed in\na new Firefox release.</p><p id=\"passage-2\">The fxcss.com website lives on the repository's\n<a href=\"https://github.com/AdamXweb/fxcss/tree/website\" target=\"_blank\" rel=\"noreferrer noopener\"><code>website</code> branch</a>, with its\nown README and <code>just</code> commands; send website changes there. Its documentation\npages are generated from this README.</p><p id=\"passage-3\">To work on fxcss itself, clone and install it in an editable environment:</p><div class=\"doc-code\" id=\"passage-4\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>git clone https://github.com/AdamXweb/fxcss.git\ncd fxcss &amp;&amp; python3 -m pip install -e \".[images]\"</code></pre></div><p id=\"passage-5\">And if you would rather install nothing at all, the repo runs as-is:</p><div class=\"doc-code\" id=\"passage-6\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"1\" aria-label=\"Copy code example 2\">Copy</button></div><pre><code>python3 -m fxcss &lt;command&gt;</code></pre></div>",
       "codes": [
         "git clone https://github.com/AdamXweb/fxcss.git\ncd fxcss && python3 -m pip install -e \".[images]\"",
         "python3 -m fxcss <command>"
@@ -1679,18 +1704,22 @@
         },
         {
           "id": "passage-2",
-          "text": "To work on fxcss itself, clone and install it in an editable environment:"
+          "text": "The fxcss.com website lives on the repository's website branch, with its own README and just commands; send website changes there. Its documentation pages are generated from this README."
         },
         {
           "id": "passage-3",
-          "text": "git clone https://github.com/AdamXweb/fxcss.git cd fxcss && python3 -m pip install -e \".[images]\""
+          "text": "To work on fxcss itself, clone and install it in an editable environment:"
         },
         {
           "id": "passage-4",
-          "text": "And if you would rather install nothing at all, the repo runs as-is:"
+          "text": "git clone https://github.com/AdamXweb/fxcss.git cd fxcss && python3 -m pip install -e \".[images]\""
         },
         {
           "id": "passage-5",
+          "text": "And if you would rather install nothing at all, the repo runs as-is:"
+        },
+        {
+          "id": "passage-6",
           "text": "python3 -m fxcss <command>"
         }
       ],
