@@ -86,9 +86,9 @@ class WorkflowBehaviorTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("no pixel difference", result.stdout)
 
-    def test_website_changes_skip_expensive_ci_for_pushes_and_pull_requests(self):
+    def test_readme_changes_skip_expensive_ci_for_pushes_and_pull_requests(self):
         ci = (Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text()
-        body = script(ci, "Identify website-only changes")
+        body = script(ci, "Identify README-only changes")
         repo = self.root / "scope"
         repo.mkdir()
 
@@ -100,19 +100,16 @@ class WorkflowBehaviorTests(unittest.TestCase):
         git("init")
         git("config", "user.name", "CI test")
         git("config", "user.email", "ci@example.invalid")
-        (repo / "website").mkdir()
         (repo / "fxcss").mkdir()
         (repo / "README.md").write_text("before")
-        (repo / "website/index.html").write_text("before")
         (repo / "fxcss/core.py").write_text("before")
         git("add", ".")
         git("commit", "-m", "base")
         base = git("rev-parse", "HEAD")
 
-        (repo / "README.md").write_text("website documentation")
-        (repo / "website/index.html").write_text("website update")
+        (repo / "README.md").write_text("documentation update")
         git("add", ".")
-        git("commit", "-m", "website")
+        git("commit", "-m", "readme")
         site = git("rev-parse", "HEAD")
 
         (repo / "fxcss/core.py").write_text("toolkit update")
