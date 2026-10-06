@@ -1,7 +1,7 @@
 {
   "info": {
-    "version": "153.0.4",
-    "buildID": "20260810162159",
+    "version": "155.0.1",
+    "buildID": "20260903215306",
     "os": "Darwin",
     "dpr": 2,
     "outer": [
@@ -258,7 +258,7 @@
             "font-size": "13.75px",
             "padding-top": "0px",
             "margin-inline-end": "0px",
-            "height": "32px",
+            "height": "34px",
             "opacity": "1"
           },
           "shot": "light/urlbar.png",
@@ -277,7 +277,7 @@
             "font-size": "13.75px",
             "padding-top": "0px",
             "margin-inline-end": "0px",
-            "height": "32px",
+            "height": "34px",
             "opacity": "1"
           },
           "shot": "dark/urlbar.png",
@@ -306,7 +306,7 @@
             "font-size": "13.75px",
             "padding-top": "0px",
             "margin-inline-end": "0px",
-            "height": "16.5px",
+            "height": "30px",
             "opacity": "1"
           },
           "shot": "light/urlbar-input.png",
@@ -325,7 +325,7 @@
             "font-size": "13.75px",
             "padding-top": "0px",
             "margin-inline-end": "0px",
-            "height": "16.5px",
+            "height": "30px",
             "opacity": "1"
           },
           "shot": "dark/urlbar-input.png",
@@ -353,7 +353,7 @@
             "box-shadow": "none",
             "font-size": "13.75px",
             "padding-top": "0px",
-            "margin-inline-end": "6.1875px",
+            "margin-inline-end": "0px",
             "height": "28px",
             "opacity": "1"
           },
@@ -372,7 +372,7 @@
             "box-shadow": "none",
             "font-size": "13.75px",
             "padding-top": "0px",
-            "margin-inline-end": "6.1875px",
+            "margin-inline-end": "0px",
             "height": "28px",
             "opacity": "1"
           },
@@ -998,42 +998,18 @@
       "references": [],
       "modes": {
         "light": {
-          "found": true,
-          "visible": true,
-          "styles": {
-            "background-color": "rgba(0, 0, 0, 0)",
-            "color": "rgb(21, 20, 26)",
-            "border-radius": "0px",
-            "border-top-width": "0px",
-            "border-top-color": "rgb(21, 20, 26)",
-            "box-shadow": "none",
-            "font-size": "11px",
-            "padding-top": "0px",
-            "margin-inline-end": "0px",
-            "height": "44px",
-            "opacity": "1"
-          },
-          "shot": "light/firefox-view.png",
-          "tag": "toolbarbutton"
+          "found": false,
+          "visible": false,
+          "styles": {},
+          "shot": null,
+          "tag": null
         },
         "dark": {
-          "found": true,
-          "visible": true,
-          "styles": {
-            "background-color": "rgba(0, 0, 0, 0)",
-            "color": "rgb(251, 251, 254)",
-            "border-radius": "0px",
-            "border-top-width": "0px",
-            "border-top-color": "rgb(251, 251, 254)",
-            "box-shadow": "none",
-            "font-size": "11px",
-            "padding-top": "0px",
-            "margin-inline-end": "0px",
-            "height": "44px",
-            "opacity": "1"
-          },
-          "shot": "dark/firefox-view.png",
-          "tag": "toolbarbutton"
+          "found": false,
+          "visible": false,
+          "styles": {},
+          "shot": null,
+          "tag": null
         }
       }
     },

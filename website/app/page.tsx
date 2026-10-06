@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { SiteHeader, Footer } from './components/site-chrome';
 import { CopyCommand } from './components/copy-command';
-import { Comparison } from './components/comparison';
+import { ComparisonDemo } from './components/comparison';
 const INSTALL = SETUP_COMMAND;
 function Journeys() {
   const paths = [
@@ -95,7 +95,10 @@ export default function Home() {
             Python + Firefox
           </p>
         </section>
-        <section className="film content-width" aria-label="fxcss in under a minute">
+        <section
+          className="film content-width"
+          aria-label="fxcss in under a minute"
+        >
           {/* The film has no audio track; its words are on screen. */}
           <video
             controls
@@ -117,21 +120,7 @@ export default function Home() {
           <Journeys />
         </section>
         <section className="showcase-demo content-width" id="demo">
-          <div className="demo-heading">
-            <span className="eyebrow">
-              CATCH A SMALL CHANGE BEFORE IT SHIPS.
-            </span>
-            <span className="mono">VISUAL COMPARISON</span>
-          </div>
-          <Comparison />
-          <div className="demo-caption">
-            <p>
-              One CSS value changed the active tab. fxcss shows exactly where.
-            </p>
-            <Link href="/docs/compare">
-              How comparison works <ArrowUpRight size={15} />
-            </Link>
-          </div>
+          <ComparisonDemo />
         </section>
         <section className="install-band content-width">
           <div>

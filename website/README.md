@@ -57,7 +57,7 @@ To refresh the evidence, run from the repository root with Firefox and fxcss's P
 python3 website/scripts/capture-evidence.py
 ```
 
-This launches disposable Firefox sessions, captures 20 states before and after one light-mode accent change, checks the measured difference, and regenerates the catalogue. It preserves the original captures and capture-coverage reports. `/docs/screenshot-evidence` explains the measurements and links to the source files.
+This launches disposable Firefox sessions, captures 20 states for the unchanged starter and for two light-mode changes (the active tab accent, the homepage's small example, and the toolbar colour, its obvious example), checks the measured differences, and regenerates the catalogue. It preserves the original captures and capture-coverage reports. `/docs/screenshot-evidence` explains the measurements and links to the source files.
 
 ## Homepage film
 
