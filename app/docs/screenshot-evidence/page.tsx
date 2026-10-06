@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import evidence from '../../../content/evidence.json';
-import { Comparison } from '../../components/comparison';
+import { ComparisonDemo } from '../../components/comparison';
 import { shareCard } from '../../../lib/share-card';
 export const metadata: Metadata = {
   title: 'Screenshot evidence',
@@ -19,14 +19,16 @@ export default function EvidencePage() {
       </div>
       <span className="eyebrow">MEASURED FROM FIREFOX</span>
       <h1>
-        A real change.
-        <br />A traceable comparison.
+        Real changes.
+        <br />
+        Traceable comparisons.
       </h1>
       <p className="guide-lead">
-        The homepage shows the bundled fxcss starter theme, captured in a
-        disposable Firefox profile.
+        The homepage shows two changes to the bundled fxcss starter theme, each
+        captured in a disposable Firefox profile: a small one and an obvious
+        one.
       </p>
-      <Comparison />
+      <ComparisonDemo eyebrow="TWO CHANGES, ONE BASELINE" />
       <div className="doc-body">
         <h2>What changed</h2>
         <p>
@@ -58,7 +60,7 @@ export default function EvidencePage() {
         </p>
         <h2>A more obvious change</h2>
         <p>
-          The homepage can also show a second change from the same baseline:{' '}
+          The obvious example is a second change from the same baseline:{' '}
           <code>--demo-toolbar: {evidence.toolbar.change.before}</code> became{' '}
           <code>--demo-toolbar: {evidence.toolbar.change.after}</code>, which
           recolours the tab strip, the navigation toolbar and the bookmarks

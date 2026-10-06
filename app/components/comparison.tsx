@@ -48,7 +48,11 @@ const EXAMPLES = {
   },
 };
 export type ComparisonExample = keyof typeof EXAMPLES;
-export function ComparisonDemo() {
+export function ComparisonDemo({
+  eyebrow = 'CATCH A SMALL CHANGE BEFORE IT SHIPS.',
+}: {
+  eyebrow?: string;
+}) {
   const [example, setExample] = useState<ComparisonExample>('accent');
   // Fetch the other example's captures shortly after load, so switching is instant.
   useEffect(() => {
@@ -62,7 +66,7 @@ export function ComparisonDemo() {
   return (
     <>
       <div className="demo-heading">
-        <span className="eyebrow">CATCH A SMALL CHANGE BEFORE IT SHIPS.</span>
+        <span className="eyebrow">{eyebrow}</span>
         <fieldset className="example-switch">
           <legend className="sr-only">Comparison example</legend>
           {(Object.keys(EXAMPLES) as ComparisonExample[]).map((key) => (
@@ -77,8 +81,9 @@ export function ComparisonDemo() {
           ))}
         </fieldset>
       </div>
-      {/* Remount per example so the slider, zoom and autoplay start fresh. */}
-      <Comparison example={example} key={example} />
+      {/* One comparison for both examples: switching swaps the captures and keeps
+          the chosen view, zoom and slider position. */}
+      <Comparison example={example} />
       <div className="demo-caption">
         <p aria-live="polite">{EXAMPLES[example].caption}</p>
         <Link href="/docs/compare">
