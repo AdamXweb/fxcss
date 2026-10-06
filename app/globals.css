@@ -331,6 +331,9 @@ code,
   justify-content: space-between;
   margin-bottom: 14px;
 }
+.guide-article .demo-heading {
+  margin-top: 28px;
+}
 .demo-heading > .eyebrow {
   color: #554f6b;
   font-size: 12px;
