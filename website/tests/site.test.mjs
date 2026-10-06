@@ -53,10 +53,16 @@ test('generated documentation has valid local links, assets, and code controls',
       /<th\b[^>]*>\s*<\/th>/,
       `${page.slug}: empty header`,
     );
-    assert.equal(new Set(page.search.map((passage) => passage.id)).size, page.search.length);
+    assert.equal(
+      new Set(page.search.map((passage) => passage.id)).size,
+      page.search.length,
+    );
     for (const passage of page.search) {
       assert.ok(passage.text.trim(), `${page.slug}: empty search passage`);
-      assert.ok(page.html.includes(`id="${passage.id}"`), `${page.slug}: ${passage.id}`);
+      assert.ok(
+        page.html.includes(`id="${passage.id}"`),
+        `${page.slug}: ${passage.id}`,
+      );
     }
     const indices = [...page.html.matchAll(/data-copy-index="(\d+)"/g)].map(
       (m) => Number(m[1]),
@@ -133,6 +139,37 @@ test('comparison measurements and coverage agree', () => {
       Object.values(coverage.views).every((v) => v.status === 'captured'),
     );
   }
+});
+test('the obvious toolbar example comes from the same baseline', () => {
+  const before = read('../public/evidence/before.css').toString();
+  const toolbar = read('../public/evidence/toolbar-after.css').toString();
+  assert.equal(
+    toolbar,
+    before.replace('--demo-toolbar: #eaeefb;', '--demo-toolbar: #ffe1cf;'),
+  );
+  const bytes = read('../public/evidence/toolbar-after.png');
+  assert.equal(bytes.readUInt32BE(16), manifest.dimensions.width);
+  assert.equal(bytes.readUInt32BE(20), manifest.dimensions.height);
+  const summary = JSON.parse(
+    read('../public/evidence/toolbar-comparison-summary.json'),
+  );
+  const view = summary.views.find((v) => v.view === 'light-01-window');
+  assert.deepEqual(view, manifest.toolbar.comparison);
+  assert.equal(
+    Number(((100 * view.changed_pixels) / view.total_pixels).toFixed(4)),
+    view.percent,
+  );
+  // The point of the second example: it is far more visible than the accent change.
+  assert.ok(view.percent > 10 * manifest.comparison.percent);
+  for (const record of summary.views.filter((v) => v.view.startsWith('dark-')))
+    assert.equal(record.changed_pixels, 0, record.view);
+  const coverage = JSON.parse(
+    read('../public/evidence/toolbar-after-coverage.json'),
+  );
+  assert.equal(Object.keys(coverage.views).length, 20);
+  assert.ok(
+    Object.values(coverage.views).every((v) => v.status === 'captured'),
+  );
 });
 test('catalogue images are backed by measured Firefox elements', () => {
   const catalogue = JSON.parse(read('../public/catalogue/catalogue.json'));

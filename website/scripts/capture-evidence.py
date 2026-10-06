@@ -32,16 +32,21 @@ def main():
     starter = ROOT / 'fxcss/templates/starter'
     baseline = WORK / 'baseline-theme'
     changed = WORK / 'changed-theme'
-    for destination in (baseline, changed):
+    # A second, deliberately obvious change: the toolbar colour instead of one accent.
+    toolbar = WORK / 'toolbar-theme'
+    for destination in (baseline, changed, toolbar):
         if destination.exists():
             shutil.rmtree(destination)
         shutil.copytree(starter, destination)
     original = (baseline / 'chrome/userChrome.css').read_text()
     assert original.count('--demo-accent: #4f6ef2;') == 1
     (changed / 'chrome/userChrome.css').write_text(original.replace('--demo-accent: #4f6ef2;', '--demo-accent: #ff7139;'))
-    for name, theme in [('before', baseline), ('after', changed)]:
+    assert original.count('--demo-toolbar: #eaeefb;') == 1
+    (toolbar / 'chrome/userChrome.css').write_text(original.replace('--demo-toolbar: #eaeefb;', '--demo-toolbar: #ffe1cf;'))
+    for name, theme in [('before', baseline), ('after', changed), ('toolbar-after', toolbar)]:
         run('shot', '--theme', str(theme), '--firefox', firefox, '--out', str(WORK / name))
     run('compare', '--base', str(WORK / 'before'), '--head', str(WORK / 'after'), '--out', str(WORK / 'comparison'), '--platform', sys.platform)
+    run('compare', '--base', str(WORK / 'before'), '--head', str(WORK / 'toolbar-after'), '--out', str(WORK / 'toolbar-comparison'), '--platform', sys.platform)
     summary = json.loads((WORK / 'comparison/summary.json').read_text())
     record = next(v for v in summary['views'] if v['view'] == 'light-01-window')
     assert record['changed_pixels'] > 0, 'The intended accent change must be visible'
@@ -53,6 +58,14 @@ def main():
     assert record['changed_pixels'] == changed_pixels and record['total_pixels'] == total
     # The same fxcss renderer creates the highlighted panel; raw captures stay intact.
     compare.render_diff_panel(norm_before, mask).save(PUBLIC / 'difference.png', optimize=True)
+    toolbar_summary = json.loads((WORK / 'toolbar-comparison/summary.json').read_text())
+    toolbar_record = next(v for v in toolbar_summary['views'] if v['view'] == 'light-01-window')
+    assert toolbar_record['percent'] > 10 * record['percent'], 'The toolbar change must be the obvious one'
+    toolbar_after = Image.open(WORK / 'toolbar-after/light-01-window.png')
+    assert toolbar_after.size == before.size
+    toolbar_pixels, toolbar_total, toolbar_mask = compare.diff_stats(norm_before, compare.normalise(toolbar_after))
+    assert toolbar_record['changed_pixels'] == toolbar_pixels and toolbar_record['total_pixels'] == toolbar_total
+    compare.render_diff_panel(norm_before, toolbar_mask).save(PUBLIC / 'toolbar-difference.png', optimize=True)
     for source, dest in [('before/light-01-window.png','before.png'), ('after/light-01-window.png','after.png'), ('before/dark-01-window.png','dark.png')]:
         shutil.copy2(WORK / source, PUBLIC / dest)
     shutil.copy2(WORK / 'comparison/light-01-window.png', PUBLIC / 'comparison.png')
@@ -61,6 +74,11 @@ def main():
     shutil.copy2(WORK / 'after/capture-coverage.json', PUBLIC / 'after-coverage.json')
     shutil.copy2(baseline / 'chrome/userChrome.css', PUBLIC / 'before.css')
     shutil.copy2(changed / 'chrome/userChrome.css', PUBLIC / 'after.css')
+    shutil.copy2(WORK / 'toolbar-after/light-01-window.png', PUBLIC / 'toolbar-after.png')
+    shutil.copy2(WORK / 'toolbar-comparison/light-01-window.png', PUBLIC / 'toolbar-comparison.png')
+    shutil.copy2(WORK / 'toolbar-comparison/summary.json', PUBLIC / 'toolbar-comparison-summary.json')
+    shutil.copy2(WORK / 'toolbar-after/capture-coverage.json', PUBLIC / 'toolbar-after-coverage.json')
+    shutil.copy2(toolbar / 'chrome/userChrome.css', PUBLIC / 'toolbar-after.css')
     meta = {
         'generatedAt': datetime.now(timezone.utc).isoformat(),
         'fxcssVersion': __version__,
@@ -68,9 +86,13 @@ def main():
         'theme': 'fxcss bundled starter',
         'change': {'property':'--demo-accent','before':'#4f6ef2','after':'#ff7139','mode':'light'},
         'comparison': record,
+        'toolbar': {
+            'change': {'property':'--demo-toolbar','before':'#eaeefb','after':'#ffe1cf','mode':'light'},
+            'comparison': toolbar_record,
+        },
         'dimensions': {'width': before.width, 'height': before.height},
         'noiseThreshold': compare.NOISE_THRESHOLD,
-        'assets': {name: hashlib.sha256((PUBLIC/name).read_bytes()).hexdigest() for name in ['before.png','after.png','dark.png','difference.png','comparison.png','before.css','after.css']},
+        'assets': {name: hashlib.sha256((PUBLIC/name).read_bytes()).hexdigest() for name in ['before.png','after.png','dark.png','difference.png','comparison.png','before.css','after.css','toolbar-after.png','toolbar-difference.png','toolbar-comparison.png','toolbar-after.css']},
     }
     run('catalogue', '--theme', str(baseline), '--firefox', firefox, '--out', str(SITE / 'public/catalogue'))
     (PUBLIC / 'manifest.json').write_text(json.dumps(meta, indent=2)+'\n')

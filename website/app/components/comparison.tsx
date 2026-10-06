@@ -1,4 +1,4 @@
-"use client";
+'use client';
 import {
   useCallback,
   useEffect,
@@ -8,19 +8,96 @@ import {
   type CSSProperties,
   type KeyboardEvent,
   type PointerEvent,
-} from "react";
-import Image from "next/image";
-import Link from "next/link";
-import { ArrowUpRight, Pause, Play, ZoomIn, ZoomOut } from "lucide-react";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Slider } from "@/components/ui/slider";
-import { Button } from "@/components/ui/button";
-import evidence from "../../content/evidence.json";
-const percentage = evidence.comparison.percent.toFixed(2);
-export function Comparison() {
+} from 'react';
+import Image from 'next/image';
+import Link from 'next/link';
+import { ArrowUpRight, Pause, Play, ZoomIn, ZoomOut } from 'lucide-react';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Slider } from '@/components/ui/slider';
+import { Button } from '@/components/ui/button';
+import evidence from '../../content/evidence.json';
+// Two real changes captured from the same starter-theme baseline: one accent colour
+// that changes a few hundred pixels, and the toolbar colour, which changes far more.
+const EXAMPLES = {
+  accent: {
+    label: 'Small change',
+    change: evidence.change,
+    comparison: evidence.comparison,
+    after: '/evidence/after.png',
+    difference: '/evidence/difference.png',
+    full: '/evidence/comparison.png',
+    afterAlt: 'Starter theme after the active tab accent changed to orange',
+    beforeAlt: 'Starter theme before the change, with a blue active tab accent',
+    differenceAlt:
+      'Changed pixels highlighted in pink on the starter theme’s active tab',
+    caption: 'One CSS value changed the active tab. fxcss shows exactly where.',
+  },
+  toolbar: {
+    label: 'Obvious change',
+    change: evidence.toolbar.change,
+    comparison: evidence.toolbar.comparison,
+    after: '/evidence/toolbar-after.png',
+    difference: '/evidence/toolbar-difference.png',
+    full: '/evidence/toolbar-comparison.png',
+    afterAlt: 'Starter theme after the toolbar colour changed to peach',
+    beforeAlt: 'Starter theme before the change, with its pale blue toolbar',
+    differenceAlt:
+      'Changed pixels highlighted in pink across the starter theme’s toolbars',
+    caption:
+      'One CSS value recoloured every toolbar. fxcss measures how much changed.',
+  },
+};
+export type ComparisonExample = keyof typeof EXAMPLES;
+export function ComparisonDemo() {
+  const [example, setExample] = useState<ComparisonExample>('accent');
+  // Fetch the other example's captures shortly after load, so switching is instant.
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      for (const shown of Object.values(EXAMPLES))
+        for (const src of [shown.after, shown.difference])
+          new window.Image().src = src;
+    }, 1000);
+    return () => window.clearTimeout(id);
+  }, []);
+  return (
+    <>
+      <div className="demo-heading">
+        <span className="eyebrow">CATCH A SMALL CHANGE BEFORE IT SHIPS.</span>
+        <fieldset className="example-switch">
+          <legend className="sr-only">Comparison example</legend>
+          {(Object.keys(EXAMPLES) as ComparisonExample[]).map((key) => (
+            <button
+              key={key}
+              type="button"
+              aria-pressed={example === key}
+              onClick={() => setExample(key)}
+            >
+              {EXAMPLES[key].label}
+            </button>
+          ))}
+        </fieldset>
+      </div>
+      {/* Remount per example so the slider, zoom and autoplay start fresh. */}
+      <Comparison example={example} key={example} />
+      <div className="demo-caption">
+        <p aria-live="polite">{EXAMPLES[example].caption}</p>
+        <Link href="/docs/compare">
+          How comparison works <ArrowUpRight size={15} />
+        </Link>
+      </div>
+    </>
+  );
+}
+export function Comparison({
+  example = 'accent',
+}: {
+  example?: ComparisonExample;
+}) {
+  const shown = EXAMPLES[example];
+  const percentage = shown.comparison.percent.toFixed(2);
   const [position, setPosition] = useState([50]);
   const [zoomed, setZoomed] = useState(false);
-  const [view, setView] = useState("compare");
+  const [view, setView] = useState('compare');
   const [autoplay, setAutoplay] = useState(true);
   const [hovered, setHovered] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(true);
@@ -38,29 +115,45 @@ export function Comparison() {
   }, []);
 
   useEffect(() => {
-    const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const preference = window.matchMedia('(prefers-reduced-motion: reduce)');
     const updatePreference = () => setReducedMotion(preference.matches);
     const updateVisibility = () => setPageVisible(!document.hidden);
     updatePreference();
     updateVisibility();
-    preference.addEventListener("change", updatePreference);
-    document.addEventListener("visibilitychange", updateVisibility);
-    const observer = new IntersectionObserver(([entry]) => setVisible(entry.isIntersecting), {
-      threshold: 0.15,
-    });
+    preference.addEventListener('change', updatePreference);
+    document.addEventListener('visibilitychange', updateVisibility);
+    const observer = new IntersectionObserver(
+      ([entry]) => setVisible(entry.isIntersecting),
+      {
+        threshold: 0.15,
+      },
+    );
     if (figure.current) observer.observe(figure.current);
     return () => {
       observer.disconnect();
-      preference.removeEventListener("change", updatePreference);
-      document.removeEventListener("visibilitychange", updateVisibility);
+      preference.removeEventListener('change', updatePreference);
+      document.removeEventListener('visibilitychange', updateVisibility);
     };
   }, []);
 
   useEffect(() => {
-    if (!autoplay || hovered || reducedMotion || !visible || !pageVisible || view !== "compare") return;
+    if (
+      !autoplay ||
+      hovered ||
+      reducedMotion ||
+      !visible ||
+      !pageVisible ||
+      view !== 'compare'
+    )
+      return;
     // Resume from the current split in the same direction after a hover pause.
-    const currentPhase = Math.asin(Math.max(-1, Math.min(1, (currentPosition.current - 50) / 45)));
-    const phase = Math.cos(animationPhase.current) < 0 ? Math.PI - currentPhase : currentPhase;
+    const currentPhase = Math.asin(
+      Math.max(-1, Math.min(1, (currentPosition.current - 50) / 45)),
+    );
+    const phase =
+      Math.cos(animationPhase.current) < 0
+        ? Math.PI - currentPhase
+        : currentPhase;
     let start: number | undefined;
     let frame: number;
     const animate = (time: number) => {
@@ -71,11 +164,20 @@ export function Comparison() {
     };
     frame = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(frame);
-  }, [autoplay, hovered, reducedMotion, visible, pageVisible, view, updatePosition]);
+  }, [
+    autoplay,
+    hovered,
+    reducedMotion,
+    visible,
+    pageVisible,
+    view,
+    updatePosition,
+  ]);
 
   function positionFromPointer(event: PointerEvent<HTMLDivElement>) {
     const bounds = event.currentTarget.getBoundingClientRect();
-    if (bounds.width) updatePosition(((event.clientX - bounds.left) / bounds.width) * 100);
+    if (bounds.width)
+      updatePosition(((event.clientX - bounds.left) / bounds.width) * 100);
   }
   function startDrag(event: PointerEvent<HTMLDivElement>) {
     if (!event.isPrimary || event.button !== 0) return;
@@ -98,13 +200,14 @@ export function Comparison() {
       PageDown: -10,
       PageUp: 10,
     };
-    if (event.key !== "Home" && event.key !== "End" && !(event.key in changes)) return;
+    if (event.key !== 'Home' && event.key !== 'End' && !(event.key in changes))
+      return;
     event.preventDefault();
     setAutoplay(false);
     updatePosition(
-      event.key === "Home"
+      event.key === 'Home'
         ? 0
-        : event.key === "End"
+        : event.key === 'End'
           ? 100
           : Math.round(currentPosition.current) + changes[event.key],
     );
@@ -112,7 +215,7 @@ export function Comparison() {
   return (
     <figure className="comparison-figure" ref={figure}>
       <Tabs
-        className={`comparison ${zoomed ? "zoomed" : ""}`}
+        className={`comparison ${zoomed ? 'zoomed' : ''}`}
         value={view}
         onValueChange={(value) => {
           setView(value);
@@ -121,7 +224,8 @@ export function Comparison() {
       >
         <div className="comparison-top">
           <span>
-            <span className="status-dot" /> Firefox {evidence.browser.version} · macOS
+            <span className="status-dot" /> Firefox {evidence.browser.version} ·
+            macOS
           </span>
           <TabsList aria-label="Comparison view">
             <TabsTrigger value="compare">Compare</TabsTrigger>
@@ -130,14 +234,14 @@ export function Comparison() {
         </div>
         <TabsContent value="compare">
           <div className="compare-labels">
-            <span>Before · {evidence.change.before}</span>
-            <span>After · {evidence.change.after}</span>
+            <span>Before · {shown.change.before}</span>
+            <span>After · {shown.change.after}</span>
           </div>
           {/* The image surface captures dragging across its full area and supplies slider keyboard semantics. */}
           {/* eslint-disable jsx-a11y/prefer-tag-over-role */}
           <div
             className="compare-image"
-            style={{ "--split": `${position[0]}%` } as CSSProperties}
+            style={{ '--split': `${position[0]}%` } as CSSProperties}
             role="slider"
             tabIndex={0}
             aria-label="Image comparison"
@@ -162,10 +266,10 @@ export function Comparison() {
             <div className="capture-strip">
               <Image
                 unoptimized
-                src="/evidence/after.png"
+                src={shown.after}
                 width={evidence.dimensions.width}
                 height={evidence.dimensions.height}
-                alt="Starter theme after the active tab accent changed to orange"
+                alt={shown.afterAlt}
                 draggable={false}
                 priority
               />
@@ -177,7 +281,7 @@ export function Comparison() {
                   src="/evidence/before.png"
                   width={evidence.dimensions.width}
                   height={evidence.dimensions.height}
-                  alt="Starter theme before the change, with a blue active tab accent"
+                  alt={shown.beforeAlt}
                   draggable={false}
                   priority
                 />
@@ -196,10 +300,14 @@ export function Comparison() {
                 size="sm"
                 className="motion-toggle"
                 onClick={() => setAutoplay(!autoplay)}
-                aria-label={autoplay ? "Pause comparison animation" : "Play comparison animation"}
+                aria-label={
+                  autoplay
+                    ? 'Pause comparison animation'
+                    : 'Play comparison animation'
+                }
               >
                 {autoplay ? <Pause size={14} /> : <Play size={14} />}
-                {autoplay ? "Pause" : "Play"}
+                {autoplay ? 'Pause' : 'Play'}
               </Button>
             )}
           </div>
@@ -231,14 +339,18 @@ export function Comparison() {
             <div className="capture-strip">
               <Image
                 unoptimized
-                src="/evidence/difference.png"
+                src={shown.difference}
                 width={960}
-                height={Math.round((evidence.dimensions.height * 960) / evidence.dimensions.width)}
-                alt="Changed pixels highlighted in pink on the starter theme’s active tab"
+                height={Math.round(
+                  (evidence.dimensions.height * 960) /
+                    evidence.dimensions.width,
+                )}
+                alt={shown.differenceAlt}
               />
             </div>
             <p>
-              Pink highlights the changed pixels. The highlight is enlarged slightly for visibility.
+              Pink highlights the changed pixels. The highlight is enlarged
+              slightly for visibility.
             </p>
           </div>
         </TabsContent>
@@ -253,8 +365,8 @@ export function Comparison() {
             }}
             aria-pressed={zoomed}
           >
-            {zoomed ? <ZoomOut size={15} /> : <ZoomIn size={15} />}{" "}
-            {zoomed ? "Full toolbar" : "Zoom into the tab"}
+            {zoomed ? <ZoomOut size={15} /> : <ZoomIn size={15} />}{' '}
+            {zoomed ? 'Full toolbar' : 'Zoom into the tab'}
           </Button>
           <span>
             <strong>{percentage}%</strong> of the full capture changed
@@ -263,10 +375,10 @@ export function Comparison() {
       </Tabs>
       <figcaption className="evidence-caption">
         <span>
-          Actual starter-theme captures · fxcss {evidence.fxcssVersion} ·{" "}
+          Actual starter-theme captures · fxcss {evidence.fxcssVersion} ·{' '}
           {evidence.generatedAt.slice(0, 10)}
         </span>
-        <a href="/evidence/comparison.png" target="_blank" rel="noreferrer">
+        <a href={shown.full} target="_blank" rel="noreferrer">
           Full comparison <ArrowUpRight size={14} />
         </a>
         <Link href="/docs/screenshot-evidence">
@@ -287,16 +399,16 @@ export function AppearancePreview() {
             <TabsTrigger value="dark">Dark</TabsTrigger>
           </TabsList>
         </div>
-        {["light", "dark"].map((mode) => (
+        {['light', 'dark'].map((mode) => (
           <TabsContent value={mode} key={mode}>
             <a
-              href={`/evidence/${mode === "dark" ? "dark" : "before"}.png`}
+              href={`/evidence/${mode === 'dark' ? 'dark' : 'before'}.png`}
               target="_blank"
               rel="noreferrer"
             >
               <Image
                 unoptimized
-                src={`/evidence/${mode === "dark" ? "dark" : "before"}.png`}
+                src={`/evidence/${mode === 'dark' ? 'dark' : 'before'}.png`}
                 width={evidence.dimensions.width}
                 height={evidence.dimensions.height}
                 alt={`Unedited ${mode} mode capture of the fxcss starter theme`}
@@ -306,7 +418,8 @@ export function AppearancePreview() {
         ))}
       </Tabs>
       <figcaption>
-        Captured on macOS with fxcss {evidence.fxcssVersion}. Open an image to view it at full size.
+        Captured on macOS with fxcss {evidence.fxcssVersion}. Open an image to
+        view it at full size.
       </figcaption>
     </figure>
   );

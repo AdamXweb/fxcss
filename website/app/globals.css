@@ -336,6 +336,34 @@ code,
   font-size: 12px;
   letter-spacing: 1.2px;
 }
+.example-switch {
+  display: inline-flex;
+  margin: 0;
+  min-inline-size: 0;
+  padding: 3px;
+  gap: 2px;
+  border-radius: 9px;
+  background: #f0eff7;
+  border: 1px solid #e2e3eb;
+}
+.example-switch button {
+  border: 0;
+  background: transparent;
+  color: #525164;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 7px;
+  min-height: 30px;
+}
+.example-switch button[aria-pressed='true'] {
+  background: #fff;
+  color: #2a2350;
+  box-shadow: 0 1px 3px #2a225420;
+}
+.example-switch button:hover:not([aria-pressed='true']) {
+  color: #2a2350;
+}
 .demo-heading > .mono {
   color: #525164;
   font-size: 12px;
@@ -913,6 +941,13 @@ code,
   }
   .showcase-demo {
     padding: 15px 0 20px;
+  }
+  .demo-heading {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .example-switch button {
+    white-space: nowrap;
   }
   .demo-heading .mono {
     display: none;
