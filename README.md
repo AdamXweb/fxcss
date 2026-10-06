@@ -22,6 +22,7 @@ This is the `website` branch of [AdamXweb/fxcss](https://github.com/AdamXweb/fxc
 | `just first-deploy` | `check`, `build`, `dry-run` and `deploy` in order, then the two zone settings to turn on. |
 | `just tail` | Stream the deployed Worker's logs. |
 | `just content ../fxcss` | Refresh the documentation from a checkout of `main`. |
+| `just refresh` | Run the Refresh docs workflow on GitHub: regenerate from `main`, check, push here. |
 | `just evidence ../fxcss` | Recapture the comparison screenshots with fxcss (opens Firefox windows). |
 | `just clean` | Remove build output and caches. |
 
@@ -58,7 +59,13 @@ The Website GitHub Actions workflow (`.github/workflows/website.yml`) runs the s
 
 `README.md` on `main` is the reference source. This branch keeps a recorded copy of it, and of the fxcss version, in `content/source/`. `npm run content` generates and sanitises `content/docs.json` from that copy; it runs automatically before development and production builds. Source hashes and tests detect stale generated content and missing command pages.
 
-After the README or version changes on `main`, refresh the copy from a checkout of `main` and commit `content/`:
+The copy refreshes itself. The Refresh docs workflow (`.github/workflows/refresh-docs.yml`) regenerates it from `main` and pushes it to this branch, and Workers Builds deploys the result. `main`'s Website docs workflow starts it after each release reaches PyPI and after each README change. Before pushing, it:
+- skips a version PyPI doesn't serve yet, so the site never advertises an install that fails;
+- runs the type check, tests, build and production checks itself, because its push starts no other workflow.
+
+The homepage's release pill reads the same recorded version, so it moves with the docs.
+
+To refresh by hand, run `just refresh`. Or regenerate locally from a checkout of `main` and commit `content/`:
 
 ```sh
 just content ../fxcss

@@ -61,6 +61,14 @@ for (const route of routes) {
   assertSecurityHeaders(response, route);
   const html = await response.text();
   assertShareCard(html, route);
+  // The homepage's release pill reads the documented version at build time.
+  if (route === '/')
+    assert.ok(
+      html.includes(
+        `href="https://github.com/AdamXweb/fxcss/releases/tag/v${data.version}"`,
+      ),
+      `/: release pill links to fxcss ${data.version}, the documented version`,
+    );
   // A control's accessible name contains its visible words (WCAG 2.5.3).
   for (const [, attributes, inner] of html.matchAll(
     /<(?:a|button)\b([^>]*\baria-label="[^"]*"[^>]*)>([\s\S]*?)<\/(?:a|button)>/g,
