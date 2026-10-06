@@ -1,13 +1,14 @@
 import type { Metadata } from 'next';
 import { ShieldCheck } from 'lucide-react';
 import { SiteHeader, Footer, REPO } from '../components/site-chrome';
+import { shareCard } from '../../lib/share-card';
 
 export const metadata: Metadata = {
   title: 'Website data',
   description:
     'Every service fxcss.com uses: Cloudflare for its domain name and hosting, and Simple Analytics for visit counts, and what each one receives.',
   alternates: { canonical: '/open' },
-  openGraph: { url: '/open' },
+  ...shareCard({ url: '/open' }),
 };
 
 export default function WebsiteData() {

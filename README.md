@@ -35,13 +35,13 @@ In another terminal:
 npm run check:production -- http://127.0.0.1:4318
 ```
 
-The Website GitHub Actions workflow runs the same checks on relevant changes without deploying. The production check visits every documentation page, validates asset responses and production headers, and verifies not-found responses and redirects. Browser checks cover navigation, search, code copying, keyboard-operated comparison controls, and narrow layouts.
+The Website GitHub Actions workflow runs the same checks on relevant changes without deploying. The production check visits every documentation page, validates asset responses and the security headers on pages, redirects and static files, checks that every page carries the share card and that each labelled control's name contains its visible text, and verifies not-found responses and redirects. Browser checks cover navigation, search, code copying, keyboard-operated comparison controls, and narrow layouts.
 
 ## Documentation source
 
 `README.md` in the repository root is the reference source. `npm run content` generates and sanitises `content/docs.json`; it runs automatically before development and production builds. Source hashes and tests detect stale generated content and missing command pages. A recorded copy in `content/source/` lets standalone hosting checkouts rebuild without the enclosing Python repository; builds in the full repository refresh that copy automatically. The website's getting-started overview remains deliberately short and links to the full generated guides.
 
-`app/components/` contains the shared navigation, documentation controls, comparison, and copy controls. `app/docs/[slug]/page.tsx` renders the generated pages. `proxy.ts` supplies a fresh Content Security Policy nonce and security headers for each production application response. `public/_headers` covers static assets. There are no accounts, forms, remote fonts, or site databases.
+`app/components/` contains the shared navigation, documentation controls, comparison, and copy controls. `app/docs/[slug]/page.tsx` renders the generated pages. `proxy.ts` supplies a fresh Content Security Policy nonce and security headers for each production application response. `public/_headers` gives static files the same headers, and the static catalogue its own policy. `lib/share-card.ts` gives every page the share image, `public/assets/og-card.png`. There are no accounts, forms, remote fonts, or site databases.
 
 The root layout loads Simple Analytics for page views. A delegated click listener records outbound links as `outbound_<hostname>` events, including the destination URL without its query string or fragment. It covers links added by client-side navigation and respects Simple Analytics' Do Not Track behavior. Same-tab links wait for the event request for at most 800 ms before navigating. The script and collection endpoint are allowed by the production Content Security Policy; no inline click handlers are needed. Add `fxcss.com` to the Simple Analytics dashboard before launch and make the dashboard public, because `/open` links to it.
 

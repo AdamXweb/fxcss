@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { CSPProvider } from "@base-ui/react/csp-provider";
 import { OutboundClickTracking } from "./components/outbound-click-tracking";
 import { SITE_ORIGIN } from "../lib/site";
+import { shareCard } from "../lib/share-card";
 import "./globals.css";
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_ORIGIN),
@@ -13,17 +14,10 @@ export const metadata: Metadata = {
   description:
     "Try, build, and test Firefox userChrome.css themes. Live CSS editing, visual comparisons, and compatibility checks for macOS, Windows, and Linux.",
   icons: { icon: "/assets/icon.png" },
-  openGraph: {
-    type: "website",
-    siteName: "fxcss",
+  ...shareCard({
     title: "fxcss — The Firefox theme toolkit",
     description: "Make Firefox your own. Try themes, edit CSS live, and keep every detail working.",
-  },
-  twitter: {
-    card: "summary",
-    title: "fxcss — The Firefox theme toolkit",
-    description: "Try, build, and test Firefox userChrome.css themes.",
-  },
+  }),
 };
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const policy = (await headers()).get("content-security-policy");

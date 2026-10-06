@@ -31,7 +31,7 @@ export function CopyCommand({ command, compact = false }: { command: string; com
         variant="ghost"
         size="icon-sm"
         onClick={copy}
-        aria-label={`Copy ${command}`}
+        aria-label={`Copy command: ${command}`}
         title="Copy command"
       >
         {status === "Copied" ? <Check size={17} /> : <Copy size={17} />}

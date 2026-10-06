@@ -5,6 +5,7 @@ import { ArrowUpRight, ArrowRight } from "lucide-react";
 import content from "../../../content/docs.json";
 import { DocArticle } from "../../components/doc-article";
 import { Comparison, AppearancePreview } from "../../components/comparison";
+import { shareCard } from "../../../lib/share-card";
 export async function generateMetadata({
   params,
 }: {
@@ -18,7 +19,7 @@ export async function generateMetadata({
     ...(page
       ? {
           alternates: { canonical: `/docs/${page.slug}` },
-          openGraph: { url: `/docs/${page.slug}` },
+          ...shareCard({ url: `/docs/${page.slug}` }),
         }
       : {}),
   };
