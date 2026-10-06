@@ -1384,6 +1384,11 @@ Issues and pull requests welcome — particularly landmark definitions for UI
 parts the catalogue doesn't cover yet, and reports of selectors that changed in
 a new Firefox release.
 
+The fxcss.com website lives on the repository's
+[`website` branch](https://github.com/AdamXweb/fxcss/tree/website), with its
+own README and `just` commands; send website changes there. Its documentation
+pages are generated from this README.
+
 To work on fxcss itself, clone and install it in an editable environment:
 
 ```bash

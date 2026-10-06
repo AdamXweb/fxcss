@@ -33,7 +33,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - name: Identify website-only changes
+      - name: Identify README-only changes
         id: scope
         shell: bash
         env:
@@ -58,7 +58,7 @@ jobs:
           if [[ "$full" == false ]]; then
             while IFS= read -r -d '' path; do
               case "$path" in
-                website/*|README.md|.github/workflows/website.yml) ;;
+                README.md) ;;
                 *) full=true; break ;;
               esac
             done < "$changed"
