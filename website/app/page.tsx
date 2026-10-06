@@ -68,47 +68,53 @@ export default function Home() {
     <div className="showcase">
       <SiteHeader />
       <main id="main">
-        <section className="showcase-hero content-width">
-          <div className="eyebrow">
-            <span className="status-dot" /> THE FIREFOX THEME TOOLKIT
-          </div>
-          <h1>
-            Your browser.
-            <br />
-            <span>Your kind of Firefox.</span>
-          </h1>
-          <p className="hero-description">
-            fxcss is a command-line toolkit for Firefox themes. Preview a new
-            look safely, edit your own theme live, and catch changes as Firefox
-            evolves.
-          </p>
-          <div className="hero-actions">
-            <a className="button primary" href="#start">
-              Find your starting point <ArrowRight size={18} />
-            </a>
-            <a className="text-link" href="#demo">
-              See the difference <ArrowDown size={16} />
-            </a>
-          </div>
-          <p className="requirements">
-            Open source <span>·</span> macOS, Windows & Linux <span>·</span>{' '}
-            Python + Firefox
-          </p>
-        </section>
-        <section className="film content-width" aria-label="fxcss in under a minute">
-          {/* The film has no audio track; its words are on screen. */}
-          <video
-            controls
-            muted
-            playsInline
-            preload="none"
-            poster="/media/fxcss-film-poster.jpg"
-            width={1920}
-            height={1080}
+        <div className="hero-band">
+          <div className="hero-grain" aria-hidden="true" />
+          <section className="showcase-hero content-width">
+            <div className="eyebrow">
+              <span className="status-dot" /> THE FIREFOX THEME TOOLKIT
+            </div>
+            <h1>
+              Your browser.
+              <br />
+              <span>Your kind of Firefox.</span>
+            </h1>
+            <p className="hero-description">
+              fxcss is a command-line toolkit for Firefox themes. Preview a new
+              look safely, edit your own theme live, and catch changes as
+              Firefox evolves.
+            </p>
+            <div className="hero-actions">
+              <a className="button primary" href="#start">
+                Find your starting point <ArrowRight size={18} />
+              </a>
+              <a className="text-link" href="#demo">
+                See the difference <ArrowDown size={16} />
+              </a>
+            </div>
+            <p className="requirements">
+              Open source <span>·</span> macOS, Windows & Linux <span>·</span>{' '}
+              Python + Firefox
+            </p>
+          </section>
+          <section
+            className="film content-width"
+            aria-label="fxcss in under a minute"
           >
-            <source src="/media/fxcss-film.mp4" type="video/mp4" />
-          </video>
-        </section>
+            {/* The film has no audio track; its words are on screen. */}
+            <video
+              controls
+              muted
+              playsInline
+              preload="none"
+              poster="/media/fxcss-film-poster.jpg"
+              width={1920}
+              height={1080}
+            >
+              <source src="/media/fxcss-film.mp4" type="video/mp4" />
+            </video>
+          </section>
+        </div>
         <section className="journeys content-width" id="start">
           <div className="section-heading" id="explore">
             <h2>What do you want to do?</h2>
