@@ -550,6 +550,18 @@ code,
   align-items: center;
   gap: 5px;
 }
+.film {
+  padding: 8px 0 24px;
+}
+.film video {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  border-radius: 14px;
+  background: #0c0d2a;
+  box-shadow: 0 24px 60px #1b164133, 0 0 0 1px #1b164114;
+}
 .journeys {
   padding: 20px 0 62px;
 }

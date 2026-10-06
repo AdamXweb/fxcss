@@ -95,6 +95,20 @@ export default function Home() {
             Python + Firefox
           </p>
         </section>
+        <section className="film content-width" aria-label="fxcss in under a minute">
+          {/* The film has no audio track; its words are on screen. */}
+          <video
+            controls
+            muted
+            playsInline
+            preload="none"
+            poster="/media/fxcss-film-poster.jpg"
+            width={1920}
+            height={1080}
+          >
+            <source src="/media/fxcss-film.mp4" type="video/mp4" />
+          </video>
+        </section>
         <section className="journeys content-width" id="start">
           <div className="section-heading" id="explore">
             <h2>What do you want to do?</h2>
