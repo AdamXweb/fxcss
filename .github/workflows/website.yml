@@ -41,7 +41,7 @@ jobs:
       - run: npm test
       - run: bash -n public/install.sh && shellcheck public/install.sh
       - run: npm run test:installer
-      - run: npm audit --audit-level=moderate
+      - run: npm run check:audit
       - run: npm run build
       - name: Dry-run the Cloudflare Worker deploy
         env:

@@ -24,7 +24,7 @@ npm test
 npm run test:installer
 bash -n public/install.sh
 shellcheck public/install.sh
-npm audit --audit-level=moderate
+npm run check:audit
 npm run build
 npm start -- --ip 127.0.0.1 --port 4318
 ```
@@ -34,6 +34,8 @@ In another terminal:
 ```sh
 npm run check:production -- http://127.0.0.1:4318
 ```
+
+`npm run check:audit` runs `npm audit` and fails on any advisory at moderate or above, except those listed with a reason in `scripts/audit.mjs`. The one accepted today, GHSA-vfj7-8cjw-p6xm in `braces`, has no patched release and only reaches build tools, not the deployed Worker; the script notes when it can be removed.
 
 The Website GitHub Actions workflow runs the same checks on relevant changes without deploying. The production check visits every documentation page, validates asset responses and the security headers on pages, redirects and static files, checks that every page carries the share card and that each labelled control's name contains its visible text, and verifies not-found responses and redirects. Browser checks cover navigation, search, code copying, keyboard-operated comparison controls, and narrow layouts.
 
