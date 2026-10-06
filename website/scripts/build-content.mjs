@@ -158,13 +158,25 @@ for (const page of pages) {
     return `<li${id ? ` id="${id}"` : ''}>${item}</li>`;
   };
   renderer.table = function (token) {
-    const table = Renderer.prototype.table.call(this, token);
+    // An empty corner cell labels nothing, so it is a data cell, not a header.
+    const table = Renderer.prototype.table
+      .call(this, token)
+      .replace(/<th( align="\w+")?>\s*<\/th>/g, '<td$1></td>');
     const id = addPassage(table);
     return table.replace('<table>', `<table id="${id}">`);
   };
   renderer.link = function (token) {
     const href = linkHref(token.href);
-    return `<a href="${esc(href)}"${href.startsWith('https://') ? ' target="_blank" rel="noreferrer noopener"' : ''}>${this.parser.parseInline(token.tokens)}</a>`;
+    // A linked badge (an image the site does not host) becomes its alt text,
+    // so the link keeps a name and no second link nests inside it.
+    const [only] = token.tokens;
+    const inner =
+      token.tokens.length === 1 &&
+      only.type === 'image' &&
+      !images.has(only.href)
+        ? esc(only.text)
+        : this.parser.parseInline(token.tokens);
+    return `<a href="${esc(href)}"${href.startsWith('https://') ? ' target="_blank" rel="noreferrer noopener"' : ''}>${inner}</a>`;
   };
   renderer.image = ({ href, text }) => {
     const src = images.get(href);

@@ -1,9 +1,10 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { SETUP_COMMAND } from '../lib/site';
+import { shareCard } from '../lib/share-card';
 export const metadata: Metadata = {
   alternates: { canonical: '/' },
-  openGraph: { url: '/' },
+  ...shareCard({ url: '/' }),
 };
 import {
   ArrowDown,

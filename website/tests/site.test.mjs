@@ -37,6 +37,22 @@ test('generated documentation has valid local links, assets, and code controls',
   for (const page of docs.pages) {
     assert.ok(page.html.trim(), page.slug);
     assert.doesNotMatch(page.html, /<script\b|\son\w+=|href="javascript:/i);
+    // Every link has a name and none nests in another; header cells have text.
+    assert.doesNotMatch(
+      page.html,
+      /<a\b[^>]*>\s*<\/a>/,
+      `${page.slug}: empty link`,
+    );
+    assert.doesNotMatch(
+      page.html,
+      /<a\b(?:(?!<\/a>)[\s\S])*<a\b/,
+      `${page.slug}: nested link`,
+    );
+    assert.doesNotMatch(
+      page.html,
+      /<th\b[^>]*>\s*<\/th>/,
+      `${page.slug}: empty header`,
+    );
     assert.equal(new Set(page.search.map((passage) => passage.id)).size, page.search.length);
     for (const passage of page.search) {
       assert.ok(passage.text.trim(), `${page.slug}: empty search passage`);
@@ -192,4 +208,81 @@ test('the website data page names every outside service and storage use', () => 
     /<Link href="\/open">Website data<\/Link>/,
   );
   assert.match(read('../app/sitemap.xml/route.ts').toString(), /"\/open"/);
+});
+
+test('pages and static files send the same security headers', () => {
+  const expected = {
+    'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+  };
+  // Static files are served before the Worker, from public/_headers.
+  const rules = read('../public/_headers').toString();
+  const all = rules.match(/^\/\*\n((?:[ \t]+\S.*\n?)+)/m)?.[1] ?? '';
+  for (const [name, value] of Object.entries(expected))
+    assert.ok(all.includes(`${name}: ${value}`), `public/_headers /*: ${name}`);
+  const proxy = read('../proxy.ts').toString();
+  for (const [name, value] of Object.entries(expected))
+    assert.ok(proxy.includes(`'${name}': '${value}'`), `proxy.ts: ${name}`);
+  assert.ok(proxy.includes(`"frame-ancestors 'none'"`), 'proxy.ts: framing');
+  // The docs sidebar cannot collapse, so Ctrl/Cmd+B stays with the browser.
+  assert.doesNotMatch(
+    read('../components/ui/sidebar.tsx').toString(),
+    /addEventListener\(\s*['"]keydown/,
+  );
+});
+test('every page shares the 1200 x 630 card', () => {
+  const card = read('../public/assets/og-card.png');
+  assert.equal(card.readUInt32BE(16), 1200);
+  assert.equal(card.readUInt32BE(20), 630);
+  assert.match(read('../lib/share-card.ts').toString(), /summary_large_image/);
+  // A page's own openGraph or twitter object replaces the layout's, image
+  // included, so pages set them only through shareCard.
+  const files = fs
+    .readdirSync(new URL('../app/', import.meta.url), { recursive: true })
+    .filter((file) => /(?:page|layout)\.tsx$/.test(file))
+    .map((file) => [file, read(`../app/${file}`).toString()])
+    .filter(([, source]) =>
+      /export (?:const metadata|async function generateMetadata)/.test(source),
+    );
+  assert.ok(files.length >= 6);
+  for (const [file, source] of files) {
+    assert.match(source, /shareCard\(/, `${file}: share card`);
+    assert.doesNotMatch(
+      source,
+      /\b(?:openGraph|twitter):/,
+      `${file}: use shareCard`,
+    );
+  }
+});
+test('the docs search has a visible label and an always-present status', () => {
+  const nav = read('../app/components/docs-navigation.tsx').toString();
+  assert.match(
+    nav,
+    /<label htmlFor=\{searchId\}>Search documentation<\/label>/,
+  );
+  assert.match(nav, /<Input\s+id=\{searchId\}/);
+  assert.doesNotMatch(nav, /aria-label="Search/);
+  // Rendered unconditionally, so screen readers hear each new result count.
+  assert.match(nav, /\n\s*<output className="search-count">/);
+  assert.doesNotMatch(nav, /&&\s*\(\s*<output/);
+});
+test('links in running text are underlined', () => {
+  const css = read('../app/globals.css').toString();
+  for (const selector of [
+    '.doc-body a',
+    '.footer-credit a',
+    '.guide-article .breadcrumbs a',
+    '.not-found a:not(.button)',
+  ]) {
+    const start =
+      css.indexOf(`${selector} {`) >= 0
+        ? css.indexOf(`${selector} {`)
+        : css.indexOf(`${selector},`);
+    assert.ok(start >= 0, selector);
+    const block = css.slice(start, css.indexOf('}', start));
+    assert.match(block, /text-decoration: underline/, selector);
+  }
 });
