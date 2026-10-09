@@ -1,0 +1,15 @@
+# Files wrangler must never upload as static assets. Vite copies public/ into
+# dist/client, and the Cloudflare Vite plugin prepends this file to the
+# dist/client/.assetsignore it writes (gitignore syntax). Never list
+# .well-known/ here: security.txt stays public.
+.git/
+.wrangler/
+.DS_Store
+.env*
+.dev.vars
+wrangler.json*
+node_modules/
+.github/
+.gh-workflows/
+justfile
+README.md

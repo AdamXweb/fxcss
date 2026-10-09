@@ -22,6 +22,10 @@ const workerConfig = {
   compatibility_date: '2026-09-30',
   compatibility_flags: ['nodejs_compat'],
   observability: { enabled: true },
+  // Only the custom domains answer: fxcss.com and www.fxcss.com carry the
+  // zone's WAF, HSTS and Access, a workers.dev or preview URL does not.
+  workers_dev: false,
+  preview_urls: false,
 };
 
 export default defineConfig(async () => {
