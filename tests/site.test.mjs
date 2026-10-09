@@ -323,3 +323,52 @@ test('links in running text are underlined', () => {
     assert.match(block, /text-decoration: underline/, selector);
   }
 });
+test('the Worker answers only on fxcss.com and uploads no repository metadata', () => {
+  // A dashboard-only change is undone by the next deploy, so both flags live
+  // in the config the build emits. The custom domains carry the zone's WAF,
+  // HSTS and Access; a workers.dev or preview URL does not.
+  const config = read('../vite.config.ts').toString();
+  for (const line of ['workers_dev: false,', 'preview_urls: false,'])
+    assert.ok(config.includes(line), `vite.config.ts: ${line}`);
+  // Wrangler uploads everything in dist/client except what .assetsignore
+  // lists, and the Cloudflare Vite plugin prepends public/.assetsignore to it.
+  const patterns = read('../public/.assetsignore')
+    .toString()
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#'));
+  for (const pattern of [
+    '.git/',
+    '.wrangler/',
+    '.DS_Store',
+    '.env*',
+    'wrangler.json*',
+    'node_modules/',
+    '.github/',
+    '.gh-workflows/',
+    'justfile',
+    'README.md',
+  ])
+    assert.ok(patterns.includes(pattern), `public/.assetsignore: ${pattern}`);
+  // security.txt must stay public.
+  assert.ok(
+    !patterns.some((pattern) => pattern.includes('.well-known')),
+    'public/.assetsignore: .well-known/ must stay public',
+  );
+  // After `just build`, the emitted config and assets directory carry both.
+  const built = new URL('../dist/server/wrangler.json', import.meta.url);
+  if (fs.existsSync(built)) {
+    const emitted = JSON.parse(fs.readFileSync(built));
+    assert.equal(emitted.workers_dev, false, 'dist/server/wrangler.json');
+    assert.equal(emitted.preview_urls, false, 'dist/server/wrangler.json');
+    const ignore = fs
+      .readFileSync(new URL(`${emitted.assets.directory}/.assetsignore`, built))
+      .toString()
+      .split('\n');
+    for (const pattern of patterns)
+      assert.ok(
+        ignore.includes(pattern),
+        `dist/client/.assetsignore: ${pattern}`,
+      );
+  }
+});

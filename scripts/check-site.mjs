@@ -210,6 +210,15 @@ for (const route of [
   assertSecurityHeaders(response, route);
   assertShareCard(await response.text(), route);
 }
+// Finder and tool metadata never reaches the site: wrangler skips what
+// dist/client/.assetsignore lists, so these fall through to the not-found page.
+// (.assetsignore itself is not checked: wrangler dev answers it with an empty
+// 200 locally, while production answers 404.)
+for (const route of ['/.DS_Store', '/wrangler.json']) {
+  const response = await fetch(new URL(route, base));
+  assert.equal(response.status, 404, `${route}: must not be served`);
+  assertSecurityHeaders(response, route);
+}
 for (const [from, to] of [
   ['/field-guide', '/docs'],
   ['/showcase', '/'],
