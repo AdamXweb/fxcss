@@ -70,7 +70,8 @@ jobs:
     name: Unit tests (py${{ matrix.python }})
     needs: changes
     if: needs.changes.outputs.full == 'true'
-    runs-on: ubuntu-latest
+    # Python 3.9 is unavailable on Ubuntu 26.04; preserve the supported floor.
+    runs-on: ${{ matrix.python == '3.9' && 'ubuntu-24.04' || 'ubuntu-latest' }}
     timeout-minutes: 10
     strategy:
       fail-fast: false

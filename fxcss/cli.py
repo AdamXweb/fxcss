@@ -1605,6 +1605,16 @@ def cmd_inspect(args):
 
 
 def cmd_audit(args):
+    try:
+        return _run_audit(args)
+    except (OSError, ValueError, RuntimeError) as exc:
+        # 1 means a completed audit found something actionable. A broken
+        # browser/session is a different result, not evidence of dead CSS.
+        print(f"error: audit could not complete: {exc}", file=sys.stderr)
+        return 2
+
+
+def _run_audit(args):
     from . import audit, omni
     theme = args.theme.resolve()
     firefox = choose_firefox(args.firefox)
@@ -1613,7 +1623,8 @@ def cmd_audit(args):
     if pack:
         print(f"  shipped chrome read from "
               f"{', '.join(str(p) for p in pack['paths'])}\n")
-    static = None if args.no_unused else audit.collect_unused(theme)
+    static = (audit.collect_unused(theme)
+              if args.strict_vars or not args.no_unused else None)
     with core.Session(theme, firefox) as session:
         result = audit.audit(session, theme, pack=pack)
 
@@ -1636,7 +1647,7 @@ def cmd_audit(args):
                 known = audit.probe_properties(vanilla, candidates)
         unused = audit.classify_unused(static, known, pack=pack)
     audit.report(result, show_all=args.all, colour=not args.no_colour)
-    if unused:
+    if unused and not args.no_unused:
         audit.report_unused(unused, colour=not args.no_colour, show_all=args.all)
     if args.patch:
         files = audit.write_patch(result, theme, args.patch.resolve())
@@ -1659,6 +1670,13 @@ def cmd_audit(args):
                   f"propert{'ies' if len(dead_vars) != 1 else 'y'} no longer "
                   f"do{'es' if len(dead_vars) == 1 else ''} anything "
                   f"(mark deliberate ones /* fxcss-keep */)\n")
+            if args.no_unused:
+                # The report that names them was hidden, and a failure that
+                # does not say which properties is not actionable.
+                for item in dead_vars:
+                    where = f"{item['file']}:{item['line']}" if item.get("file") else ""
+                    print(f"    {item['name']:<44} {where}".rstrip())
+                print()
             failing = 1
     return failing
 

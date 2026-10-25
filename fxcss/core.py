@@ -482,6 +482,9 @@ class Session:
         env = dict(os.environ)
         env["MOZ_DISABLE_AUTO_SAFE_MODE"] = "1"
         env["MOZ_CRASHREPORTER_DISABLE"] = "1"
+        # Newer Firefox builds use the environment opt-in for system access.
+        # Keep the command-line flag as well for older Firefox builds.
+        env["MOZ_REMOTE_ALLOW_SYSTEM_ACCESS"] = "1"
         # Chrome UI does not paint in headless mode.
         env.pop("MOZ_HEADLESS", None)
         cmd = [self.firefox, "--profile", str(self.profile), *LAUNCH_FLAGS,
