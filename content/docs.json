@@ -1,6 +1,6 @@
 {
   "version": "0.24.0",
-  "sourceSha256": "f78e94cbe2f40ff33d352116a75fa6a9421019400ee223374373a004523af832",
+  "sourceSha256": "f9e226871a6bbefbfb98261c67dc68aaed0c111a0494413a0d2a92de214dc5d0",
   "pages": [
     {
       "slug": "using-and-managing-themes",
@@ -1252,9 +1252,9 @@
       "chapter": "GitHub Actions workflows",
       "group": "guide",
       "description": "For a custom workflow, the core capture-and-compare steps are: These steps assume the two theme revisions are checked out, Firefox is installed and a display is available. Browser chrome req",
-      "html": "<p id=\"passage-1\">For a custom workflow, the core capture-and-compare steps are:</p><div class=\"doc-code\" id=\"passage-2\"><div class=\"doc-code-header\"><span>yaml</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>- run: pip install \"fxcss[images]==0.23.0\"\n- run: fxcss shot --theme base --out shots/base\n- run: fxcss shot --theme head --out shots/head\n- run: fxcss compare --base shots/base --head shots/head --out out/ --platform ${{ runner.os }}</code></pre></div><p id=\"passage-3\">These steps assume the two theme revisions are checked out, Firefox is\ninstalled and a display is available. Browser chrome requires a rendered\nwindow: macOS and Windows runners have a display; Linux needs Xvfb. Firefox's\nheadless mode does not render the browser chrome.</p><p id=\"passage-4\">Start with <code>fxcss init</code> for the complete setup. The\n<a href=\"/docs/github-actions-workflows\">workflow examples</a> explain the generated files. If your\nproject needs a visual pass/fail policy, read <code>compare</code>'s <code>summary.json</code> and\napply its chosen threshold.</p><p id=\"passage-5\"><a href=\"https://github.com/AdamXweb/fxcss\" target=\"_blank\" rel=\"noreferrer noopener\">theme previews by fxcss</a></p>",
+      "html": "<p id=\"passage-1\">For a custom workflow, the core capture-and-compare steps are:</p><div class=\"doc-code\" id=\"passage-2\"><div class=\"doc-code-header\"><span>yaml</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>- run: pip install \"fxcss[images]==0.24.0\"\n- run: fxcss shot --theme base --out shots/base\n- run: fxcss shot --theme head --out shots/head\n- run: fxcss compare --base shots/base --head shots/head --out out/ --platform ${{ runner.os }}</code></pre></div><p id=\"passage-3\">These steps assume the two theme revisions are checked out, Firefox is\ninstalled and a display is available. Browser chrome requires a rendered\nwindow: macOS and Windows runners have a display; Linux needs Xvfb. Firefox's\nheadless mode does not render the browser chrome.</p><p id=\"passage-4\">Start with <code>fxcss init</code> for the complete setup. The\n<a href=\"/docs/github-actions-workflows\">workflow examples</a> explain the generated files. If your\nproject needs a visual pass/fail policy, read <code>compare</code>'s <code>summary.json</code> and\napply its chosen threshold.</p><p id=\"passage-5\"><a href=\"https://github.com/AdamXweb/fxcss\" target=\"_blank\" rel=\"noreferrer noopener\">theme previews by fxcss</a></p>",
       "codes": [
-        "- run: pip install \"fxcss[images]==0.23.0\"\n- run: fxcss shot --theme base --out shots/base\n- run: fxcss shot --theme head --out shots/head\n- run: fxcss compare --base shots/base --head shots/head --out out/ --platform ${{ runner.os }}"
+        "- run: pip install \"fxcss[images]==0.24.0\"\n- run: fxcss shot --theme base --out shots/base\n- run: fxcss shot --theme head --out shots/head\n- run: fxcss compare --base shots/base --head shots/head --out out/ --platform ${{ runner.os }}"
       ],
       "headings": [],
       "search": [
@@ -1264,7 +1264,7 @@
         },
         {
           "id": "passage-2",
-          "text": "- run: pip install \"fxcss[images]==0.23.0\" - run: fxcss shot --theme base --out shots/base - run: fxcss shot --theme head --out shots/head - run: fxcss compare --base shots/base --head shots/head --out out/ --platform ${{ runner.os }}"
+          "text": "- run: pip install \"fxcss[images]==0.24.0\" - run: fxcss shot --theme base --out shots/base - run: fxcss shot --theme head --out shots/head - run: fxcss compare --base shots/base --head shots/head --out out/ --platform ${{ runner.os }}"
         },
         {
           "id": "passage-3",
@@ -1474,11 +1474,11 @@
       "chapter": "Troubleshooting and configuration",
       "group": "guide",
       "description": "fxcss is on PyPI. Install it with pipx, which gives it its own environment and puts fxcss on your PATH: No pipx yet? brew install pipx (macOS), sudo apt install pipx (Debian and Ubuntu), or ",
-      "html": "<p id=\"passage-1\">fxcss is <a href=\"https://pypi.org/project/fxcss/\" target=\"_blank\" rel=\"noreferrer noopener\">on PyPI</a>. Install it with <strong>pipx</strong>,\nwhich gives it its own environment and puts <code>fxcss</code> on your PATH:</p><div class=\"doc-code\" id=\"passage-2\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>pipx install \"fxcss[images]\"</code></pre></div><p id=\"passage-3\">No pipx yet? <code>brew install pipx</code> (macOS), <code>sudo apt install pipx</code> (Debian and\nUbuntu), or <code>python3 -m pip install --user pipx</code> elsewhere.</p><blockquote>\n<p id=\"passage-4\"><strong>Why not plain pip?</strong> On current Homebrew, Debian and Ubuntu Pythons,\n<code>python3 -m pip install</code> refuses with <code>error: externally-managed-environment</code>\n— that's <a href=\"https://peps.python.org/pep-0668/\" target=\"_blank\" rel=\"noreferrer noopener\">PEP 668</a> protecting your system\nPython, not fxcss being broken. pipx is the intended answer for installing an\napplication. pip still works fine <em>inside a virtual environment</em>:</p><div class=\"doc-code\" id=\"passage-5\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"1\" aria-label=\"Copy code example 2\">Copy</button></div><pre><code>python3 -m venv ~/.venvs/fxcss &amp;&amp; ~/.venvs/fxcss/bin/pip install \"fxcss[images]\"</code></pre></div></blockquote>\n<p id=\"passage-6\">For CI, or anywhere a surprise upgrade would be unwelcome, pin the release —\nthe <a href=\"https://github.com/AdamXweb/fxcss/releases\" target=\"_blank\" rel=\"noreferrer noopener\">releases page</a> has the latest.\nCI runners' Pythons are not externally managed, so plain pip is fine there:</p><div class=\"doc-code\" id=\"passage-7\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"2\" aria-label=\"Copy code example 3\">Copy</button></div><pre><code>pip install \"fxcss[images]==0.23.0\"</code></pre></div><p id=\"passage-8\">Upgrade an existing pipx installation with <code>pipx upgrade fxcss</code>.</p>",
+      "html": "<p id=\"passage-1\">fxcss is <a href=\"https://pypi.org/project/fxcss/\" target=\"_blank\" rel=\"noreferrer noopener\">on PyPI</a>. Install it with <strong>pipx</strong>,\nwhich gives it its own environment and puts <code>fxcss</code> on your PATH:</p><div class=\"doc-code\" id=\"passage-2\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"0\" aria-label=\"Copy code example 1\">Copy</button></div><pre><code>pipx install \"fxcss[images]\"</code></pre></div><p id=\"passage-3\">No pipx yet? <code>brew install pipx</code> (macOS), <code>sudo apt install pipx</code> (Debian and\nUbuntu), or <code>python3 -m pip install --user pipx</code> elsewhere.</p><blockquote>\n<p id=\"passage-4\"><strong>Why not plain pip?</strong> On current Homebrew, Debian and Ubuntu Pythons,\n<code>python3 -m pip install</code> refuses with <code>error: externally-managed-environment</code>\n— that's <a href=\"https://peps.python.org/pep-0668/\" target=\"_blank\" rel=\"noreferrer noopener\">PEP 668</a> protecting your system\nPython, not fxcss being broken. pipx is the intended answer for installing an\napplication. pip still works fine <em>inside a virtual environment</em>:</p><div class=\"doc-code\" id=\"passage-5\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"1\" aria-label=\"Copy code example 2\">Copy</button></div><pre><code>python3 -m venv ~/.venvs/fxcss &amp;&amp; ~/.venvs/fxcss/bin/pip install \"fxcss[images]\"</code></pre></div></blockquote>\n<p id=\"passage-6\">For CI, or anywhere a surprise upgrade would be unwelcome, pin the release —\nthe <a href=\"https://github.com/AdamXweb/fxcss/releases\" target=\"_blank\" rel=\"noreferrer noopener\">releases page</a> has the latest.\nCI runners' Pythons are not externally managed, so plain pip is fine there:</p><div class=\"doc-code\" id=\"passage-7\"><div class=\"doc-code-header\"><span>bash</span><button type=\"button\" data-copy-index=\"2\" aria-label=\"Copy code example 3\">Copy</button></div><pre><code>pip install \"fxcss[images]==0.24.0\"</code></pre></div><p id=\"passage-8\">Upgrade an existing pipx installation with <code>pipx upgrade fxcss</code>.</p>",
       "codes": [
         "pipx install \"fxcss[images]\"",
         "python3 -m venv ~/.venvs/fxcss && ~/.venvs/fxcss/bin/pip install \"fxcss[images]\"",
-        "pip install \"fxcss[images]==0.23.0\""
+        "pip install \"fxcss[images]==0.24.0\""
       ],
       "headings": [],
       "search": [
@@ -1508,7 +1508,7 @@
         },
         {
           "id": "passage-7",
-          "text": "pip install \"fxcss[images]==0.23.0\""
+          "text": "pip install \"fxcss[images]==0.24.0\""
         },
         {
           "id": "passage-8",
