@@ -496,16 +496,18 @@ class AuditExitStatusTests(unittest.TestCase):
         for name, value in changes.items():
             setattr(args, name, value)
         self.static = {"used": {}, "defined": {"--old-token": []}}
-        self.unused = {"unused_properties": [{"name": "--old-token"}], "stale_overrides": []}
+        self.unused = getattr(self, "unused", None) or {
+            "unused_properties": [{"name": "--old-token"}], "stale_overrides": []}
         with patch.object(cli, "choose_firefox", return_value="firefox"), patch.object(
                 omni, "scan", return_value={"paths": []}), patch.object(core, "Session") as session, patch.object(
                 audit, "audit", return_value={"findings": []}), patch.object(audit, "report"), patch.object(
                 audit, "collect_unused", return_value=self.static) as collect, patch.object(
                 audit, "classify_unused", return_value=self.unused), patch.object(audit, "report_unused") as report, contextlib.redirect_stderr(
-                io.StringIO()) as err, contextlib.redirect_stdout(io.StringIO()):
+                io.StringIO()) as err, contextlib.redirect_stdout(io.StringIO()) as out:
             if getattr(self, "failure", None):
                 session.side_effect = self.failure
             result = cli.cmd_audit(args)
+            self.stdout = out.getvalue()
             return result, collect.call_count, report.call_count, err.getvalue()
 
     def test_browser_failure_is_not_a_selector_finding(self):
@@ -521,6 +523,16 @@ class AuditExitStatusTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(collected, 1)
         self.assertEqual(reported, 0)
+        # With the report hidden, the failure itself has to name the property.
+        self.assertIn("--old-token", self.stdout)
+
+    def test_strict_vars_failure_says_where_each_property_is_set(self):
+        self.unused = {"unused_properties": [],
+                       "stale_overrides": [{"name": "--stale-token", "file": "chrome/theme.css", "line": 12}]}
+        code, _, _, _ = self.run_audit(strict_vars=True)
+        self.assertEqual(code, 1)
+        self.assertIn("--stale-token", self.stdout)
+        self.assertIn("chrome/theme.css:12", self.stdout)
 
     def test_no_unused_still_skips_checks_without_strict_vars(self):
         code, collected, _, _ = self.run_audit()

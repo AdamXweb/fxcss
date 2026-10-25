@@ -1670,6 +1670,13 @@ def _run_audit(args):
                   f"propert{'ies' if len(dead_vars) != 1 else 'y'} no longer "
                   f"do{'es' if len(dead_vars) == 1 else ''} anything "
                   f"(mark deliberate ones /* fxcss-keep */)\n")
+            if args.no_unused:
+                # The report that names them was hidden, and a failure that
+                # does not say which properties is not actionable.
+                for item in dead_vars:
+                    where = f"{item['file']}:{item['line']}" if item.get("file") else ""
+                    print(f"    {item['name']:<44} {where}".rstrip())
+                print()
             failing = 1
     return failing
 
