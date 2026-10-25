@@ -161,6 +161,23 @@ class WorkflowBehaviorTests(unittest.TestCase):
                     self.assertEqual((work / "compact-diff.png").read_bytes(), b"option crop")
                 self.assertFalse((work / "crops").exists())
 
+    def test_startup_failure_does_not_open_a_selector_issue_or_patch(self):
+        text = self.workflow("firefox-watch.yml")
+        values = {"steps.audit.outcome": "success", "steps.audit.outputs.status": "2",
+                  "steps.audit.outputs.patch": "yes", "steps.smoke.outcome": "success",
+                  "steps.smoke.outputs.status": "2"}
+        for name in ("Open or update the heads-up issue", "Open a pull request with the confident fixes"):
+            guard = re.search(r"^        if: (.+)$", step(text, name), re.M)[1]
+            self.assertFalse(condition(guard, values), name)
+        for name in ("Open or update the capture-pipeline issue", "Fail when Firefox could not be checked"):
+            guard = re.search(r"^        if: (.+)$", step(text, name), re.M)[1]
+            self.assertTrue(condition(guard, values), name)
+        values["steps.smoke.outputs.status"] = "0"
+        guard = re.search(r"^        if: (.+)$", step(text, "Fail when Firefox could not be checked"), re.M)[1]
+        self.assertTrue(condition(guard, values))
+        values["steps.audit.outputs.status"] = "1"
+        self.assertFalse(condition(guard, values))
+
     def test_single_channel_watch_never_handles_results_for_skipped_channels(self):
         text = self.workflow("firefox-watch.yml")
         actions = ["Open or update the capture-pipeline issue",

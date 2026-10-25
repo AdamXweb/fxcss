@@ -483,7 +483,69 @@ class SamplePagesTests(unittest.TestCase):
         self.assertEqual(build_pages(), build_pages())
 
 
+class AuditExitStatusTests(unittest.TestCase):
+    def run_audit(self, **changes):
+        import argparse
+        import contextlib
+        import io
+        from unittest.mock import Mock, patch
+        from fxcss import cli, core, audit, omni
+        args = argparse.Namespace(theme=Path("."), firefox="firefox", no_unused=True,
+                                  strict=True, strict_vars=False, no_colour=True,
+                                  all=False, patch=None)
+        for name, value in changes.items():
+            setattr(args, name, value)
+        self.static = {"used": {}, "defined": {"--old-token": []}}
+        self.unused = {"unused_properties": [{"name": "--old-token"}], "stale_overrides": []}
+        with patch.object(cli, "choose_firefox", return_value="firefox"), patch.object(
+                omni, "scan", return_value={"paths": []}), patch.object(core, "Session") as session, patch.object(
+                audit, "audit", return_value={"findings": []}), patch.object(audit, "report"), patch.object(
+                audit, "collect_unused", return_value=self.static) as collect, patch.object(
+                audit, "classify_unused", return_value=self.unused), patch.object(audit, "report_unused") as report, contextlib.redirect_stderr(
+                io.StringIO()) as err, contextlib.redirect_stdout(io.StringIO()):
+            if getattr(self, "failure", None):
+                session.side_effect = self.failure
+            result = cli.cmd_audit(args)
+            return result, collect.call_count, report.call_count, err.getvalue()
+
+    def test_browser_failure_is_not_a_selector_finding(self):
+        from fxcss import core
+        self.failure = core.MarionetteError("system access is required")
+        code, _, _, error = self.run_audit()
+        self.assertEqual(code, 2)
+        self.assertIn("audit could not complete", error)
+        self.assertNotIn("Traceback", error)
+
+    def test_hidden_unused_section_does_not_disable_explicit_strict_vars(self):
+        code, collected, reported, _ = self.run_audit(strict_vars=True)
+        self.assertEqual(code, 1)
+        self.assertEqual(collected, 1)
+        self.assertEqual(reported, 0)
+
+    def test_no_unused_still_skips_checks_without_strict_vars(self):
+        code, collected, _, _ = self.run_audit()
+        self.assertEqual((code, collected), (0, 0))
+
+
 class SessionCleanupTests(unittest.TestCase):
+    def test_system_access_is_enabled_only_for_the_owned_browser(self):
+        import os
+        from unittest.mock import Mock, patch
+        from fxcss import core
+        session = core.Session.__new__(core.Session)
+        session.firefox = "firefox"
+        session.profile = Path("temporary-profile")
+        session.port = 4242
+        session.apply_harness_css = Mock()
+        with patch.dict(os.environ, {"MOZ_REMOTE_ALLOW_SYSTEM_ACCESS": "0", "MOZ_HEADLESS": "1"}), patch.object(
+                core.subprocess, "Popen") as launch, patch.object(core, "Marionette"):
+            session._start_browser()
+            child = launch.call_args.kwargs["env"]
+            self.assertEqual(child["MOZ_REMOTE_ALLOW_SYSTEM_ACCESS"], "1")
+            self.assertNotIn("MOZ_HEADLESS", child)
+            self.assertEqual(os.environ["MOZ_REMOTE_ALLOW_SYSTEM_ACCESS"], "0")
+            self.assertEqual(os.environ["MOZ_HEADLESS"], "1")
+
     def test_windows_timeout_kills_only_the_owned_launcher_tree_and_waits(self):
         from unittest.mock import Mock, call, patch
         from fxcss import core
