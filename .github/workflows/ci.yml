@@ -70,7 +70,8 @@ jobs:
     name: Unit tests (py${{ matrix.python }})
     needs: changes
     if: needs.changes.outputs.full == 'true'
-    runs-on: ubuntu-latest
+    # ubuntu-latest is 26.04, which setup-python has no 3.9 build for.
+    runs-on: ${{ matrix.python == '3.9' && 'ubuntu-24.04' || 'ubuntu-latest' }}
     timeout-minutes: 10
     strategy:
       fail-fast: false
