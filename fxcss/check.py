@@ -23,6 +23,8 @@ DEFAULTS = {
     "strict": True,
     "strict_vars": False,
     "max_changed_percent": None,
+    "views": None,
+    "min_changed_percent": None,
 }
 
 
@@ -64,13 +66,22 @@ def load_settings(args):
     for key in ("variants", "toolbar"):
         if settings[key] is not None and not isinstance(settings[key], str):
             raise ValueError(f"{key} must be a string or null")
-    core.parse_variant_spec(settings["variants"], core.find_variant_sheets(theme))
+    variants = core.parse_variant_spec(settings["variants"], core.find_variant_sheets(theme))
     if settings["toolbar"]:
         core.parse_toolbar_spec(settings["toolbar"])
+    # Checked against the views this run will capture, before Firefox starts.
+    settings["views"] = capture.parse_view_patterns(settings["views"])
+    capture.select_views(capture.expected_views(variants), settings["views"])
+    for key in ("max_changed_percent", "min_changed_percent"):
+        value = settings[key]
+        if value is not None and (type(value) not in (int, float)
+                                  or not math.isfinite(value) or not 0 <= value <= 100):
+            raise ValueError(f"{key} must be a number from 0 to 100, or null")
     threshold = settings["max_changed_percent"]
-    if threshold is not None and (type(threshold) not in (int, float)
-                                  or not math.isfinite(threshold) or not 0 <= threshold <= 100):
-        raise ValueError("max_changed_percent must be a number from 0 to 100, or null")
+    if (threshold is not None and settings["min_changed_percent"] is not None
+            and settings["min_changed_percent"] > threshold):
+        raise ValueError("min_changed_percent must not exceed max_changed_percent: "
+                         "a view could fail the check without being pictured")
     for key in ("out", "baseline"):
         value = settings[key]
         if key == "baseline" and value is None:
@@ -324,8 +335,9 @@ def write_report(directory, settings, results, status, baseline_updated):
             summary = result["comparison"]
             advisory = (summary["any_change"] and result["exit_code"] == 0)
             note = " (advisory; no configured limit was exceeded)" if advisory else ""
+            shared = "selected" if settings["views"] else "shared"
             lines += [f"Visual comparison: **{len(summary['changed_views'])} changed "
-                      f"of {len(summary['views'])} shared views{note}**.", ""]
+                      f"of {len(summary['views'])} {shared} views{note}**.", ""]
             for heading, field in (("Added", "only_in_head"), ("Missing", "only_in_base")):
                 if summary[field]:
                     lines += [f"{heading} views: " + ", ".join(f"`{v}`" for v in summary[field]), ""]
@@ -333,6 +345,12 @@ def write_report(directory, settings, results, status, baseline_updated):
                 title = view.get("title") or view["view"]
                 lines += [f"- [{title} (`{view['view']}`): {view['percent']:.3f}% changed]"
                           f"({key}/diff/{view['image']})"]
+            below = summary.get("below_threshold", [])
+            if below:
+                lines += ["", f"Changed by less than {summary['min_changed_percent']:g}% "
+                          "and not pictured: " + ", ".join(
+                              f"{v.get('title') or v['view']} (`{v['view']}`, {v['percent']:.3f}%)"
+                              for v in below)]
             lines.append("")
         else:
             note = result.get("comparison_note", "not completed")
@@ -433,7 +451,8 @@ def run(args):
                 result["baseline_info"] = capture.validate_coverage(baseline / key)["browser"]
                 with (dest / "comparison.txt").open("w", encoding="utf-8") as log:
                     with contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
-                        code = compare.run(baseline / key, dest / "shots", dest / "diff", browser)
+                        code = compare.run(baseline / key, dest / "shots", dest / "diff", browser,
+                                           settings["views"], settings["min_changed_percent"])
                 if code:
                     raise RuntimeError("comparison failed; check the baseline path and comparison.txt. "
                                        "Use --update-baseline to create or replace a baseline")

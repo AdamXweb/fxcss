@@ -3,7 +3,7 @@
 `fxcss init`.
 
 The templates ship inside the package, so a `pipx install fxcss` user gets
-them without ever visiting the repository. Three things are substituted per
+them without ever visiting the repository. Four things are substituted per
 theme, which is exactly the hand-editing that used to trip people up:
 
 * the fxcss version pin (a PyPI release), set to the version doing the
@@ -11,16 +11,21 @@ theme, which is exactly the hand-editing that used to trip people up:
 * a bounded filename pattern for optional stylesheet screenshots, including
   variants added after the workflows were generated
 * the showcase URL, taken from the repository's origin remote
+* the PR preview's settings: which optional stylesheets to capture, which
+  views to show and the smallest change worth picturing
 """
 
+import math
 import re
 import subprocess
 from importlib import resources
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import __version__
+from . import __version__, capture, core
 from .fetch import VARIANT_DIRS
+
+PREVIEW_DEFAULTS = {"variants": "all", "views": "", "min_changed_percent": "0"}
 
 PREVIEW_FILES = ("pr-preview.yml", "pr-preview-publish.yml", "pr-preview-cleanup.yml")
 WATCH_FILE = "firefox-watch.yml"
@@ -70,7 +75,34 @@ def detect_repo_url(theme: Path):
     return https_repo_url(raw)
 
 
-def render_template(text, version, variant_alt, repo_url):
+def preview_settings(theme: Path, variants="all", views="", min_changed_percent=0.0):
+    """Validate PR preview settings now, not on the first pull request.
+
+    Returns the strings written into pr-preview.yml's env block.
+    """
+    variants = (variants or "").strip()
+    chosen = core.parse_variant_spec(variants, core.find_variant_sheets(theme))
+    patterns = capture.parse_view_patterns(views or "")
+    capture.select_views(capture.expected_views(chosen), patterns)
+    if not math.isfinite(min_changed_percent) or not 0 <= min_changed_percent <= 100:
+        raise ValueError("--min-changed-percent must be a number from 0 to 100")
+    return {"variants": variants, "views": ",".join(patterns or []),
+            "min_changed_percent": f"{min_changed_percent:g}"}
+
+
+def _yaml_quoted(value):
+    """Body of a single-quoted YAML scalar, which the template supplies the quotes for."""
+    if "\n" in value or "\r" in value:
+        raise ValueError("workflow settings must be a single line")
+    return value.replace("'", "''")
+
+
+def render_template(text, version, variant_alt, repo_url, preview=None):
+    preview = {**PREVIEW_DEFAULTS, **(preview or {})}
+    text = text.replace("__FXCSS_PREVIEW_VARIANTS__", _yaml_quoted(preview["variants"]))
+    text = text.replace("__FXCSS_PREVIEW_VIEWS__", _yaml_quoted(preview["views"]))
+    text = text.replace("__FXCSS_PREVIEW_MIN_PERCENT__",
+                        _yaml_quoted(preview["min_changed_percent"]))
     text = text.replace("__FXCSS_VERSION__", version)
     text = text.replace("__FXCSS_VARIANT_ALT__", variant_alt)
     text = text.replace("__FXCSS_REPO_URL__", repo_url or "https://example.com")
@@ -85,7 +117,7 @@ def _template(name):
 
 
 def write_workflows(theme: Path, variant_slugs, watch=False, showcase=False,
-                    previews=False, force=False, version=None):
+                    previews=False, force=False, version=None, preview=None):
     """Write the chosen workflows into <theme>/.github/workflows.
 
     Returns (written, skipped) lists of paths relative to the theme. Existing
@@ -115,7 +147,7 @@ def write_workflows(theme: Path, variant_slugs, watch=False, showcase=False,
         if target.exists() and not force:
             skipped.append(rel)
             continue
-        target.write_text(render_template(_template(name), version, alt, repo_url),
+        target.write_text(render_template(_template(name), version, alt, repo_url, preview),
                           encoding="utf-8")
         written.append(rel)
     return written, skipped
@@ -172,6 +204,9 @@ def next_steps(written, skipped, variant_slugs, watch, showcase, previews=False)
         "    workflows' click. That is GitHub policy, not a misconfiguration.",
         "  - Images are published to an orphan ci-previews branch and cleaned up",
         "    when each pull request closes.",
+        "  - What the preview captures and shows (optional stylesheets, views and",
+        "    the smallest change worth picturing) is set at the top of",
+        "    pr-preview.yml; edit it there or rerun init with --force.",
     ]
     if watch:
         lines.append("  - firefox-watch runs Mondays and needs no further setup.")

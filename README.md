@@ -714,6 +714,8 @@ operating systems separate. `--firefox beta` overrides the list for one run.
 | `strict` / `--strict` | Fail on actionable selector findings; `--no-strict` makes them advisory. |
 | `strict_vars` / `--strict-vars` | Also fail on dead custom properties; deliberate `fxcss-keep` overrides remain exempt. |
 | `max_changed_percent` / `--max-changed-percent` | Fail when any view exceeds this percentage, or a new view has no baseline. Set the saved value to `null` for advisory pixel differences. Missing baseline views always need attention. |
+| `min_changed_percent` / `--min-changed-percent` | List a view whose change is smaller than this percentage in the report without picturing it or counting it as changed. Must not exceed `max_changed_percent`. |
+| `views` / `--views` | Compare only views matching these patterns, such as `["light-*", "variant-*"]` or `--views 'light-*,variant-*'`. Every view is still captured and checked for coverage. A pattern that matches no view is a configuration error. |
 | `variants` / `--variants` | Capture `all`, named stylesheets or combinations such as `compact+dark`. Set the saved value to `null` to capture the base theme only. |
 | `toolbar` / `--toolbar` | Apply a toolbar arrangement to the toolbar capture. |
 | `baseline`, `out` | Paths relative to the theme root; absolute paths also work. `baseline: null` runs audits and captures without visual comparison. |
@@ -825,6 +827,30 @@ highlights the 0.09% of pixels that moved.</sub></p>
 This is what makes it useful in CI: render your theme at the base commit and at
 a pull request, and the diff shows a reviewer exactly what the change does. See
 [Using it in CI](#using-it-in-ci).
+
+Narrow a comparison to the views you care about, and leave out changes too
+small to be worth a picture:
+
+```bash
+fxcss compare --base shots/before --head shots/after --out diff/ \
+  --views 'light-*,extra-07-many-tabs' --min-changed-percent 0.5
+```
+
+`--views` takes comma-separated patterns, with `*` and `?` as wildcards, matched
+against capture names. The standard names are `light-` or `dark-` followed by
+`01-window`, `02-urlbar`, `03-findbar` or `04-dialog`; `extra-04-audio`,
+`extra-05-muted`, `extra-06-containers`, `extra-07-many-tabs`,
+`extra-08-private`, `extra-09-compact`, `extra-10-sidebar-bookmarks`,
+`extra-11-sidebar-history`, `extra-12-rtl`, `extra-13-customize`,
+`extra-14-vertical-tabs` and `extra-15-toolbar`; and `variant-<name>` for each
+optional stylesheet. A pattern that matches nothing is an error, so a typo
+cannot quietly shrink the comparison. Unselected views are left out of
+`summary.json` and `full/`.
+
+`--min-changed-percent` treats a view whose changed pixels are below that share
+as a small change: `summary.json` lists it under `below_threshold` with its
+percentage, but no comparison image is drawn and it does not count towards
+`changed_views` or `any_change`. A change of exactly the threshold is pictured.
 
 A successful comparison reports differences; changed pixels alone do not make
 `compare` fail. Review the images to decide whether a change is intended. If
@@ -1087,6 +1113,40 @@ but does not execute PR code.
 
 The preview shows what changed, leaving the reviewer to decide whether it is
 correct. It does not reject a PR simply because the screenshots differ.
+
+#### Choosing what the preview shows
+
+Three settings at the top of `pr-preview.yml` control what is captured and
+what appears in the comment:
+
+```yaml
+env:
+  FXCSS_VARIANTS: 'compact,tabs-swapclose'      # 'all' (default), '' for none
+  FXCSS_VIEWS: 'light-*,extra-07-many-tabs'     # '' (default) shows every view
+  FXCSS_MIN_CHANGED_PERCENT: '0.5'              # '0' (default) pictures every change
+```
+
+- `FXCSS_VARIANTS` chooses which optional stylesheets are captured, which also
+  shortens the run. Named stylesheets must exist in both the base branch and
+  the pull request; `all` adapts as sheets are added.
+- `FXCSS_VIEWS` chooses which views are compared and shown, using the
+  [`compare --views`](#fxcss-compare) patterns. Every standard view is still
+  captured. The comment notes that a selection is in effect.
+- `FXCSS_MIN_CHANGED_PERCENT` leaves out the image for a view where less than
+  that share of pixels changed. The comment still lists each such view with its
+  percentage, so a small change is never reported as no change.
+
+Set them when generating the workflows, or edit the file directly:
+
+```bash
+fxcss init --variants compact --views 'light-*,variant-*' --min-changed-percent 0.5
+```
+
+Settings are validated against the theme before anything is written. Pass
+`--force` to replace workflows that already exist; that also resets any
+settings you edited by hand to the values given on the command line. The
+comment wording comes from `pr-preview-publish.yml`, so regenerate both files
+together.
 
 ### Watching Firefox for breakage
 

@@ -31,6 +31,20 @@ concurrency:
 
 env:
   FXCSS_VERSION: __FXCSS_VERSION__
+  # What the preview captures and shows. Edit these here, or set them with
+  # `fxcss init --variants ... --views ... --min-changed-percent ... --force`.
+  #
+  # Optional stylesheets to capture: 'all', '' for none, or names such as
+  # 'compact,tabs-swapclose' ('a+b' captures two together). Named sheets must
+  # exist in both the base branch and the pull request.
+  FXCSS_VARIANTS: '__FXCSS_PREVIEW_VARIANTS__'
+  # Views to compare and show, as comma-separated patterns with * and ?
+  # wildcards, e.g. 'light-*,extra-07-many-tabs,variant-*'. '' shows every
+  # view. Every view is still captured; a pattern that matches none fails.
+  FXCSS_VIEWS: '__FXCSS_PREVIEW_VIEWS__'
+  # A view where less than this percent of pixels changed is listed in the
+  # comment with its percentage but not pictured. '0' pictures every change.
+  FXCSS_MIN_CHANGED_PERCENT: '__FXCSS_PREVIEW_MIN_PERCENT__'
 
 jobs:
   render:
@@ -165,9 +179,12 @@ jobs:
           key: >-
             base-render-${{ matrix.label }}-${{ github.event.pull_request.base.sha }}-ff${{ steps.basekey.outputs.firefox }}-img${{ steps.basekey.outputs.image }}-fxcss${{ env.FXCSS_VERSION }}-${{ hashFiles('head/.github/workflows/pr-preview.yml') }}
 
+      # bash on every runner, Windows included, so the settings above reach
+      # fxcss as quoted shell variables rather than as text pasted into a script.
       - name: Render base revision
         if: steps.basecache.outputs.cache-hit != 'true'
-        run: fxcss shot --theme base --out shots/base --variants all
+        shell: bash
+        run: fxcss shot --theme base --out shots/base --variants="$FXCSS_VARIANTS"
 
       # Saved the moment the base render succeeds rather than when the job
       # ends: a push that supersedes this run cancels it, and the base is
@@ -180,12 +197,15 @@ jobs:
           key: ${{ steps.basecache.outputs.cache-primary-key }}
 
       - name: Render pull request revision
-        run: fxcss shot --theme head --out shots/head --variants all
+        shell: bash
+        run: fxcss shot --theme head --out shots/head --variants="$FXCSS_VARIANTS"
 
       - name: Compare
+        shell: bash
         run: >-
           fxcss compare --base shots/base --head shots/head
           --out out/${{ matrix.label }} --platform ${{ matrix.label }}
+          --views="$FXCSS_VIEWS" --min-changed-percent="$FXCSS_MIN_CHANGED_PERCENT"
 
       - name: Record pull request number
         shell: bash

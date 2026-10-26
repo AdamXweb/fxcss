@@ -27,9 +27,55 @@ class ComparisonIntegrityTests(unittest.TestCase):
     def image(self, directory, name="light-01-window", colour="grey"):
         Image.new("RGB", (16, 8), colour).save(directory / f"{name}.png")
 
-    def run_compare(self):
+    def run_compare(self, **options):
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            return compare.run(self.base, self.head, self.out, "test")
+            return compare.run(self.base, self.head, self.out, "test", **options)
+
+    def test_view_patterns_limit_comparisons_and_full_copies(self):
+        for name in ("light-01-window", "dark-01-window"):
+            self.image(self.base, name)
+            self.image(self.head, name, "red")
+        self.image(self.head, "variant-new")
+        self.assertEqual(self.run_compare(views="LIGHT-*, variant-new"), 0)
+        report = json.loads((self.out / "summary.json").read_text())
+        self.assertEqual([v["view"] for v in report["views"]], ["light-01-window"])
+        self.assertEqual(report["only_in_head"], ["variant-new"])
+        self.assertEqual(report["views_filter"], ["light-*", "variant-new"])
+        self.assertEqual(sorted(p.name for p in (self.out / "full").iterdir()),
+                         ["light-01-window.png", "variant-new.png"])
+        self.assertFalse((self.out / "dark-01-window.png").exists())
+
+    def test_a_view_pattern_that_matches_nothing_is_an_error(self):
+        self.image(self.base)
+        self.image(self.head)
+        for views in ("light-*,dark-02-urlbr", "../light-01-window", ["light-*", 3]):
+            with self.subTest(views=views):
+                self.assertEqual(self.run_compare(views=views), 2)
+                self.assertFalse((self.out / "summary.json").exists())
+
+    def test_changes_under_the_minimum_are_listed_but_not_drawn(self):
+        self.image(self.base)
+        image = Image.new("RGB", (16, 8), "grey")
+        image.putpixel((0, 0), (255, 0, 0))  # about 1.3% once scaled to a panel
+        image.save(self.head / "light-01-window.png")
+        self.assertEqual(self.run_compare(min_changed_percent=5), 0)
+        report = json.loads((self.out / "summary.json").read_text())
+        self.assertFalse(report["any_change"])
+        self.assertEqual(report["changed_views"], [])
+        self.assertEqual([v["view"] for v in report["below_threshold"]], ["light-01-window"])
+        self.assertFalse((self.out / "light-01-window.png").exists())
+        self.assertEqual(self.run_compare(min_changed_percent=1), 0)
+        report = json.loads((self.out / "summary.json").read_text())
+        self.assertTrue(report["any_change"])
+        self.assertEqual(report["below_threshold"], [])
+        self.assertTrue((self.out / "light-01-window.png").exists())
+
+    def test_invalid_minimum_is_an_error(self):
+        self.image(self.base)
+        self.image(self.head)
+        for minimum in (-1, 101, float("nan"), "1"):
+            with self.subTest(minimum=minimum):
+                self.assertEqual(self.run_compare(min_changed_percent=minimum), 2)
 
     def test_invalid_inputs_fail_without_a_success_report(self):
         self.image(self.base)
@@ -144,7 +190,7 @@ class ProjectCheckTests(unittest.TestCase):
         self.theme = Path(self.temp.name) / "theme"
         (self.theme / "chrome").mkdir(parents=True)
         (self.theme / "chrome/userChrome.css").write_text(":root { color: red; }")
-        self.colour, self.audit_status = "grey", 0
+        self.colour, self.audit_status, self.dot = "grey", 0, False
         self.views = capture.expected_views()
         self.audit_args = []
         self.addCleanup(patch.stopall)
@@ -161,7 +207,10 @@ class ProjectCheckTests(unittest.TestCase):
     def capture(self, args):
         args.out.mkdir()
         for view in self.views:
-            Image.new("RGB", (16, 8), self.colour).save(args.out / f"{view}.png")
+            image = Image.new("RGB", (16, 8), self.colour)
+            if self.dot:
+                image.putpixel((0, 0), (255, 0, 0))  # about 1.3% once scaled to a panel
+            image.save(args.out / f"{view}.png")
         capture.write_coverage(args.out, {"version": "150", "os": "test"},
             capture.expected_views(check.core.parse_variant_spec(args.variants, check.core.find_variant_sheets(args.theme))))
         print("capture details")
@@ -223,6 +272,26 @@ class ProjectCheckTests(unittest.TestCase):
         self.audit_status = 0
         self.assertEqual(self.run_check("--max-changed-percent", "100", "--no-strict-vars"), 0)
         self.assertFalse(self.audit_args[-1].strict_vars)
+
+    def test_saved_views_and_minimum_scope_the_comparison(self):
+        self.config(baseline=".fxcss/baseline", views=["light-*"], min_changed_percent=0,
+                    max_changed_percent=0)
+        self.assertEqual(self.run_check("--update-baseline"), 0)
+        self.dot = True
+        self.assertEqual(self.run_check(), 1)
+        self.assertEqual(self.run_check("--min-changed-percent", "5",
+                                        "--max-changed-percent", "5"), 0)
+        path, = [p for p in self.summaries()
+                 if json.loads(p.read_text())["settings"]["min_changed_percent"] == 5]
+        comparison = json.loads(path.read_text())["browsers"][0]["comparison"]
+        self.assertEqual({v["view"] for v in comparison["views"]},
+                         {"light-01-window", "light-02-urlbar", "light-03-findbar", "light-04-dialog"})
+        self.assertEqual(comparison["changed_views"], [])
+        self.assertEqual(len(comparison["below_threshold"]), 4)
+        report = path.with_name("report.md").read_text()
+        self.assertIn("0 changed of 4 selected views", report)
+        self.assertIn("Changed by less than 5% and not pictured: Browser window (`light-01-window`, ",
+                      report)
 
     def test_pixel_changes_are_advisory_without_threshold(self):
         self.config(baseline=".fxcss/baseline")
@@ -371,7 +440,10 @@ class ProjectCheckTests(unittest.TestCase):
                  dict(strict="false"), dict(max_changed_percent=True), dict(max_changed_percent=float("nan")),
                  dict(max_changed_percent=-1), dict(baseline=".fxcss/checks"), dict(out="."),
                  dict(out="chrome/results"), dict(baseline=".."), dict(variants="missing"),
-                 dict(max_changed_percent=1), dict(toolbar="-"), dict(out=None)]
+                 dict(max_changed_percent=1), dict(toolbar="-"), dict(out=None),
+                 dict(views="light-*,nothing-*"), dict(views=5), dict(views="variant-*"),
+                 dict(min_changed_percent=-1), dict(min_changed_percent="1"),
+                 dict(baseline=".fxcss/baseline", min_changed_percent=1, max_changed_percent=0.5)]
         for settings in cases:
             with self.subTest(settings=settings):
                 self.config(**settings)

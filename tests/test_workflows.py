@@ -2,7 +2,9 @@
 
 import ast
 import base64
+import contextlib
 import fnmatch
+import io
 import json
 import os
 import re
@@ -14,7 +16,7 @@ import textwrap
 import unittest
 from pathlib import Path
 
-from fxcss import core, scaffold
+from fxcss import cli, core, scaffold
 from fxcss.fetch import VARIANT_DIRS
 
 
@@ -26,6 +28,10 @@ def step(text, name):
 def script(text, name, key="run"):
     block = step(text, name)
     return textwrap.dedent(re.split(r"^\s+" + key + r": \|\n", block, maxsplit=1, flags=re.M)[1])
+
+
+def workflow_env(text):
+    return {k: v.replace("''", "'") for k, v in re.findall(r"^  (FXCSS_[A-Z_]+): '(.*)'$", text, re.M)}
 
 
 def condition(expression, values):
@@ -72,6 +78,103 @@ class WorkflowBehaviorTests(unittest.TestCase):
             for path in paths:
                 with self.subTest(workflow=name, path=path):
                     self.assertTrue(any(fnmatch.fnmatch(path, pattern) for pattern in patterns))
+
+    def test_preview_settings_default_to_everything_and_reach_fxcss_quoted(self):
+        text = self.workflow("pr-preview.yml")
+        self.assertEqual(workflow_env(text), {"FXCSS_VARIANTS": "all", "FXCSS_VIEWS": "",
+                                              "FXCSS_MIN_CHANGED_PERCENT": "0"})
+        for name, setting in (("Render base revision", '--variants="$FXCSS_VARIANTS"'),
+                              ("Render pull request revision", '--variants="$FXCSS_VARIANTS"'),
+                              ("Compare", '--views="$FXCSS_VIEWS"'),
+                              ("Compare", '--min-changed-percent="$FXCSS_MIN_CHANGED_PERCENT"')):
+            with self.subTest(step=name, setting=setting):
+                block = step(text, name)
+                self.assertIn("shell: bash", block)
+                self.assertIn(setting, block)
+
+    def test_init_writes_preview_settings_and_rejects_bad_ones_before_writing(self):
+        def init(*args):
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                return cli.main(["init", "--theme", str(self.theme), "--force", *args])
+        self.assertEqual(init("--variants", "custom-option", "--views", "light-*, variant-*",
+                              "--min-changed-percent", "0.25"), 0)
+        self.assertEqual(workflow_env(self.workflow("pr-preview.yml")), {
+            "FXCSS_VARIANTS": "custom-option", "FXCSS_VIEWS": "light-*,variant-*",
+            "FXCSS_MIN_CHANGED_PERCENT": "0.25"})
+        before = self.workflow("pr-preview.yml")
+        for args in (("--views", "light-*,dark-02-urlbr"), ("--views", "it's"),
+                     ("--variants", "missing"), ("--min-changed-percent", "101"),
+                     ("--min-changed-percent", "nan")):
+            with self.subTest(args=args):
+                self.assertEqual(init(*args), 2)
+                self.assertEqual(self.workflow("pr-preview.yml"), before)
+
+    @unittest.skipUnless(shutil.which("bash") and shutil.which("node"),
+                         "the workflow steps need bash and Node")
+    def test_selected_views_and_small_changes_reach_the_comment(self):
+        from PIL import Image
+        scaffold.write_workflows(self.theme, [], force=True, preview=scaffold.preview_settings(
+            self.theme, views="light-*", min_changed_percent=5))
+        text = self.workflow("pr-preview.yml")
+        for side in ("base", "head"):
+            (self.root / "shots" / side).mkdir(parents=True)
+        for name, head in (("light-01-window", "red"), ("light-03-findbar", "dot"),
+                           ("dark-01-window", "red")):
+            Image.new("RGB", (16, 8), "grey").save(self.root / f"shots/base/{name}.png")
+            image = Image.new("RGB", (16, 8), "red" if head == "red" else "grey")
+            if head == "dot":
+                image.putpixel((0, 0), (255, 0, 0))
+            image.save(self.root / f"shots/head/{name}.png")
+        command = " ".join(textwrap.dedent(step(text, "Compare").split("run: >-\n", 1)[1]).split())
+        command = command.replace("${{ matrix.label }}", "macos")
+        env = dict(os.environ, **workflow_env(text), PYTHON=sys.executable,
+                   PYTHONPATH=str(Path(__file__).resolve().parents[1]))
+        result = subprocess.run([shutil.which("bash"), "-c",
+                                 'fxcss() { "$PYTHON" -m fxcss "$@"; }\n' + command],
+                                cwd=self.root, env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        artifact = self.root / "artifacts/preview-macos"
+        artifact.mkdir(parents=True)
+        shutil.move(self.root / "out/macos", artifact / "macos")
+        (artifact / "pr-number.txt").write_text("7")
+        (artifact / "head-sha.txt").write_text("a" * 40)
+        data = self.publish()
+        self.assertEqual(data["errors"], [])
+        body = data["body"]
+        self.assertIn("1 view changed · 1 smaller change", body)
+        self.assertIn("**Browser window — light**", body)
+        self.assertIn("Changed by less than 5% of pixels, not pictured: Find bar — light (1.", body)
+        self.assertIn("Only the views selected by `FXCSS_VIEWS`", body)
+        self.assertNotIn("dark", body.split("<sub>")[0])
+        self.assertNotIn("No pixel differences", body)
+
+        summary = artifact / "macos/summary.json"
+        data = json.loads(summary.read_text())
+        data["below_threshold"].append({"view": "constructor"})
+        summary.write_text(json.dumps(data))
+        body = self.publish()["body"]
+        self.assertIn("1 unreviewed screenshot", body)
+        self.assertNotIn("constructor", body)
+
+    @unittest.skipUnless(shutil.which("node"), "publisher scripts require Node")
+    def test_changes_all_under_the_minimum_are_not_called_no_change(self):
+        artifact = self.root / "artifacts/preview-macos"
+        captures = artifact / "macos"
+        (captures / "full").mkdir(parents=True)
+        (artifact / "pr-number.txt").write_text("7")
+        (artifact / "head-sha.txt").write_text("a" * 40)
+        (captures / "full/light-01-window.png").write_bytes(PNG)
+        view = {"view": "light-01-window", "percent": 0.0123, "changed_pixels": 3, "image": None}
+        (captures / "summary.json").write_text(json.dumps({
+            "views": [view], "below_threshold": [view], "min_changed_percent": 0.5,
+            "only_in_head": [], "only_in_base": []}))
+        body = self.publish()["body"]
+        self.assertIn("no change of 0.5% or more · 1 smaller change", body)
+        self.assertIn("Browser window — light (0.0123%)", body)
+        self.assertIn("Nothing changed by 0.5% or more", body)
+        self.assertIn("No change on any platform reaches the threshold", body)
+        self.assertNotIn("No pixel differences", body)
+        self.assertNotIn("Only the views selected", body)
 
     def test_sensitivity_check_requires_pixels_not_just_a_missing_view(self):
         ci = (Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text()
