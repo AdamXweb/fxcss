@@ -1664,7 +1664,8 @@ def _run_audit(args):
         failing = 1
     if args.strict_vars and unused:
         dead_vars = (unused["unused_properties"]
-                     + unused.get("stale_overrides", []))
+                     + unused.get("stale_overrides", [])
+                     + unused.get("devtools_only", []))
         if dead_vars:
             print(f"  --strict-vars: failing because {len(dead_vars)} custom "
                   f"propert{'ies' if len(dead_vars) != 1 else 'y'} no longer "

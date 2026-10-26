@@ -538,6 +538,15 @@ class AuditExitStatusTests(unittest.TestCase):
         code, collected, _, _ = self.run_audit()
         self.assertEqual((code, collected), (0, 0))
 
+    def test_strict_vars_fails_on_a_name_only_devtools_reads(self):
+        self.unused = {"unused_properties": [], "stale_overrides": [],
+                       "devtools_only": [{"name": "--toolbarbutton-hover-background",
+                                          "file": "chrome/toolbar.css", "line": 3}]}
+        code, _, _, _ = self.run_audit(strict_vars=True)
+        self.assertEqual(code, 1)
+        self.assertIn("--toolbarbutton-hover-background", self.stdout)
+        self.assertIn("chrome/toolbar.css:3", self.stdout)
+
 
 class SessionCleanupTests(unittest.TestCase):
     def test_system_access_is_enabled_only_for_the_owned_browser(self):
@@ -3806,6 +3815,34 @@ class OmniPackTests(unittest.TestCase):
         self.assertIn("dialogBody", pack["classes"])
         self.assertIn("another", pack["classes"])
 
+    def test_scan_keeps_devtools_apart(self):
+        from fxcss import omni
+        with tempfile.TemporaryDirectory() as td:
+            binary = self.fake_firefox(td, [
+                ("chrome/devtools/skin/variables.css",
+                 ":root { --toolbarbutton-hover-background: grey; }\n"
+                 ".devtools-button:hover { background: var(--toolbarbutton-hover-background); }"),
+                ("chrome/devtools/modules/devtools/client/shared/theme.js",
+                 'setProperty("--devtools-script-token", v);'),
+                ("chrome/devtools/content/framework/toolbox.xhtml",
+                 '<div id="toolbox-tabs" class="devtools-tabbar"/>'),
+                # The startup shim is loaded into browser windows, not DevTools.
+                ("chrome/devtools-startup/content/shim.css",
+                 "#nav-bar { color: var(--startup-token); }"),
+                ("chrome/browser/skin/classic/browser/toolbarbuttons.css",
+                 "toolbarbutton:hover { background: var(--toolbarbutton-background-color-hover); }"),
+            ])
+            pack = omni.scan(binary)
+        self.assertNotIn("--toolbarbutton-hover-background", pack["consumed"])
+        self.assertNotIn("--toolbarbutton-hover-background", pack["declared"])
+        self.assertIn("--toolbarbutton-hover-background", pack["devtools_consumed"])
+        self.assertIn("--toolbarbutton-hover-background", pack["devtools_declared"])
+        self.assertIn("--devtools-script-token", pack["devtools_consumed"])
+        self.assertIn("--startup-token", pack["consumed"])
+        self.assertIn("--toolbarbutton-background-color-hover", pack["consumed"])
+        # Selectors are not split: DevTools' markup still answers for them.
+        self.assertIn("toolbox-tabs", pack["ids"])
+
     def test_scan_returns_none_without_archives(self):
         from fxcss import omni
         with tempfile.TemporaryDirectory() as td:
@@ -3836,6 +3873,46 @@ class SuggestPropertyTests(unittest.TestCase):
         from fxcss import omni
         self.assertIsNone(
             omni.suggest_property("--in-content-page-background", self.PACK))
+
+    REWORDED = {"consumed": {"--toolbarbutton-background-color-hover": "omni.ja!a.css",
+                             "--toolbarbutton-background-color-active": "omni.ja!a.css",
+                             "--toolbarbutton-icon-fill": "omni.ja!a.css",
+                             "--toolbar-color": "omni.ja!a.css"},
+                "declared": {"--toolbarbutton-padding-inner",
+                             "--toolbarbutton-outer-padding", "--bar-width"},
+                "devtools_consumed": {"--theme-toolbar-background-color": "omni.ja!d.css"},
+                "devtools_declared": set()}
+
+    def test_reordered_words_with_one_added_are_a_rename(self):
+        from fxcss import omni
+        self.assertEqual(
+            omni.suggest_property("--toolbarbutton-hover-background", self.REWORDED),
+            "--toolbarbutton-background-color-hover")
+        self.assertEqual(
+            omni.suggest_provided("--toolbarbutton-inner-padding", self.REWORDED),
+            "--toolbarbutton-padding-inner")
+
+    def test_rewording_keeps_the_lead_word_and_every_word(self):
+        from fxcss import omni
+        # A theme's own prefix is not a Firefox name with a word dropped...
+        self.assertIsNone(omni.suggest_property("--gnome-toolbar-color", self.REWORDED))
+        # ...and an opacity is not the fill it qualified.
+        self.assertIsNone(
+            omni.suggest_provided("--toolbarbutton-icon-fill-opacity", self.REWORDED))
+
+    def test_provided_names_are_matched_by_words_only(self):
+        from fxcss import omni
+        # Three letters apart, unrelated: character distance would offer it.
+        self.assertIsNone(omni.suggest_provided("--urlbar-width", self.REWORDED))
+
+    def test_devtools_readers_join_the_pool_only_when_asked(self):
+        from fxcss import omni
+        self.assertIsNone(
+            omni.suggest_property("--theme-toolbar-background", self.REWORDED))
+        self.assertEqual(
+            omni.suggest_property("--theme-toolbar-background", self.REWORDED,
+                                  devtools=True),
+            "--theme-toolbar-background-color")
 
 
 class ClassifyUnusedPackTests(unittest.TestCase):
@@ -3895,6 +3972,176 @@ class ClassifyUnusedPackTests(unittest.TestCase):
         self.assertFalse(result["packed"])
 
 
+class DevToolsReachTests(unittest.TestCase):
+    """Which theme rules count as reaching DevTools documents.
+
+    Only an @-moz-document block that can match chrome://devtools/ does:
+    userChrome.css never reaches the Browser Toolbox, and an unscoped rule is
+    written for the browser window even where it could cascade into a docked
+    toolbox.
+    """
+
+    def test_conditions(self):
+        from fxcss import audit
+        reaches = audit._reaches_devtools
+        self.assertTrue(reaches([("url-prefix", "chrome://devtools/")]))
+        self.assertTrue(reaches([("url-prefix", "chrome://")]))
+        self.assertTrue(reaches(
+            [("url", "chrome://devtools/content/webconsole/index.html")]))
+        self.assertTrue(reaches([("url", "about:devtools-toolbox"),
+                                 ("url-prefix", "chrome://devtools/content/")]))
+        self.assertTrue(reaches([("domain", "devtools")]))
+        self.assertTrue(reaches([("regexp", "chrome://(browser|devtools)/.*")]))
+        self.assertTrue(reaches([("regexp", ".*")]))
+        self.assertFalse(reaches([("url", "chrome://browser/content/browser.xhtml")]))
+        self.assertFalse(reaches([("url-prefix", "chrome://browser/")]))
+        self.assertFalse(reaches([("regexp", "chrome://browser/.*")]))
+        self.assertFalse(reaches([("regexp", "([")]))
+        self.assertFalse(reaches([]))
+
+    def test_names_inside_a_devtools_block_are_collected(self):
+        from fxcss import audit
+        with tempfile.TemporaryDirectory() as td:
+            sheet = Path(td) / "a.css"
+            sheet.write_text(
+                "#nav-bar { --unscoped: red; }\n"
+                '@-moz-document url-prefix("chrome://devtools/"),\n'
+                '               url("about:devtools-toolbox") {\n'
+                "  :root.theme-dark {\n"
+                "    --theme-toolbar-background: var(--gnome-dark); }\n"
+                "  .devtools-tab { color: var(--theme-body-color); } }\n"
+                "@-moz-document url(chrome://browser/content/browser.xhtml) {\n"
+                "  @-moz-document url-prefix(chrome://) {\n"
+                "    :root { --browser-only: red; } } }\n"
+                ":root { --after: var(--after-use); }\n",
+                encoding="utf-8")
+            _, _, _, devtools = audit.custom_properties([sheet])
+        self.assertEqual(devtools, {"--theme-toolbar-background", "--gnome-dark",
+                                    "--theme-body-color"})
+
+
+class DevToolsOnlyPropertyTests(unittest.TestCase):
+    """A name only DevTools still reads is not a working browser override.
+
+    WhiteSur set --toolbarbutton-hover-background on #nav-bar and
+    #TabsToolbar, and read it on #back-button, long after the toolbar had
+    moved to --toolbarbutton-background-color-hover. DevTools' variables.css
+    still declares and reads the old name, and that alone kept the audit
+    quiet: the override was dead in every browser window. This builds the
+    same shape -- a synthetic omni.ja with a DevTools half and a theme that
+    sets, reads and scopes names -- and runs it through the real scan.
+    """
+
+    BROWSER_CSS = (
+        ":root { --toolbarbutton-padding-inner: 8px;"
+        " --toolbarbutton-background-color-hover: grey; }\n"
+        "toolbarbutton:hover { background: var(--toolbarbutton-background-color-hover); }\n"
+        "toolbarbutton { padding: var(--toolbarbutton-padding-inner); }\n"
+        "#nav-bar { color: var(--toolbar-color); }\n")
+    DEVTOOLS_CSS = (
+        ":root { --toolbarbutton-hover-background: grey; --theme-body-color: black; }\n"
+        ".devtools-button:hover { background: var(--toolbarbutton-hover-background); }\n"
+        ".theme-toolbar { background: var(--theme-toolbar-background); }\n"
+        ".devtools-toolbar { color: var(--theme-toolbar-color); }\n")
+    THEME = {
+        "userChrome.css": '@import "toolbar.css";\n@import "devtools.css";\n',
+        "toolbar.css": (
+            "#nav-bar {\n"
+            "  --toolbarbutton-hover-background: transparent !important;\n"
+            "  --toolbar-color: white;\n"
+            "}\n"
+            "#back-button:hover > .toolbarbutton-icon {\n"
+            "  background-color: var(--toolbarbutton-hover-background) !important;\n"
+            "  padding: var(--toolbarbutton-inner-padding);\n"
+            "  color: var(--theme-body-color);\n"
+            "}\n"),
+        "devtools.css": (
+            '@-moz-document url-prefix("chrome://devtools/") {\n'
+            "  :root { --theme-toolbar-background: #333; }\n"
+            "}\n"
+            "#TabsToolbar { --theme-toolbar-color: white; /* fxcss-keep */ }\n"),
+    }
+
+    def classify(self, theme=None):
+        import zipfile
+        from fxcss import audit, omni
+        with tempfile.TemporaryDirectory() as td:
+            contents = Path(td) / "Firefox.app" / "Contents"
+            binary = contents / "MacOS" / "firefox"
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b"")
+            (contents / "Resources").mkdir()
+            with zipfile.ZipFile(contents / "Resources" / "omni.ja", "w") as zf:
+                zf.writestr("chrome/browser/skin/toolbarbuttons.css", self.BROWSER_CSS)
+                zf.writestr("chrome/devtools/skin/variables.css", self.DEVTOOLS_CSS)
+            chrome = Path(td) / "theme" / "chrome"
+            chrome.mkdir(parents=True)
+            for name, text in (theme or self.THEME).items():
+                (chrome / name).write_text(text, encoding="utf-8")
+            pack = omni.scan(binary)
+            return audit.classify_unused(
+                audit.collect_unused(chrome.parent), set(), pack=pack)
+
+    def test_dead_toolbar_override_is_reported_with_its_new_name(self):
+        result = self.classify()
+        self.assertEqual([i["name"] for i in result["devtools_only"]],
+                         ["--toolbarbutton-hover-background"])
+        item = result["devtools_only"][0]
+        self.assertEqual((item["file"], item["line"]), ("chrome/toolbar.css", 2))
+        self.assertEqual(item["suggestion"], "--toolbarbutton-background-color-hover")
+        # Read by the theme too, which is why "read nowhere here" missed it.
+        self.assertEqual(item["read_here"]["line"], 6)
+
+    def test_devtools_scoped_override_still_counts_as_read(self):
+        result = self.classify()
+        dead = {i["name"] for i in result["unused_properties"] + result["devtools_only"]
+                + result["stale_overrides"]}
+        self.assertNotIn("--theme-toolbar-background", dead)
+        # --toolbar-color for the browser, --theme-toolbar-background for DevTools.
+        self.assertEqual(result["overrides"], 2)
+
+    def test_undefined_names_say_what_replaced_them(self):
+        result = self.classify()
+        missing = {i["name"]: i for i in result["missing_properties"]}
+        self.assertEqual(missing["--toolbarbutton-inner-padding"]["suggestion"],
+                         "--toolbarbutton-padding-inner")
+        self.assertFalse(missing["--toolbarbutton-inner-padding"]["devtools"])
+        # Declared by DevTools, read from a rule for the browser window.
+        self.assertTrue(missing["--theme-body-color"]["devtools"])
+
+    def test_keep_pragma_exempts_a_devtools_only_name(self):
+        result = self.classify()
+        self.assertIn("--theme-toolbar-color", result["kept"])
+        self.assertNotIn("--theme-toolbar-color",
+                         [i["name"] for i in result["devtools_only"]])
+
+    def test_scoping_the_override_to_devtools_clears_it(self):
+        theme = dict(self.THEME)
+        theme["toolbar.css"] = (
+            '@-moz-document url-prefix("chrome://devtools/") {\n'
+            "  :root { --toolbarbutton-hover-background: transparent; }\n"
+            "}\n")
+        result = self.classify(theme)
+        self.assertEqual(result["devtools_only"], [])
+        self.assertNotIn("--toolbarbutton-hover-background",
+                         [i["name"] for i in result["unused_properties"]])
+
+    def test_report_names_the_section_and_the_rename(self):
+        import contextlib
+        import io
+        from fxcss import audit
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            audit.report_unused(self.classify(), colour=False)
+        text = out.getvalue()
+        self.assertIn("DEVTOOLS ONLY", text)
+        self.assertIn("→ --toolbarbutton-background-color-hover is what this Firefox reads",
+                      text)
+        self.assertIn("also read at chrome/toolbar.css:6", text)
+        self.assertIn("→ --toolbarbutton-padding-inner is what this Firefox provides", text)
+        self.assertIn("only DevTools declares it", text)
+
+
 class KeepPragmaTests(unittest.TestCase):
     """`/* fxcss-keep */` on a declaration line exempts that property.
 
@@ -3913,7 +4160,7 @@ class KeepPragmaTests(unittest.TestCase):
                 "  --kept-one: red; /* fxcss-keep: ESR 140 still reads it */\n"
                 "  --plain-one: blue;\n"
                 "}\n", encoding="utf-8")
-            defined, used, kept = audit.custom_properties([sheet])
+            defined, used, kept, _ = audit.custom_properties([sheet])
         self.assertEqual(kept, {"--kept-one"})
         self.assertIn("--plain-one", defined)
 

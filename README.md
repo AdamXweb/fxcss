@@ -997,9 +997,20 @@ three cases a live probe cannot tell apart:
   with the closest consumed name suggested when there is one
   (`--panel-background` → `--panel-background-color`).
 
-Reading the shipped sources also covers documents the live audit cannot open —
-dialogs, DevTools, in-content pages — and replaces the second, unthemed
-Firefox launch the probe needed.
+DevTools is counted separately, because it trails the browser's renames.
+Firefox 158's toolbar reads `--toolbarbutton-background-color-hover`, while
+DevTools still reads the old `--toolbarbutton-hover-background`. DevTools'
+stylesheets count as reading a name only when your theme sets it inside
+`@-moz-document url-prefix("chrome://devtools/")`, the usual way to restyle
+DevTools from `userChrome.css`. When nothing but DevTools still uses a name
+your theme sets elsewhere, the audit lists it under **DEVTOOLS ONLY** with the
+browser's new name. It does this even when the theme reads the name itself.
+
+Reading the shipped sources also covers documents the live audit cannot open,
+such as dialogs and in-content pages. It also replaces the second, unthemed
+Firefox launch the probe needed. A custom property the theme reads but Firefox
+no longer provides gets the provided name it was renamed to, when the words
+match (`--toolbarbutton-inner-padding` → `--toolbarbutton-padding-inner`).
 
 A name you keep deliberately — for an ESR that still reads it, say — gets an
 inline pragma rather than a CI flag nobody finds later:
@@ -1008,8 +1019,8 @@ inline pragma rather than a CI flag nobody finds later:
 --in-content-page-background: var(--gnome-menu-background) !important; /* fxcss-keep: ESR 140 reads it */
 ```
 
-`--strict-vars` turns dead and stale overrides into a non-zero exit for CI;
-`fxcss-keep` lines are exempt.
+`--strict-vars` turns dead, stale and DevTools-only overrides into a non-zero
+exit for CI; `fxcss-keep` lines are exempt.
 
 #### Unused and unreachable code
 
