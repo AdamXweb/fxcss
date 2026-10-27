@@ -215,10 +215,43 @@ jobs:
             }
 
             if (!report.length) { core.setFailed('no valid platform reports'); return; }
+
+            // Which Firefox releases the change still works on (`fxcss support`,
+            // from the Linux job). Only versions, names re-validated against a
+            // strict grammar, and theme-relative .css paths are kept; anything
+            // malformed reads as a check that did not run.
+            const VER = v => (Number.isInteger(v) && v >= 1 && v <= 999 ? v : null);
+            const SUPPORT_NAME = /^(?:[#.][A-Za-z_][\w-]{0,99}|--[A-Za-z_][\w-]{0,99})$/;
+            const CSS_FILE = /^(?:[A-Za-z0-9_+-][\w.+-]{0,99}\/){0,8}[A-Za-z0-9_+-][\w.+-]{0,99}\.css$/;
+            const findings = list => (Array.isArray(list) ? list : []).slice(0, 50).map(f => ({
+              names: (Array.isArray(f && f.names) ? f.names : [])
+                .filter(n => typeof n === 'string' && SUPPORT_NAME.test(n)).slice(0, 10),
+              file: f && typeof f.file === 'string' && CSS_FILE.test(f.file) ? f.file : null,
+              line: f && Number.isInteger(f.line) && f.line > 0 && f.line < 1e7 ? f.line : null,
+              since: VER(f && f.since), since_low: VER(f && f.since_low), from: VER(f && f.from),
+            })).filter(f => f.since && f.names.length);
+            let support = null;
+            for (const p of platforms) {
+              const f = path.join(root, p, 'support.json');
+              if (!fs.existsSync(f)) continue;
+              support = { status: 'unavailable' };
+              try {
+                const stat = fs.lstatSync(f);
+                const s = stat.isFile() && stat.size < 512 * 1024
+                  ? JSON.parse(fs.readFileSync(f, 'utf8')) : null;
+                if (s && s.format === 1 && s.status === 'checked'
+                    && VER(s.current) && VER(s.oldest)) {
+                  const rel = s.releases && typeof s.releases === 'object' ? s.releases : {};
+                  support = { status: 'checked', current: VER(s.current), oldest: VER(s.oldest),
+                              esr: VER(rel.esr), dropped: findings(s.dropped), added: findings(s.added) };
+                }
+              } catch (e) { core.warning(`unreadable support.json: ${e}`); }
+            }
             core.setOutput('skip', 'false');
             core.setOutput('pr', prNumber);
             core.setOutput('sha', headSha);
             core.setOutput('report', JSON.stringify(report));
+            core.setOutput('support', JSON.stringify(support));
 
       - name: Publish images to ci-previews branch
         if: steps.check.outputs.skip == 'false'
@@ -264,6 +297,7 @@ jobs:
           PR: ${{ steps.check.outputs.pr }}
           SHA: ${{ steps.check.outputs.sha }}
           REPORT: ${{ steps.check.outputs.report }}
+          SUPPORT: ${{ steps.check.outputs.support }}
           RUN_ID: ${{ steps.src.outputs.run_id }}
         with:
           script: |
@@ -307,6 +341,63 @@ jobs:
 
             let body = `${MARKER}\n### Theme preview\n\n`;
             body += `Rendered from \`${sha.slice(0, 7)}\` against the base branch.\n\n`;
+
+            // First, for reference before anything else: whether merging drops
+            // styling for an older Firefox. The wording matches `fxcss support`.
+            const support = JSON.parse(process.env.SUPPORT || 'null');
+            const listNames = list => {
+              const names = [...new Set(list.flatMap(f => f.names))];
+              const shown = names.slice(0, 6).map(n => `\`${n}\``).join(', ');
+              return shown + (names.length > 6 ? ` and ${names.length - 6} more` : '');
+            };
+            if (support && support.status === 'checked') {
+              const { current, oldest, esr, dropped, added } = support;
+              const span = oldest < current ? `Firefox ${oldest}–${current}` : `Firefox ${current}`;
+              let block = '';
+              if (dropped.length) {
+                const below = Math.max(...dropped.map(f => f.since));
+                const sure = Math.min(...dropped.map(f => f.since_low || f.since)) - 1;
+                const firsts = dropped.map(f => f.from);
+                let who = firsts.includes(null) ? `Firefox ${sure} and earlier`
+                  : `Firefox ${Math.min(...firsts, sure)} to ${sure}`;
+                if (sure !== below - 1) who += `, possibly up to ${below - 1}`;
+                if (esr && dropped.some(f => (f.from || oldest) <= esr
+                                             && esr < (f.since_low || f.since))) {
+                  who += `, ESR ${esr} included`;
+                }
+                block += `> [!WARNING]\n> **Merging this drops styling for ${who}.** ` +
+                         `It removes rules for ${listNames(dropped)}, which still match there ` +
+                         `but no longer match in Firefox ${below}. Keeping the old name next to ` +
+                         `the new one (\`#old, .new\`) keeps both releases styled.\n`;
+              }
+              if (added.length) {
+                const from = Math.max(...added.map(f => f.since));
+                const start = Math.min(...added.map(f => f.since_low || f.since));
+                const when = start === from ? `Firefox ${from}`
+                  : `somewhere from Firefox ${start} to ${from}`;
+                block += (block ? '>\n' : '> [!NOTE]\n') +
+                         `> New rules for ${listNames(added)} only match from ${when}; ` +
+                         `older releases do not get them.\n`;
+              }
+              if (!block) {
+                block = `Firefox support is unchanged: nothing this PR removes or adds ` +
+                        `matches differently across ${span}.\n`;
+              }
+              body += block + `\n<sub>Checked ${span} from Linux builds' shipped chrome.</sub>\n\n`;
+              const located = [...dropped, ...added].filter(f => f.file && f.line);
+              if (located.length) {
+                body += `<details><summary>Where these rules are</summary>\n\n`;
+                for (const f of located.slice(0, 20)) {
+                  const change = dropped.includes(f) ? 'no longer matches from' : 'matches from';
+                  body += `- \`${f.file}:${f.line}\` ${f.names.map(n => `\`${n}\``).join(' ')}: ` +
+                          `${change} Firefox ${f.since}\n`;
+                }
+                body += `\n</details>\n\n`;
+              }
+            } else if (support) {
+              body += `> [!NOTE]\n> Firefox support could not be checked in this run; ` +
+                      `see the Linux render job's log.\n\n`;
+            }
 
             const anyChange = report.some(r => r.changed.length || (r.fresh || []).length
                                           || (r.removed || []).length || r.unreviewed);

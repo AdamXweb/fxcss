@@ -149,6 +149,59 @@ def scan(firefox):
             "ids": ids, "classes": classes}
 
 
+# Names the shipped chrome can give an element, by kind, read from every
+# place one is written: markup attributes, stylesheet selectors, and the
+# scripts that build elements or look them up. Loose on purpose, like
+# CSS_VAR_USE above: a name wrongly counted as present only hides a warning,
+# while one wrongly counted as missing would accuse a working rule.
+SELECTOR_NAME = re.compile(r"(?<![\w-])([#.])([A-Za-z_][\w-]*)")
+CSS_NOISE = re.compile(r"/\*.*?\*/|url\([^)]*\)|(['\"])(?:\\.|(?!\1).)*\1", re.S)
+JS_STRING = re.compile(r"""(["'`])((?:\\.|(?!\1)[^\\\n])*)\1""")
+JS_ID = re.compile(r"""getElementById\(\s*["'`]([A-Za-z_][\w-]*)""")
+JS_CLASS_CALL = re.compile(r"""classList\.(?:add|remove|toggle|contains|replace)\(([^)]*)\)""")
+JS_SET_ATTR = re.compile(r"""setAttribute\(\s*["'](id|class)["']\s*,\s*["'`]([^"'`]*)""")
+JS_ASSIGN = re.compile(r"""\.(id|className)\s*=\s*["'`]([^"'`]*)""")
+PROPERTY_NAME = re.compile(r"(?<![\w-])(--[A-Za-z_][\w-]*)")
+NAME = re.compile(r"[A-Za-z_][\w-]*")
+TEXT_SUFFIXES = (".css",) + SCRIPT_SUFFIXES + MARKUP_SUFFIXES
+
+
+def chrome_names(paths):
+    """{"ids", "classes", "properties"} any shipped chrome file mentions.
+
+    Unlike scan(), this keeps ids and classes apart wherever they appear,
+    DevTools included. That is what tells two builds apart when Firefox moves
+    a name from an id to a class: in the older build the name is still there,
+    just as the other kind.
+    """
+    ids, classes, properties = set(), set(), set()
+    for pack in paths:
+        for name, content in read_entries(pack):
+            if not name.endswith(TEXT_SUFFIXES):
+                continue
+            text = content.decode("utf-8", "replace")
+            properties.update(PROPERTY_NAME.findall(text))
+            ids.update(ID_ATTR.findall(text))
+            for value in CLASS_ATTR.findall(text):
+                classes.update(NAME.findall(value))
+            if name.endswith(".css"):
+                selectors = [CSS_NOISE.sub(" ", text)]
+            elif name.endswith(SCRIPT_SUFFIXES):
+                selectors = [m.group(2) for m in JS_STRING.finditer(text)]
+                ids.update(JS_ID.findall(text))
+                for args in JS_CLASS_CALL.findall(text):
+                    for _, value in JS_STRING.findall(args):
+                        classes.update(NAME.findall(value))
+                for kind, value in JS_SET_ATTR.findall(text) + JS_ASSIGN.findall(text):
+                    (ids if kind == "id" else classes).update(NAME.findall(value))
+            else:
+                selectors = []
+            for chunk in selectors:
+                for kind, value in SELECTOR_NAME.findall(chunk):
+                    (ids if kind == "#" else classes).add(value)
+    return {"ids": ids, "classes": classes, "properties": properties}
+
+
 def _is_near_miss_property(name, candidate):
     """Property names version differently from element names: whole words get
     appended (`--panel-background` became `--panel-background-color`), so the

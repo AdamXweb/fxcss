@@ -45,6 +45,11 @@ env:
   # A view where less than this percent of pixels changed is listed in the
   # comment with its percentage but not pictured. '0' pictures every change.
   FXCSS_MIN_CHANGED_PERCENT: '__FXCSS_PREVIEW_MIN_PERCENT__'
+  # The oldest Firefox this theme supports: 'esr' for the current ESR, a
+  # major version such as '140', or '' to skip the check. The comment then
+  # opens by saying whether merging drops styling for any release from there
+  # to the newest one, for example a rename that only works from Firefox 158.
+  FXCSS_OLDEST_FIREFOX: '__FXCSS_PREVIEW_OLDEST__'
 
 jobs:
   render:
@@ -206,6 +211,35 @@ jobs:
           fxcss compare --base shots/base --head shots/head
           --out out/${{ matrix.label }} --platform ${{ matrix.label }}
           --views="$FXCSS_VIEWS" --min-changed-percent="$FXCSS_MIN_CHANGED_PERCENT"
+
+      # Which Firefox releases the change still works on, from archived Linux
+      # builds' shipped chrome (no older Firefox is run). One answer is enough,
+      # so only the Linux job asks. It can never fail the preview: without an
+      # answer the comment says the check did not run. Build indexes are
+      # cached, so most runs download one build or none.
+      - name: Restore Firefox build indexes
+        if: runner.os == 'Linux' && env.FXCSS_OLDEST_FIREFOX != ''
+        uses: actions/cache/restore@v5
+        with:
+          path: ~/.cache/fxcss/firefox-builds
+          key: fxcss-firefox-builds-${{ github.run_id }}
+          restore-keys: fxcss-firefox-builds-
+
+      - name: Firefox support
+        if: runner.os == 'Linux' && env.FXCSS_OLDEST_FIREFOX != ''
+        shell: bash
+        run: |
+          mkdir -p ~/.cache/fxcss/firefox-builds
+          fxcss support --base base --head head --firefox "$FIREFOX_BIN" \
+            --oldest="$FXCSS_OLDEST_FIREFOX" --json out/support.json \
+            || echo "::warning::the Firefox support check did not complete; see this step's log"
+
+      - name: Save Firefox build indexes
+        if: runner.os == 'Linux' && env.FXCSS_OLDEST_FIREFOX != ''
+        uses: actions/cache/save@v5
+        with:
+          path: ~/.cache/fxcss/firefox-builds
+          key: fxcss-firefox-builds-${{ github.run_id }}
 
       - name: Record pull request number
         shell: bash

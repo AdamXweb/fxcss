@@ -871,6 +871,7 @@ builds your users will get next.
 | `snapshot` | Which browser UI IDs and classes were observed in a Firefox build; saves a JSON baseline. |
 | `changelog` | Which names changed between that baseline and another build, and which removals the theme uses. |
 | `audit` | Which selectors and custom properties need attention in the selected Firefox, with suggested fixes. |
+| `support` | Which Firefox releases a theme change still works on: whether merging it drops styling for older releases. |
 
 A snapshot records structure; `shot` records appearance. Neither is a profile
 backup. Use audits and visual comparisons together: a selector can still
@@ -943,6 +944,68 @@ do. `--show-all` lists every name that changed, not just the ones you use.
 Use `--baseline` with a [saved snapshot](#fxcss-snapshot) when the old build is
 no longer installed. Run `fxcss audit --firefox beta` to investigate findings
 against a selected channel.
+
+### fxcss support
+
+```bash
+fxcss support --base ../theme-before --head . --firefox stable
+```
+
+Compares two revisions of a theme and says which Firefox releases the change
+still works on. Following a Firefox rename fixes the newest release and
+quietly drops that styling everywhere the old name still lives: a pull request
+that swaps `#sidebar-box` for `.sidebar-box` because Firefox 158 moved it is
+right for 158, and takes the styling away from everyone on 157 and earlier,
+ESR included, the moment it merges. Screenshots rendered with the newest
+Firefox cannot show that.
+
+```text
+> [!WARNING]
+> **Merging this drops styling for Firefox 157 and earlier, ESR 153 included.**
+> It removes rules for `#sidebar-box`, which still match there but no longer
+> match in Firefox 158. Keeping the old name next to the new one
+> (`#old, .new`) keeps both releases styled.
+>
+> New rules for `.sidebar-box` only match from Firefox 158; older releases do
+> not get them.
+```
+
+It looks at what the change removes and adds: selectors, and custom
+properties the theme sets. A removed rule that still matched on an older
+release is styling those users lose. An added rule that only matches newer
+releases is styling they never get. Rules that match on every release, or on
+none, are left out, and keeping the old name beside the new one is not a drop.
+Rules in optional stylesheets count too. A `<details>` list gives the file and
+line of each rule.
+
+`--oldest` sets how far back to look: `esr` (default) for the current ESR, or a
+major version such as `140`. The release where a rule starts or stops matching
+is found by bisection, and the previous release is always checked, because a
+name Firefox has just retired may be younger than the oldest release checked.
+When the newest build is a Beta or Nightly, the report also says that merging
+before it ships drops the styling for every release user. `--channel` labels
+that build, `--json` and `--markdown` write the report to files, and the exit
+code is **0** when the check ran and **2** when it could not.
+
+No older Firefox is run. Release builds are downloaded from
+archive.mozilla.org as Linux tarballs and only their `omni.ja` archives are
+read, for the ids, classes and custom properties the shipped chrome mentions.
+Each build becomes a name index of about 120 KB, kept in
+`~/.cache/fxcss/firefox-builds` (`--cache` to move it). A change that only edits
+declarations downloads nothing beyond the oldest build. One that moves names
+downloads a handful the first time, about 10 seconds each, at most
+`--max-downloads` (default 8) per run. When that budget runs out the report
+gives a range rather than a guess. The current ESR comes from
+product-details.mozilla.org.
+
+It compares Linux builds throughout, so a name that only exists in macOS or
+Windows markup is never reported, and names inside `:not()`, `:is()` and
+attribute selectors are not required: both only ever hide a finding. Names are
+read from source, including the ones scripts set with `getElementById`,
+`classList` or `setAttribute`. A name a script builds at run time, from a
+variable, is the one blind spot, and it can cut either way: a removal can look
+like a drop, or an addition look newer than it is. `fxcss audit` against the
+live browser settles a doubtful case.
 
 ### fxcss audit
 
@@ -1127,7 +1190,7 @@ correct. It does not reject a PR simply because the screenshots differ.
 
 #### Choosing what the preview shows
 
-Three settings at the top of `pr-preview.yml` control what is captured and
+Four settings at the top of `pr-preview.yml` control what is captured and
 what appears in the comment:
 
 ```yaml
@@ -1135,6 +1198,7 @@ env:
   FXCSS_VARIANTS: 'compact,tabs-swapclose'      # 'all' (default), '' for none
   FXCSS_VIEWS: 'light-*,extra-07-many-tabs'     # '' (default) shows every view
   FXCSS_MIN_CHANGED_PERCENT: '0.5'              # '0' (default) pictures every change
+  FXCSS_OLDEST_FIREFOX: 'esr'                   # 'esr' (default), '140', or '' to skip
 ```
 
 - `FXCSS_VARIANTS` chooses which optional stylesheets are captured, which also
@@ -1146,11 +1210,20 @@ env:
 - `FXCSS_MIN_CHANGED_PERCENT` leaves out the image for a view where less than
   that share of pixels changed. The comment still lists each such view with its
   percentage, so a small change is never reported as no change.
+- `FXCSS_OLDEST_FIREFOX` is the oldest Firefox the theme supports. Every
+  comment opens with the [`fxcss support`](#fxcss-support) result for it: a
+  warning when merging drops styling for an older release ("Firefox 157 and
+  earlier, ESR 153 included"), a note when new rules only match newer
+  releases, or one line saying support is unchanged. The Linux job runs the
+  check, caches build indexes between runs, and never fails the preview over
+  it; if it cannot run, the comment says so. The Firefox watch reads the same
+  setting.
 
 Set them when generating the workflows, or edit the file directly:
 
 ```bash
-fxcss init --variants compact --views 'light-*,variant-*' --min-changed-percent 0.5
+fxcss init --variants compact --views 'light-*,variant-*' --min-changed-percent 0.5 \
+  --oldest-firefox 140
 ```
 
 Settings are validated against the theme before anything is written. Pass
@@ -1172,6 +1245,13 @@ The weekly watch checks two things independently:
 Issues close when the associated check is healthy again. Proposed fixes still
 need review and merging. The default audit uses `--strict --no-unused`, so
 custom-property failure checks are not enabled in this workflow.
+
+A fix pull request opens with the [`fxcss support`](#fxcss-support) result for
+the fix, back to `FXCSS_OLDEST_FIREFOX` at the top of `firefox-watch.yml`. A
+rename that Firefox 158 needs usually drops the styling on 157 and earlier, and
+a fix opened from Beta or Nightly drops it for every release user until that
+version ships. The pull request says which before anyone merges. Keep the old
+name beside the new one to support both.
 
 The generated watch does not save structural snapshots or compare screenshots
 across Firefox releases. To add that history, compose `snapshot`, `changelog`,
@@ -1469,6 +1549,7 @@ session's connection, which shows up as your theme mysteriously not applying.
 | [`init`](#fxcss-init) | Add PR previews and CI checks to your theme repo |
 | [`tweaks`](#fxcss-tweaks) | Screenshot every install option into a committable doc |
 | [`audit`](#fxcss-audit) | Check selectors and custom properties for compatibility findings |
+| [`support`](#fxcss-support) | See which Firefox releases a theme change still works on |
 | [`changelog`](#fxcss-changelog) | Diff two Firefox builds to see what chrome changed |
 | [`snapshot`](#fxcss-snapshot) | Record a Firefox's chrome names, to diff against later |
 | [`catalogue`](#fxcss-catalogue) | Build a directory of themeable UI parts |
