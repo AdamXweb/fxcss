@@ -198,6 +198,11 @@ html[data-retro] :is(.guide-sidebar, .guide-article, .guide-toc) { background: v
 html[data-retro] :is(.guide-sidebar, .guide-content) { border-color: #808080; }
 html[data-retro] .guide-search { background: #fff; }
 html[data-retro] .site-footer { background: var(--retro-button); color: #252525; border-top: 2px groove #fff; }
+html[data-retro] .site-footer :is(.brand, nav h2) { color: #252525; }
+html[data-retro] .site-footer a { color: var(--retro-accent); }
+html[data-retro] .site-footer a:hover { color: #111; }
+html[data-retro] .site-footer a:focus-visible { outline-color: var(--retro-accent); }
+html[data-retro] .site-footer .footer-credit { color: #444; border-top-color: #0003; }
 html[data-retro] .battle-page { background: var(--retro-surface); padding: 32px; margin-top: 20px; margin-bottom: 20px; border: 3px outset #eee; }
 html[data-retro] :is(.data-notice, .not-found) { background: var(--retro-panel); color: #171717; padding: 32px; margin-block: 20px; border: 2px outset #eee; }
 html[data-retro] .battle-toolbar { background: var(--retro-titlebar); color: var(--retro-title-ink); }
