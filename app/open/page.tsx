@@ -17,7 +17,7 @@ export default function WebsiteData() {
       <SiteHeader />
       <main id="main" className="data-notice content-width">
         <h1>Website data notice</h1>
-        <p className="data-notice-meta">Updated 3 October 2026</p>
+        <p className="data-notice-meta">Updated 27 October 2026</p>
 
         <div className="guide-callout">
           <ShieldCheck size={20} />
@@ -99,7 +99,7 @@ export default function WebsiteData() {
           <h2 id="cookies">Cookies and browser storage</h2>
           <p>The site sets no cookies, and neither does Simple Analytics.</p>
           <p>
-            The site’s code can keep one short note in your browser’s storage
+            The site’s code can keep a few short notes in your browser’s storage
             for the current tab. It is called{' '}
             <code>__vinext_hard_navigation_target__</code> when a page has to
             load in full instead of updating in place, or{' '}
@@ -107,6 +107,13 @@ export default function WebsiteData() {
             after an error. It holds the address of that page on this site, so
             the page cannot get stuck reloading. It is removed as soon as the
             page has loaded, and it is never sent to us.
+          </p>
+          <p>
+            If you try the theme time machine, <code>fxcss-time-machine</code>
+            remembers your chosen Windows, Mac or Linux desktop in this tab.
+            It stores only that choice, never your search text. It is removed
+            when you return to the present or close the tab, and is never sent
+            to us. The specificity game and coffee party store nothing.
           </p>
 
           <h2 id="not-on-this-site">What is not on this site</h2>

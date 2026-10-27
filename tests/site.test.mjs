@@ -226,20 +226,30 @@ test('the website data page names every outside service and storage use', () => 
   assert.ok(page.includes(`the site loads only ${loaded}.`));
   for (const [, href] of page.matchAll(/href="([^"]+)"/g))
     assert.match(href, /^https:\/\//, href);
-  // /open says the site's source sets no cookies or storage. check-site.mjs
-  // compares the framework's session storage keys in the build with /open.
+  // No cookies or lasting storage. The one tab-only preference is explicitly
+  // listed on /open; the built-site check also verifies every emitted key.
   const code = ['app', 'components', 'hooks', 'lib'].flatMap((dir) =>
     fs
       .readdirSync(new URL(`../${dir}/`, import.meta.url), { recursive: true })
       .filter((file) => /\.(tsx?|m?js)$/.test(file))
       .map((file) => `../${dir}/${file}`),
   );
-  for (const file of [...code, '../proxy.ts'])
+  for (const file of [...code, '../proxy.ts']) {
+    const source = read(file).toString();
     assert.doesNotMatch(
-      read(file).toString(),
-      /document\.cookie|cookieStore|localStorage|sessionStorage|indexedDB|set-cookie/i,
+      source,
+      /document\.cookie|cookieStore|localStorage|indexedDB|set-cookie/i,
       `${file}: list this storage on /open`,
     );
+    if (/sessionStorage/.test(source)) {
+      assert.equal(file, '../lib/time-machine-storage.ts', 'Only the disclosed preference helper may use tab storage');
+      const accesses = [...source.matchAll(/sessionStorage\.(?:getItem|setItem|removeItem)\('([^']+)'/g)];
+      assert.equal(accesses.length, 3);
+      assert.equal([...source.matchAll(/\bsessionStorage\b/g)].length, accesses.length);
+      for (const [, key] of accesses) assert.equal(key, 'fxcss-time-machine');
+      assert.ok(page.includes('<code>fxcss-time-machine</code>'));
+    }
+  }
   assert.match(
     read('../app/components/site-chrome.tsx').toString(),
     /<Link href="\/open">Website data<\/Link>/,

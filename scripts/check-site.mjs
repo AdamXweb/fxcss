@@ -4,13 +4,14 @@ const base = process.argv[2] || 'http://127.0.0.1:4318';
 const data = JSON.parse(
   await fs.readFile(new URL('../content/docs.json', import.meta.url)),
 );
-const routes = [
+const sitemapRoutes = [
   '/',
   '/docs',
   '/docs/screenshot-evidence',
   '/open',
   ...data.pages.map((p) => '/docs/' + p.slug),
 ];
+const routes = [...sitemapRoutes, '/important'];
 let assetCount = 0;
 let namedControls = 0;
 const checkedAssets = new Set();
@@ -260,8 +261,8 @@ const sitemap = await fetch(new URL('/sitemap.xml', base));
 assert.equal(sitemap.status, 200);
 assert.match(sitemap.headers.get('content-type') || '', /xml/);
 const xml = await sitemap.text();
-assert.equal([...xml.matchAll(/<loc>/g)].length, routes.length);
-for (const route of routes)
+assert.equal([...xml.matchAll(/<loc>/g)].length, sitemapRoutes.length);
+for (const route of sitemapRoutes)
   assert.ok(xml.includes(`<loc>https://fxcss.com${route}</loc>`), route);
 console.log(
   `Passed: ${routes.length} pages, ${assetCount} assets, installer, canonical URLs, sitemap, redirects, security headers on pages and static files, the share card, ${namedControls} labelled controls named by their visible text, the search label and status, and ${sessionKeys.size} browser storage keys listed on /open.`,

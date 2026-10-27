@@ -18,6 +18,11 @@ export function Brand() {
 export function SiteHeader({ docs = false }: { docs?: boolean }) {
   return (
     <header className={`site-header ${docs ? "docs-header" : ""}`}>
+      <div className="retro-window-chrome" aria-hidden="true">
+        <span className="retro-window-lights"><i /><i /><i /></span>
+        <span className="retro-window-title"><span className="retro-title-windows">fxcss.com — The pre-Firefox web</span><span className="retro-title-mac">fxcss.com — Mozilla Firebird 0.6</span><span className="retro-title-linux">fxcss.com — Phoenix 0.1</span></span>
+        <span className="retro-window-controls">_ □ ×</span>
+      </div>
       <Brand />
       <nav aria-label="Main navigation">
         <Link href="/docs" aria-current={docs ? "page" : undefined}>
@@ -49,6 +54,7 @@ export function Footer() {
           <div className="footer-intro">
             <Brand />
             <p>Made for people who make Firefox their own.</p>
+            <Link href="/important" className="footer-secret" aria-label="!important: discover the specificity boss battle" title="Think you know which rule wins?">{'{ !important }'}</Link>
           </div>
           <nav aria-label="Product links">
             <h2>Product</h2>
