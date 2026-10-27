@@ -1,12 +1,13 @@
 import Link from "next/link";
 import Image from "next/image";
 import { ArrowUpRight, GitFork } from "lucide-react";
+import { BrandMark } from "./brand-mark";
 
 export const REPO = "https://github.com/AdamXweb/fxcss";
 export function Brand() {
   return (
     <Link className="brand" href="/" aria-label="fxcss home">
-      <Image unoptimized src="/assets/icon.png" width={36} height={36} alt="" />
+      <BrandMark />
       <span>
         fxcss<span className="brand-dot">.</span>
       </span>

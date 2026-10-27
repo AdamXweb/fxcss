@@ -23,8 +23,14 @@ const securityHeaders = {
   'referrer-policy': 'strict-origin-when-cross-origin',
 };
 function assertSecurityHeaders(response, label) {
-  for (const [name, value] of Object.entries(securityHeaders))
-    assert.equal(response.headers.get(name), value, `${label}: ${name}`);
+  for (const [name, value] of Object.entries(securityHeaders)) {
+    let actual = response.headers.get(name);
+    // Cloudflare adds preload at the edge; retain the same one-year and
+    // includeSubDomains requirements for both local and live responses.
+    if (name === 'strict-transport-security')
+      actual = actual?.replace(/; preload$/, '') ?? null;
+    assert.equal(actual, value, `${label}: ${name}`);
+  }
 }
 const text = (html) =>
   html

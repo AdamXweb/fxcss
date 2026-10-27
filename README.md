@@ -51,7 +51,7 @@ In another terminal:
 just verify
 ```
 
-`npm run check:audit` runs `npm audit` and fails on any advisory at moderate or above, except those listed with a reason in `scripts/audit.mjs`. The one accepted today, GHSA-vfj7-8cjw-p6xm in `braces`, has no patched release and only reaches build tools, not the deployed Worker; the script notes when it can be removed.
+`npm run check:audit` runs `npm audit` and fails on any advisory at moderate or above. There are no accepted advisories in `scripts/audit.mjs`. The `miniflare` override in `package.json` pins the patched `undici` 7.30.1 while the Cloudflare development tools still pin an affected release; remove the override when their dependency is patched.
 
 The Website GitHub Actions workflow (`.github/workflows/website.yml`) runs the same checks, plus a deploy dry run, on every pull request and push to `website`, without deploying. A second job warns when the recorded documentation is behind `main`. The production check visits every documentation page, validates asset responses and the security headers on pages, redirects and static files, checks that every page carries the share card and that each labelled control's name contains its visible text, and verifies not-found responses and redirects. Browser checks cover navigation, search, code copying, keyboard-operated comparison controls, and narrow layouts.
 
@@ -74,6 +74,8 @@ just content ../fxcss
 That sets `FXCSS_SOURCE` for `scripts/build-content.mjs`, which also copies `docs/icon.png`. Website CI compares the recorded copy with `main` on every run and warns when it is behind. The website's getting-started overview remains deliberately short and links to the full generated guides.
 
 `app/components/` contains the shared navigation, documentation controls, comparison, and copy controls. `app/docs/[slug]/page.tsx` renders the generated pages. `proxy.ts` supplies a fresh Content Security Policy nonce and security headers for each production application response. `public/_headers` gives static files the same headers, and the static catalogue its own policy. `lib/share-card.ts` gives every page the share image, `public/assets/og-card.png`. There are no accounts, forms, remote fonts, or site databases.
+
+The transparent vector logo is `public/assets/fxcss-logo.svg`. `app/components/brand-mark.tsx` reuses its named `fxcss-flames` and `fxcss-braces` groups, so the downloadable artwork and the website share one source. CSS in `app/globals.css` gives the brand link one flame spin and a cyan brace glow on hover or keyboard focus; the braces and wordmark stay upright. The spin is disabled when reduced motion is requested. Serve the SVG from the same origin when reusing the interactive component; a regular `<img>` displays the static artwork.
 
 The root layout loads Simple Analytics for page views. A delegated click listener records outbound links as `outbound_<hostname>` events, including the destination URL without its query string or fragment. It covers links added by client-side navigation and respects Simple Analytics' Do Not Track behavior. Same-tab links wait for the event request for at most 800 ms before navigating. The script and collection endpoint are allowed by the production Content Security Policy; no inline click handlers are needed. Add `fxcss.com` to the Simple Analytics dashboard before launch and make the dashboard public, because `/open` links to it.
 
