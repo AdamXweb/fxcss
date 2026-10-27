@@ -117,7 +117,10 @@ def comparison_status(summary, threshold):
     if summary["only_in_base"]:
         return 1
     if threshold is not None:
-        if summary["only_in_head"] or any(v["percent"] > threshold for v in summary["views"]):
+        # A theme cannot add a standard view; one missing from the baseline was
+        # made by an older fxcss, so there is nothing to compare it with yet.
+        added = [v for v in summary["only_in_head"] if not capture.is_standard_view(v)]
+        if added or any(v["percent"] > threshold for v in summary["views"]):
             return 1
     return 0
 
@@ -338,9 +341,25 @@ def write_report(directory, settings, results, status, baseline_updated):
             shared = "selected" if settings["views"] else "shared"
             lines += [f"Visual comparison: **{len(summary['changed_views'])} changed "
                       f"of {len(summary['views'])} {shared} views{note}**.", ""]
-            for heading, field in (("Added", "only_in_head"), ("Missing", "only_in_base")):
-                if summary[field]:
-                    lines += [f"{heading} views: " + ", ".join(f"`{v}`" for v in summary[field]), ""]
+            standard = [v for v in summary["only_in_head"] if capture.is_standard_view(v)]
+            added = [v for v in summary["only_in_head"] if v not in standard]
+            for heading, names in (("Added", added), ("Missing", summary["only_in_base"])):
+                if names:
+                    lines += [f"{heading} views: " + ", ".join(f"`{v}`" for v in names), ""]
+            if standard:
+                lines += ["Not in the baseline yet, so not compared: "
+                          + ", ".join(f"`{v}`" for v in standard)
+                          + ". Update the baseline with `--update-baseline` to include them.", ""]
+            changes = summary.get("changes", [])
+            if changes:
+                lines += [f"Distinct changes: **{len(changes)}**, each pictured once:", ""]
+                for change in changes:
+                    views = change["views"]
+                    shown = ", ".join(f"{compare.title_for(v)[0]} (`{v}`)" for v in views[:6])
+                    more = f" and {len(views) - 6} more" if len(views) > 6 else ""
+                    lines += [f"- {change['category']}: [{change['image']}]({key}/diff/{change['image']}) "
+                              f"in {len(views)} view{'s' * (len(views) != 1)}: {shown}{more}"]
+                lines += ["", "Every changed view:", ""]
             for view in summary["changed_views"]:
                 title = view.get("title") or view["view"]
                 lines += [f"- [{title} (`{view['view']}`): {view['percent']:.3f}% changed]"

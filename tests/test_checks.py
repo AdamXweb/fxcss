@@ -56,7 +56,7 @@ class ComparisonIntegrityTests(unittest.TestCase):
     def test_changes_under_the_minimum_are_listed_but_not_drawn(self):
         self.image(self.base)
         image = Image.new("RGB", (16, 8), "grey")
-        image.putpixel((0, 0), (255, 0, 0))  # about 1.3% once scaled to a panel
+        image.putpixel((0, 0), (255, 0, 0))  # 1 of 128 pixels, about 0.8%
         image.save(self.head / "light-01-window.png")
         self.assertEqual(self.run_compare(min_changed_percent=5), 0)
         report = json.loads((self.out / "summary.json").read_text())
@@ -64,7 +64,7 @@ class ComparisonIntegrityTests(unittest.TestCase):
         self.assertEqual(report["changed_views"], [])
         self.assertEqual([v["view"] for v in report["below_threshold"]], ["light-01-window"])
         self.assertFalse((self.out / "light-01-window.png").exists())
-        self.assertEqual(self.run_compare(min_changed_percent=1), 0)
+        self.assertEqual(self.run_compare(min_changed_percent=0.5), 0)
         report = json.loads((self.out / "summary.json").read_text())
         self.assertTrue(report["any_change"])
         self.assertEqual(report["below_threshold"], [])
@@ -183,6 +183,123 @@ class ComparisonIntegrityTests(unittest.TestCase):
         self.assertEqual(after, before)
 
 
+class DistinctChangeTests(unittest.TestCase):
+    """One change in many views is pictured once and placed in the UI."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.base, self.head, self.out = [self.root / n for n in ("base", "head", "out")]
+        self.base.mkdir()
+        self.head.mkdir()
+
+    def pair(self, name, blocks, colour="red", size=(320, 160)):
+        Image.new("RGB", size, "grey").save(self.base / f"{name}.png")
+        head = Image.new("RGB", size, "grey")
+        for box in blocks:
+            head.paste(colour, box)
+        head.save(self.head / f"{name}.png")
+
+    def run_compare(self):
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(compare.run(self.base, self.head, self.out, "test"), 0)
+        return json.loads((self.out / "summary.json").read_text())
+
+    def test_separate_regions_are_found_and_near_ones_join(self):
+        mask = Image.new("L", (320, 160), 0)
+        mask.paste(255, (8, 8, 40, 24))
+        mask.paste(255, (48, 8, 60, 24))     # one empty cell away: same region
+        mask.paste(255, (200, 100, 240, 140))
+        self.assertEqual(compare.change_regions(mask), [(8, 8, 64, 24), (200, 96, 240, 144)])
+        busy = Image.new("L", (320, 160), 0)
+        for x in range(0, 320, 32):
+            busy.paste(255, (x, 0, x + 4, 4))
+        self.assertEqual(compare.change_regions(busy), [(0, 0, 296, 8)])
+
+    def test_the_same_change_in_many_views_is_pictured_once(self):
+        strip = [(0, 0, 320, 16)]
+        self.pair("light-01-window", strip)
+        self.pair("dark-01-window", strip, colour="blue")   # other colours, same pixels
+        self.pair("extra-09-compact", strip + [(100, 80, 140, 120)])
+        self.pair("variant-theme-nord", [(0, 100, 320, 116)])
+        layout = {name: {"width": 160, "height": 80, "boxes": [
+            ["Tabs", 0, 0, 160, 10], ["Toolbars", 0, 10, 160, 20], ["Content", 0, 30, 160, 50]]}
+            for name in ("light-01-window", "dark-01-window", "extra-09-compact", "variant-theme-nord")}
+        (self.head / capture.LAYOUT).write_text(json.dumps(layout))
+        report = self.run_compare()
+        changes = report["changes"]
+        self.assertEqual([(c["category"], c["views"]) for c in changes], [
+            ("Tabs", ["light-01-window", "dark-01-window", "extra-09-compact"]),
+            ("Content", ["extra-09-compact"]),
+            ("Content", ["variant-theme-nord"])])
+        self.assertEqual(len(report["changed_views"]), 4)
+        for change in changes:
+            self.assertTrue((self.out / change["image"]).is_file())
+        self.assertEqual({v["view"]: v["changes"] for v in report["views"]}["extra-09-compact"], [1, 2])
+        # Every changed view keeps its own full comparison.
+        for view in report["changed_views"]:
+            self.assertTrue((self.out / view["image"]).is_file())
+
+    def test_a_moved_page_is_one_change_whatever_page_each_view_shows(self):
+        for name, text in (("light-01-window", (40, 60, 200, 80)), ("extra-04-audio", (60, 90, 280, 100)),
+                           ("extra-10-sidebar-bookmarks", (120, 70, 300, 120))):
+            base = Image.new("RGB", (320, 160), "white")
+            base.paste("black", text)
+            base.paste("grey", (0, 0, 320, 30))
+            head = Image.new("RGB", (320, 160), "white")
+            head.paste("black", (text[0], text[1] - 2, text[2], text[3] - 2))
+            head.paste("grey", (0, 0, 320, 30))
+            base.save(self.base / f"{name}.png")
+            head.save(self.head / f"{name}.png")
+        (self.head / "render-info.json").write_text(json.dumps({"dpr": 2}))
+        page = {"width": 320, "height": 160, "boxes": [["Content", 0, 30, 320, 130]]}
+        (self.head / capture.LAYOUT).write_text(json.dumps(
+            {name: page for name in ("light-01-window", "extra-04-audio", "extra-10-sidebar-bookmarks")}))
+        change, = self.run_compare()["changes"]
+        self.assertEqual(change["views"], ["light-01-window", "extra-04-audio",
+                                           "extra-10-sidebar-bookmarks"])
+        self.assertEqual(change["shift"], [0, -1])
+        self.assertEqual(change["moved"], "moved up 1px")
+
+    def test_regions_in_one_landmark_are_one_change(self):
+        self.pair("light-01-window", [(10, 40, 30, 50), (200, 40, 220, 50), (100, 120, 140, 150)])
+        (self.head / capture.LAYOUT).write_text(json.dumps({"light-01-window": {
+            "width": 320, "height": 160, "boxes": [["Toolbars", 0, 32, 320, 24],
+                                                   ["Content", 0, 56, 320, 104]]}}))
+        changes = self.run_compare()["changes"]
+        self.assertEqual([(c["category"], c["box"]) for c in changes],
+                         [("Toolbars", [8, 40, 224, 56]), ("Content", [96, 120, 144, 152])])
+
+    def test_without_a_layout_a_change_takes_its_view_category(self):
+        self.pair("light-08-app-menu", [(10, 10, 60, 40)], size=(200, 300))
+        self.pair("light-11-settings", [(10, 10, 60, 40)])
+        changes = self.run_compare()["changes"]
+        self.assertEqual([c["category"] for c in changes], ["Panels", "Settings"])
+
+    def test_a_rerun_removes_change_pictures_it_no_longer_draws(self):
+        self.pair("light-01-window", [(0, 0, 320, 16)])
+        self.pair("light-03-findbar", [(0, 140, 320, 160)])
+        self.assertEqual(len(self.run_compare()["changes"]), 2)
+        self.pair("light-03-findbar", [])
+        self.assertEqual(len(self.run_compare()["changes"]), 1)
+        self.assertFalse((self.out / "change-02.png").exists())
+
+    def test_change_pictures_are_cropped_from_full_resolution(self):
+        self.pair("light-01-window", [(1200, 600, 1240, 640)], size=(2560, 960))
+        change, = self.run_compare()["changes"]
+        with Image.open(self.out / change["image"]) as picture:
+            self.assertLess(picture.width, 960)
+        self.assertEqual(change["frame"], [960, 360])
+
+    def test_views_new_to_fxcss_do_not_fail_an_older_baseline(self):
+        summary = {"only_in_base": [], "only_in_head": ["light-08-app-menu"],
+                   "views": [{"percent": 0.0}]}
+        self.assertEqual(check.comparison_status(summary, 0), 0)
+        summary["only_in_head"].append("variant-added")
+        self.assertEqual(check.comparison_status(summary, 0), 1)
+
+
 class ProjectCheckTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -209,7 +326,7 @@ class ProjectCheckTests(unittest.TestCase):
         for view in self.views:
             image = Image.new("RGB", (16, 8), self.colour)
             if self.dot:
-                image.putpixel((0, 0), (255, 0, 0))  # about 1.3% once scaled to a panel
+                image.putpixel((0, 0), (255, 0, 0))  # 1 of 128 pixels, about 0.8%
             image.save(args.out / f"{view}.png")
         capture.write_coverage(args.out, {"version": "150", "os": "test"},
             capture.expected_views(check.core.parse_variant_spec(args.variants, check.core.find_variant_sheets(args.theme))))
@@ -236,7 +353,7 @@ class ProjectCheckTests(unittest.TestCase):
         self.assertIn("Selector audit: **passed**", report)
         self.assertIn("Screenshot capture: **complete**", report)
         self.assertIn("audit.txt", report)
-        self.assertIn("Captured views (20)", report)
+        self.assertIn("Captured views (34)", report)
         self.assertIn("[Browser window (light) (`light-01-window`)](stable/shots/light-01-window.png)", report)
         self.assertTrue(self.audit_args[0].strict)
 
@@ -284,12 +401,12 @@ class ProjectCheckTests(unittest.TestCase):
         path, = [p for p in self.summaries()
                  if json.loads(p.read_text())["settings"]["min_changed_percent"] == 5]
         comparison = json.loads(path.read_text())["browsers"][0]["comparison"]
-        self.assertEqual({v["view"] for v in comparison["views"]},
-                         {"light-01-window", "light-02-urlbar", "light-03-findbar", "light-04-dialog"})
+        light = {v for v in capture.expected_views() if v.startswith("light-")}
+        self.assertEqual({v["view"] for v in comparison["views"]}, light)
         self.assertEqual(comparison["changed_views"], [])
-        self.assertEqual(len(comparison["below_threshold"]), 4)
+        self.assertEqual(len(comparison["below_threshold"]), len(light))
         report = path.with_name("report.md").read_text()
-        self.assertIn("0 changed of 4 selected views", report)
+        self.assertIn(f"0 changed of {len(light)} selected views", report)
         self.assertIn("Changed by less than 5% and not pictured: Browser window (`light-01-window`, ",
                       report)
 
@@ -383,8 +500,8 @@ class ProjectCheckTests(unittest.TestCase):
         self.assertEqual([r["firefox"] for r in summary["browsers"]], ["stable"])
         report = path.with_name("report.md").read_text()
         self.assertIn("Result: **interrupted**", report)
-        self.assertIn("partial (1 captured, 19 unfinished)", report)
-        self.assertIn("19 views did not finish", report)
+        self.assertIn("partial (1 captured, 33 unfinished)", report)
+        self.assertIn("33 views did not finish", report)
         self.assertNotIn("Failed view", report)
         self.assertIn("(stable/shots/light-01-window.png)", report)
         self.assertIn("Run `fxcss check` again", report)
@@ -410,8 +527,8 @@ class ProjectCheckTests(unittest.TestCase):
             with contextlib.redirect_stdout(output):
                 self.assertEqual(cli.main(["check", "--theme", str(self.theme)]), 0)
         self.assertIn("selector audit: running", output.getvalue())
-        self.assertIn("view 1/20: light-01-window captured", output.getvalue())
-        self.assertIn("20/20 views accounted for; 20 captured", output.getvalue())
+        self.assertIn("view 1/34: light-01-window captured", output.getvalue())
+        self.assertIn("34/34 views accounted for; 34 captured", output.getvalue())
         path, = self.summaries()
         self.assertIn("captured light-01-window", (path.parent / "stable/capture.txt").read_text())
 
@@ -432,8 +549,8 @@ class ProjectCheckTests(unittest.TestCase):
         with patch.object(cli, "cmd_shot", side_effect=capture_with_unsupported):
             with contextlib.redirect_stdout(output):
                 self.assertEqual(cli.main(["check", "--theme", str(self.theme)]), 0)
-        self.assertIn("view 2/20: light-04-dialog unsupported", output.getvalue())
-        self.assertIn("20/20 views accounted for; 18 captured, 2 unsupported", output.getvalue())
+        self.assertIn("view 2/34: light-04-dialog unsupported", output.getvalue())
+        self.assertIn("34/34 views accounted for; 32 captured, 2 unsupported", output.getvalue())
 
     def test_invalid_config_fails_before_launching(self):
         cases = [dict(unknown=True), dict(firefox=[]), dict(firefox=["stable", "release"]),

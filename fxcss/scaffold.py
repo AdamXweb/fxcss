@@ -9,13 +9,15 @@ theme, which is exactly the hand-editing that used to trip people up:
 * the fxcss version pin (a PyPI release), set to the version doing the
   generating
 * a bounded filename pattern for optional stylesheet screenshots, including
-  variants added after the workflows were generated
+  variants added after the workflows were generated, next to the standard
+  views, their titles and their categories from capture.VIEWS
 * the showcase URL, taken from the repository's origin remote
 * the PR preview's settings: which optional stylesheets to capture, which
   views to show, the smallest change worth picturing, and the oldest Firefox
   the theme supports (also used by the Firefox watch)
 """
 
+import json
 import math
 import re
 import subprocess
@@ -38,6 +40,23 @@ PREVIEWS_FILE = "readme-previews.yml"
 def variant_alternation(slugs):
     """Admit safe variant slugs, including options introduced by future PRs."""
     return "|variant-[a-z0-9][a-z0-9+-]{0,159}"
+
+
+def view_alternation():
+    """The standard view names, enumerated for the publish allowlist."""
+    def keys(views):
+        names = [view.key for view in views]
+        assert all(re.fullmatch(r"[0-9]{2}-[a-z0-9-]+", name) for name in names)
+        return "|".join(names)
+    return (f"(?:light|dark)-(?:{keys(capture.SCHEME_VIEWS)})"
+            f"|extra-(?:{keys(capture.EXTRA_VIEWS)})")
+
+
+def view_table():
+    """Title and category per view, as a JavaScript object literal."""
+    return json.dumps({f"{'scheme' if view.schemes else 'extra'}:{view.key}":
+                       [view.title, view.category] for view in capture.VIEWS},
+                      ensure_ascii=False, separators=(",", ":"))
 
 
 def https_repo_url(remote):
@@ -111,7 +130,10 @@ def render_template(text, version, variant_alt, repo_url, preview=None):
                         _yaml_quoted(preview["min_changed_percent"]))
     text = text.replace("__FXCSS_PREVIEW_OLDEST__", _yaml_quoted(preview["oldest_firefox"]))
     text = text.replace("__FXCSS_VERSION__", version)
+    text = text.replace("__FXCSS_VIEW_ALT__", view_alternation())
     text = text.replace("__FXCSS_VARIANT_ALT__", variant_alt)
+    text = text.replace("__FXCSS_VIEW_TABLE__", view_table())
+    text = text.replace("__FXCSS_CATEGORIES__", json.dumps(list(capture.CATEGORIES)))
     text = text.replace("__FXCSS_REPO_URL__", repo_url or "https://example.com")
     paths = ["chrome", "configuration", *VARIANT_DIRS]
     text = text.replace("__FXCSS_THEME_PATHS__", "\n".join(

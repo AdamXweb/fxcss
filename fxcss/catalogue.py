@@ -22,7 +22,8 @@ from PIL import Image, ImageDraw, ImageFont
 from .audit import css_references  # noqa: F401  (re-export; lives PIL-free)
 
 # Curated because an exhaustive dump of every node in browser.xhtml would be
-# noise. These are the parts a theme actually targets.
+# noise. These are the parts a theme actually targets, grouped by the same
+# areas (capture.CATEGORIES) that screenshot comparisons sort changes into.
 LANDMARKS = [
     # area, slug, selector, name, description
     ("Toolbars", "nav-bar", "#nav-bar", "Navigation toolbar",
@@ -46,6 +47,9 @@ LANDMARKS = [
      "Names the active tab's container (e.g. Banking) inside the address bar."),
     ("Address bar", "urlbar-results", "#urlbar-results", "Address bar dropdown",
      "Suggestion list shown while typing. Rendered inside the window, so it is themeable."),
+    ("Address bar", "search-engine", "#urlbar .searchmode-switcher", "Search engine button",
+     "Picks the engine for a search. Shown while the address bar is focused and empty, "
+     "so it is often missing here; the Search engine views capture it hovered and open."),
 
     ("Tabs", "tabbrowser-tabs", "#tabbrowser-tabs", "Tab container",
      "Wraps every tab plus the new-tab button."),
@@ -62,16 +66,23 @@ LANDMARKS = [
     ("Tabs", "container-tab", ".tabbrowser-tab[usercontextid]", "Container tab",
      "A tab opened in a container, carrying its identity colour."),
 
-    ("Toolbar buttons", "back-button", "#back-button", "Back button", "Navigation back."),
-    ("Toolbar buttons", "reload-button", "#reload-button", "Reload button", "Reload / stop."),
-    ("Toolbar buttons", "firefox-view", "#firefox-view-button", "Firefox View button",
+    ("Toolbars", "back-button", "#back-button", "Back button", "Navigation back."),
+    ("Toolbars", "reload-button", "#reload-button", "Reload button", "Reload / stop."),
+    ("Toolbars", "firefox-view", "#firefox-view-button", "Firefox View button",
      "The leftmost control on the tab strip."),
-    ("Toolbar buttons", "appmenu-button", "#PanelUI-menu-button", "App menu button",
-     "The hamburger. Its panel is a native OS window and cannot be screenshotted."),
-    ("Toolbar buttons", "extensions-button", "#unified-extensions-button", "Extensions button",
-     "Unified extensions control."),
-    ("Toolbar buttons", "account-button", "#fxa-toolbar-menu-button", "Account button",
-     "Firefox Account menu."),
+    ("Toolbars", "appmenu-button", "#PanelUI-menu-button", "App menu button",
+     "The hamburger. Its panel is a separate OS window, captured by the App menu views."),
+    ("Toolbars", "extensions-button", "#unified-extensions-button", "Extensions button",
+     "Unified extensions control. Its panel is captured by the Extensions panel views."),
+    ("Toolbars", "account-button", "#fxa-toolbar-menu-button", "Account button",
+     "Firefox Account menu. Its panel is captured by the Account panel views."),
+    ("Toolbars", "sidebar-button", "#sidebar-button", "Sidebar button",
+     "Shows or hides the sidebar."),
+
+    ("Sidebar", "sidebar-launcher", "sidebar-main", "Sidebar launcher",
+     "The strip of tool buttons in the revamped sidebar (Firefox 133 and later)."),
+    ("Sidebar", "sidebar-box", "#sidebar-box", "Sidebar panel",
+     "Holds an open sidebar tool such as bookmarks or history."),
 
     ("Find bar", "findbar", "findbar", "Find bar",
      "Docked at the bottom of the content area when you press Ctrl/Cmd+F."),
@@ -296,6 +307,11 @@ def _swatch(value):
     return ""
 
 
+def _area_order(area):
+    from .capture import CATEGORIES
+    return CATEGORIES.index(area) if area in CATEGORIES else len(CATEGORIES)
+
+
 def render_html(catalogue):
     info = catalogue["info"]
     parts = [
@@ -306,7 +322,9 @@ def render_html(catalogue):
         "<h1>Themeable UI directory</h1>",
         f"<p class=lede>Measured live in Firefox {html.escape(str(info.get('version')))} "
         f"on {html.escape(str(info.get('os')))}. Each entry shows what the part looks "
-        "like, the styles in effect, and which files in this repo style it.</p>",
+        "like, the styles in effect, and which files in this repo style it. Panels, "
+        "Settings and hover states are not in this window: <code>fxcss shot</code> "
+        "captures them as the Panels, Settings and Toolbars views.</p>",
         "<div class=tabs>"
         "<button data-set=light onclick=\"showMode('light')\">Light</button>"
         "<button data-set=dark onclick=\"showMode('dark')\">Dark</button></div>",
@@ -320,7 +338,7 @@ def render_html(catalogue):
     for e in catalogue["entries"]:
         by_area.setdefault(e["area"], []).append(e)
 
-    for area, items in by_area.items():
+    for area, items in sorted(by_area.items(), key=lambda item: _area_order(item[0])):
         parts.append(f"<h2>{html.escape(area)}</h2>")
         for e in items:
             any_found = any(m["found"] for m in e["modes"].values())
