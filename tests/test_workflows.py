@@ -82,7 +82,10 @@ class WorkflowBehaviorTests(unittest.TestCase):
     def test_preview_settings_default_to_everything_and_reach_fxcss_quoted(self):
         text = self.workflow("pr-preview.yml")
         self.assertEqual(workflow_env(text), {"FXCSS_VARIANTS": "all", "FXCSS_VIEWS": "",
-                                              "FXCSS_MIN_CHANGED_PERCENT": "0"})
+                                              "FXCSS_MIN_CHANGED_PERCENT": "0",
+                                              "FXCSS_OLDEST_FIREFOX": "esr"})
+        self.assertEqual(workflow_env(self.workflow("firefox-watch.yml")),
+                         {"FXCSS_OLDEST_FIREFOX": "esr"})
         for name, setting in (("Render base revision", '--variants="$FXCSS_VARIANTS"'),
                               ("Render pull request revision", '--variants="$FXCSS_VARIANTS"'),
                               ("Compare", '--views="$FXCSS_VIEWS"'),
@@ -97,14 +100,17 @@ class WorkflowBehaviorTests(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
                 return cli.main(["init", "--theme", str(self.theme), "--force", *args])
         self.assertEqual(init("--variants", "custom-option", "--views", "light-*, variant-*",
-                              "--min-changed-percent", "0.25"), 0)
+                              "--min-changed-percent", "0.25", "--oldest-firefox", "140"), 0)
         self.assertEqual(workflow_env(self.workflow("pr-preview.yml")), {
             "FXCSS_VARIANTS": "custom-option", "FXCSS_VIEWS": "light-*,variant-*",
-            "FXCSS_MIN_CHANGED_PERCENT": "0.25"})
+            "FXCSS_MIN_CHANGED_PERCENT": "0.25", "FXCSS_OLDEST_FIREFOX": "140"})
+        self.assertEqual(init("--watch", "--oldest-firefox", ""), 0)
+        self.assertEqual(workflow_env(self.workflow("firefox-watch.yml")),
+                         {"FXCSS_OLDEST_FIREFOX": ""})
         before = self.workflow("pr-preview.yml")
         for args in (("--views", "light-*,dark-02-urlbr"), ("--views", "it's"),
                      ("--variants", "missing"), ("--min-changed-percent", "101"),
-                     ("--min-changed-percent", "nan")):
+                     ("--min-changed-percent", "nan"), ("--oldest-firefox", "latest")):
             with self.subTest(args=args):
                 self.assertEqual(init(*args), 2)
                 self.assertEqual(self.workflow("pr-preview.yml"), before)
@@ -175,6 +181,131 @@ class WorkflowBehaviorTests(unittest.TestCase):
         self.assertIn("No change on any platform reaches the threshold", body)
         self.assertNotIn("No pixel differences", body)
         self.assertNotIn("Only the views selected", body)
+
+    def test_support_check_runs_once_and_can_never_fail_the_preview(self):
+        text = self.workflow("pr-preview.yml")
+        guard = "if: runner.os == 'Linux' && env.FXCSS_OLDEST_FIREFOX != ''"
+        for name in ("Restore Firefox build indexes", "Firefox support",
+                     "Save Firefox build indexes"):
+            with self.subTest(step=name):
+                self.assertIn(guard, step(text, name))
+        body = script(text, "Firefox support")
+        self.assertIn('--oldest="$FXCSS_OLDEST_FIREFOX" --json out/support.json', body)
+        self.assertIn('|| echo "::warning::', body)
+        self.assertIn("shell: bash", step(text, "Firefox support"))
+
+    @unittest.skipUnless(shutil.which("bash"), "the watch step needs bash")
+    def test_watch_fix_pull_requests_open_with_the_support_check(self):
+        bindir, temp, repo = self.root / "bin", self.root / "runner", self.root / "repo"
+        for folder in (bindir, temp, repo / "chrome"):
+            folder.mkdir(parents=True)
+        (repo / "chrome/userChrome.css").write_text("#sidebar-box {}\n")
+        (repo / "fxcss-fix.patch").write_text("--- a\n+++ b\n")
+        (repo / "audit.txt").write_text("audit report\n")
+        log = self.root / "calls.log"
+        tools = {
+            "git": 'echo "git $*" >> "$LOG"\n'
+                   'case "$1" in ls-remote) exit 2 ;; archive) tar -cf - -C "$SRC" . ;; esac',
+            "fxcss": 'echo "fxcss $*" >> "$LOG"\n'
+                     'while [ $# -gt 0 ]; do [ "$1" = --markdown ] && out=$2; shift; done\n'
+                     'printf "> [!WARNING]\\n> **Merging this drops styling for Firefox 159 '
+                     'and earlier.**\\n" > "$out"',
+            "gh": 'echo "gh $*" >> "$LOG"\n'
+                  'while [ $# -gt 0 ]; do [ "$1" = --body-file ] && cp "$2" "$BODY"; shift; done',
+        }
+        for name, body in tools.items():
+            (bindir / name).write_text("#!/bin/sh\n" + body + "\n")
+            (bindir / name).chmod(0o755)
+        env = dict(os.environ, PATH=str(bindir) + os.pathsep + os.environ["PATH"], LOG=str(log),
+                   SRC=str(repo), BODY=str(self.root / "body.md"), RUNNER_TEMP=str(temp),
+                   CHANNEL="beta", VERSION="160.0b1", FIREFOX_BIN="/ff/firefox",
+                   FXCSS_OLDEST_FIREFOX="esr", GITHUB_REF_NAME="main", GH_TOKEN="x")
+        text = self.workflow("firefox-watch.yml")
+        result = subprocess.run([shutil.which("bash"), "-c", script(
+            text, "Open a pull request with the confident fixes")],
+            cwd=repo, env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = log.read_text()
+        self.assertIn(f"fxcss support --base {temp}/before-fix --head . --firefox /ff/firefox "
+                      "--oldest=esr --channel beta --markdown", calls)
+        self.assertTrue((temp / "before-fix/chrome/userChrome.css").is_file())
+        body = (self.root / "body.md").read_text()
+        self.assertTrue(body.startswith("> [!WARNING]\n> **Merging this drops styling"), body)
+        self.assertIn("Firefox **beta** is now **160.0b1**", body)
+        self.assertFalse((repo / "support.md").exists())
+
+        env["FXCSS_OLDEST_FIREFOX"] = ""
+        log.write_text("")
+        subprocess.run([shutil.which("bash"), "-c", script(
+            text, "Open a pull request with the confident fixes")],
+            cwd=repo, env=env, capture_output=True, text=True, check=True)
+        self.assertNotIn("fxcss support", log.read_text())
+        self.assertTrue((self.root / "body.md").read_text().startswith("Firefox **beta**"))
+
+    def support_artifact(self, report):
+        artifact = self.root / "artifacts/preview-linux"
+        captures = artifact / "linux"
+        (captures / "full").mkdir(parents=True, exist_ok=True)
+        (artifact / "pr-number.txt").write_text("7")
+        (artifact / "head-sha.txt").write_text("a" * 40)
+        (captures / "full/light-01-window.png").write_bytes(PNG)
+        (captures / "summary.json").write_text(json.dumps(
+            {"views": [], "only_in_head": [], "only_in_base": []}))
+        (artifact / "support.json").write_text(json.dumps(report))
+        data = self.publish()
+        self.assertEqual(data["errors"], [])
+        return data["body"]
+
+    @unittest.skipUnless(shutil.which("node"), "publisher scripts require Node")
+    def test_the_comment_opens_with_what_merging_does_to_older_firefox(self):
+        from fxcss import support
+        report = {"format": 1, "status": "checked", "firefox": "158.0.1", "current": 158,
+                  "oldest": 153, "releases": {"release": 158, "esr": 153}, "candidates": 2,
+                  "breaks_below": 158, "new_only_from": 158, "exact": True,
+                  "dropped": [{"kind": "selector", "selector": "#sidebar-box", "names": ["#sidebar-box"],
+                               "file": "chrome/sidebar.css", "line": 12, "since": 158}],
+                  "added": [{"kind": "selector", "selector": ".sidebar-box", "names": [".sidebar-box"],
+                             "file": "chrome/sidebar.css", "line": 12, "since": 158}]}
+        body = self.support_artifact(report)
+        top = body.split("<details", 1)[0]
+        self.assertIn("> [!WARNING]\n> **Merging this drops styling for Firefox 157 and earlier, "
+                      "ESR 153 included.**", top)
+        self.assertIn("only match from Firefox 158", top)
+        self.assertIn("- `chrome/sidebar.css:12` `#sidebar-box`: no longer matches from Firefox 158", body)
+        # The comment and `fxcss support` say the same thing.
+        self.assertIn(support.markdown(report).split("\n\n")[0].replace("this change", "this PR"),
+                      body)
+
+        report.update(dropped=[], breaks_below=None)
+        body = self.support_artifact(report)
+        self.assertIn("> [!NOTE]\n> New rules for `.sidebar-box` only match from Firefox 158", body)
+        self.assertNotIn("WARNING", body)
+
+        report.update(added=[], new_only_from=None)
+        self.assertIn("Firefox support is unchanged: nothing this PR removes or adds matches "
+                      "differently across Firefox 153–158.", self.support_artifact(report))
+
+        self.assertIn("Firefox support could not be checked in this run",
+                      self.support_artifact({"format": 1, "status": "unavailable", "reason": "x"}))
+
+    @unittest.skipUnless(shutil.which("node"), "publisher scripts require Node")
+    def test_support_findings_from_the_artifact_are_revalidated(self):
+        hostile = {"format": 1, "status": "checked", "current": 158, "oldest": 153,
+                   "releases": {"esr": "<b>153</b>"},
+                   "dropped": [{"names": ["<img src=x onerror=alert(1)>", "#ok-name"],
+                                "file": "../../etc/passwd.css", "line": 3, "since": 158},
+                               {"names": ["#no-version"], "since": "158"},
+                               {"names": ["#too-new"], "since": 5000}],
+                   "added": "not a list"}
+        body = self.support_artifact(hostile)
+        block = body.split("<details><summary><b>Linux", 1)[0]
+        self.assertIn("`#ok-name`", block)
+        for text in ("<img", "onerror", "passwd", "no-version", "too-new", "<b>", "ESR"):
+            self.assertNotIn(text, block)
+        self.assertNotIn("Where these rules are", body)
+        self.assertIn("could not be checked", self.support_artifact({"format": 2, "status": "checked"}))
+        self.assertIn("could not be checked", self.support_artifact(
+            {"format": 1, "status": "checked", "current": "158", "oldest": 153}))
 
     def test_sensitivity_check_requires_pixels_not_just_a_missing_view(self):
         ci = (Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text()
@@ -357,6 +488,10 @@ class WorkflowBehaviorTests(unittest.TestCase):
 
     def publish(self):
         text = self.workflow("pr-preview-publish.yml")
+        # The harness passes these outputs on the way the comment step's env does.
+        for key, output in (("REPORT", "report"), ("SUPPORT", "support")):
+            self.assertIn(f"{key}: ${{{{ steps.check.outputs.{output} }}}}",
+                          step(text, "Upsert pull request comment"))
         bodies = [script(text, "Validate artifact and resolve pull request", "script"),
                   script(text, "Upsert pull request comment", "script")]
         harness = r'''
@@ -377,6 +512,7 @@ const github = {rest: {
   await new AsyncFunction('require', 'core', 'github', 'context', scripts[0])(require, core, github, context);
   process.env.PR = '7'; process.env.SHA = 'a'.repeat(40); process.env.RUN_ID = '1';
   process.env.REPORT = outputs.report;
+  process.env.SUPPORT = outputs.support || '';
   if (!result.errors.length) {
     await new AsyncFunction('require', 'core', 'github', 'context', scripts[1])(require, core, github, context);
   }

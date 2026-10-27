@@ -21,6 +21,7 @@
     fxcss shot         capture a set of screenshots
     fxcss compare      diff two sets into before/after/diff images
     fxcss check        audit, capture and compare using saved project settings
+    fxcss support      which Firefox releases a theme change still works on
     fxcss completions  print a shell completion script
     fxcss doctor       report what this Firefox supports
 
@@ -1520,7 +1521,7 @@ def cmd_init(args):
     slugs = sorted(core.find_variant_sheets(theme))
     try:
         preview = scaffold.preview_settings(theme, args.variants, args.views,
-                                            args.min_changed_percent)
+                                            args.min_changed_percent, args.oldest_firefox)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -1817,6 +1818,12 @@ def cmd_check(args):
         return 2
 
 
+def cmd_support(args):
+    from . import support
+    args.firefox = choose_firefox(args.firefox)
+    return support.run(args)
+
+
 def cmd_catalogue(args):
     try:
         from . import catalogue
@@ -2104,6 +2111,10 @@ def build_parser():
     ini.add_argument("--min-changed-percent", type=float, default=0.0, metavar="N",
                      help="PR previews: leave out views where less than N%% of "
                           "pixels changed; the comment still counts them (default: 0)")
+    ini.add_argument("--oldest-firefox", default="esr", metavar="esr|VERSION",
+                     help="PR previews and the watch: say whether a change drops styling "
+                          "for any Firefox back to this one; 'esr' for the current ESR "
+                          "(default), a major version such as 140, or '' to skip")
     ini.add_argument("--force", action="store_true",
                      help="replace workflow files that already exist")
     ini.set_defaults(func=cmd_init)
@@ -2225,6 +2236,28 @@ def build_parser():
     ck.add_argument("--min-changed-percent", type=float,
                     help="report smaller changes without picturing them (0–100)")
     ck.set_defaults(func=cmd_check)
+
+    sp = sub.add_parser("support", help="which Firefox releases a theme change still works on")
+    _common(sp, theme=False, firefox_help="the newest Firefox to compare against: a channel "
+                                         "name or a path to a binary")
+    sp.add_argument("--base", type=Path, required=True,
+                    help="the theme before the change (a folder containing chrome/)")
+    sp.add_argument("--head", type=Path, default=Path.cwd(),
+                    help="the theme after the change (default: cwd)")
+    sp.add_argument("--oldest", default="esr", metavar="esr|VERSION",
+                    help="the oldest Firefox to check: 'esr' for the current ESR "
+                         "(default), or a major version such as 140")
+    sp.add_argument("--channel", default=None,
+                    help="label for the newest build in the report, e.g. beta")
+    sp.add_argument("--cache", type=Path, default=None,
+                    help="where downloaded build indexes are kept "
+                         "(default: ~/.cache/fxcss/firefox-builds)")
+    sp.add_argument("--max-downloads", type=int, default=8, metavar="N",
+                    help="most builds to download in one run (default: 8)")
+    sp.add_argument("--json", type=Path, default=None, help="also write the report as JSON")
+    sp.add_argument("--markdown", type=Path, default=None,
+                    help="also write the Markdown summary to this file")
+    sp.set_defaults(func=cmd_support)
 
     g = sub.add_parser("catalogue", help="build the themeable UI directory")
     _common(g); _menus(g)
