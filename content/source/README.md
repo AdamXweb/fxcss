@@ -713,7 +713,7 @@ operating systems separate. `--firefox beta` overrides the list for one run.
 | --- | --- |
 | `strict` / `--strict` | Fail on actionable selector findings; `--no-strict` makes them advisory. |
 | `strict_vars` / `--strict-vars` | Also fail on dead custom properties; deliberate `fxcss-keep` overrides remain exempt. |
-| `max_changed_percent` / `--max-changed-percent` | Fail when any view exceeds this percentage, or a new view has no baseline. Set the saved value to `null` for advisory pixel differences. Missing baseline views always need attention. |
+| `max_changed_percent` / `--max-changed-percent` | Fail when any view exceeds this percentage, or a new view has no baseline. Set the saved value to `null` for advisory pixel differences. Missing baseline views always need attention. Standard views a newer fxcss captures that an older baseline lacks are listed as not compared, never failed; `--update-baseline` adds them. |
 | `min_changed_percent` / `--min-changed-percent` | List a view whose change is smaller than this percentage in the report without picturing it or counting it as changed. Must not exceed `max_changed_percent`. |
 | `views` / `--views` | Compare only views matching these patterns, such as `["light-*", "variant-*"]` or `--views 'light-*,variant-*'`. Every view is still captured and checked for coverage. A pattern that matches no view is a configuration error. |
 | `variants` / `--variants` | Capture `all`, named stylesheets or combinations such as `compact+dark`. Set the saved value to `null` to capture the base theme only. |
@@ -742,7 +742,10 @@ fxcss shot --out shots/before
 Captures the standard set of views as PNGs: browser window, focused address bar,
 find bar and the window-modal dialog in light and dark, then playing and muted
 audio tab indicators, container tabs, an overflowing tab strip, a private window,
-compact density, the sidebar, right-to-left chrome, and customize mode.
+compact density, the sidebar, right-to-left chrome, and customize mode. It also
+captures the surfaces no window view shows, in light and dark: hovered toolbar
+buttons, the search engine button and its menu, the app menu, extensions and
+account panels, and Settings.
 
 Audio views set Firefox's playing and muted tab attributes directly. They test
 the appearance of those indicators without requiring a sound device or playing
@@ -803,6 +806,37 @@ renders nothing.
 Some states depend on the Firefox build; unavailable states are reported and
 skipped rather than treated as captured.
 
+#### Surfaces outside the window
+
+Each of these views is cropped to its own surface, so a change elsewhere — a
+restyled tab strip, say — leaves it alone:
+
+| View | Category | What it shows |
+| --- | --- | --- |
+| `*-05-toolbar-hover` | Toolbars | The toolbars with each toolbar button held in its `:hover` state |
+| `*-06-search-engine` | Address bar | The focused address bar with the pointer on the search engine button |
+| `*-07-search-menu` | Address bar | The search engine button's menu, open |
+| `*-08-app-menu` | Panels | The app menu |
+| `*-09-extensions-panel` | Panels | The extensions panel |
+| `*-10-account-panel` | Panels | The account panel |
+| `*-11-settings` | Settings | `about:preferences`, styled by `userContent.css` |
+
+Panels are separate OS windows that Marionette cannot see, so these four are
+taken with a screen capture of the panel's area. That needs Pillow (the
+`fxcss[images]` extra) and briefly brings the capture Firefox to the front. The
+capture is first checked against Marionette's own image of the window; when it
+cannot see Firefox (no screen-recording permission on macOS, a Wayland session,
+another window on top) the panel views are reported as unsupported with that
+reason rather than captured wrong. A Firefox without the search engine button
+skips its two views the same way.
+
+These views run in a browser session of their own, so the pointer and hover
+locks they use never reach the window views. Its window is up to 1280×900 and
+never larger than the screen, so an open panel lies wholly over Firefox: its
+translucent edges and rounded corners show the browser, not your desktop.
+Anything the system draws on top during the capture is photographed too, so a
+notification that pops up over a panel appears in that view; rerun if one did.
+
 ### fxcss compare
 
 ```bash
@@ -838,7 +872,9 @@ fxcss compare --base shots/before --head shots/after --out diff/ \
 
 `--views` takes comma-separated patterns, with `*` and `?` as wildcards, matched
 against capture names. The standard names are `light-` or `dark-` followed by
-`01-window`, `02-urlbar`, `03-findbar` or `04-dialog`; `extra-04-audio`,
+`01-window`, `02-urlbar`, `03-findbar`, `04-dialog`, `05-toolbar-hover`,
+`06-search-engine`, `07-search-menu`, `08-app-menu`, `09-extensions-panel`,
+`10-account-panel` or `11-settings`; `extra-04-audio`,
 `extra-05-muted`, `extra-06-containers`, `extra-07-many-tabs`,
 `extra-08-private`, `extra-09-compact`, `extra-10-sidebar-bookmarks`,
 `extra-11-sidebar-history`, `extra-12-rtl`, `extra-13-customize`,
@@ -851,6 +887,29 @@ cannot quietly shrink the comparison. Unselected views are left out of
 as a small change: `summary.json` lists it under `below_threshold` with its
 percentage, but no comparison image is drawn and it does not count towards
 `changed_views` or `any_change`. A change of exactly the threshold is pictured.
+
+#### Distinct changes
+
+One change usually shows in many views: a restyled tab strip is in nearly every
+window capture, in every palette. So `compare` also groups what changed into
+**distinct changes**. Within a view, changed regions in the same part of the
+UI (the tab strip, the page, one panel) are one change. Across views, a region
+is the same change when its changed pixels coincide with one already seen, or
+when it is the same move: a toolbar 1px taller pushes the page down in every
+view, which as pixels is different text edges in each, but is recognised as
+"moved down 1px" and grouped whatever page the view shows. Each distinct change
+is drawn once, as `change-NN.png`, cropped to the change from the
+full-resolution captures, and `summary.json` lists it under `changes` with the
+views it appears in.
+
+Every change is placed in an area of the UI: Window, Tabs, Toolbars, Address
+bar, Find bar, Sidebar, Content, Dialogs, Panels, Settings or Optional
+stylesheets. For window views the place comes from where Firefox's own
+landmarks were when the capture was taken (recorded in `layout.json` next to
+the screenshots), so a tab strip change reads as Tabs whichever view it was
+found in. Cropped surface views take their own category. Colour is ignored when
+grouping, so the same rule rendering in each palette's colours is one change;
+every view keeps its own comparison image, linked from the change.
 
 A successful comparison reports differences; changed pixels alone do not make
 `compare` fail. Review the images to decide whether a change is intended. If
@@ -1178,6 +1237,14 @@ The default setup writes three cooperating workflows:
 2. **Publish:** validate the artifacts, publish images to `ci-previews`, and
    create or update the preview comment. Unchanged views remain available as
    full screenshots.
+
+The comment groups the [distinct changes](#distinct-changes) by area of the UI
+and pictures each once, from the first platform that has it. The same change
+on another platform is folded under it, with each platform's views listed and
+linked to their full before-and-after; a change only one platform shows is
+labelled as such. A tab strip restyle that touches every view therefore reads
+as one picture under Tabs rather than one per view per platform. Views a runner
+could not capture are listed as not compared.
 3. **Clean up:** remove a PR's published images when it closes.
 
 Preview comments start once the workflows are on the default branch.
@@ -1491,17 +1558,18 @@ and Linux.
 `fxcss watch --native-menus=false` switches Firefox to XUL menus so you can work
 on that styling from a Mac.
 
-### Popups can't be screenshotted
+### Panels need a screen capture
 
-Menus and the app menu are separate OS-level windows, so they appear in neither
-a Marionette chrome screenshot nor a `drawWindow` rasterisation of the browser
-window. Capturing the whole screen instead is worse: it depends on window
-stacking and picks up whatever else is on your desktop. Every view `shot`
-captures is therefore an in-document surface.
+Panels and menus are separate OS-level windows, so they appear in neither a
+Marionette chrome screenshot nor a `drawWindow` rasterisation of the browser
+window. The panel views therefore capture the panel's own screen area, after
+checking that the screen capture shows the same window Marionette does
+([Surfaces outside the window](#surfaces-outside-the-window)). Where it cannot,
+they are reported as unsupported rather than captured from whatever is on top.
 
-You can still *look* at popups in `watch`, and inspect them with the Browser
-Toolbox. These separate popup windows cannot be captured. The standard
-screenshot set does include the window-modal quit-confirmation dialog.
+Context menus are not captured: on macOS they are native menus with no CSS to
+compare, and elsewhere they would need the same screen capture for little
+benefit over inspecting them in `watch` with the Browser Toolbox.
 
 ### Why not Selenium?
 
