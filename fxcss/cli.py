@@ -259,8 +259,9 @@ def cmd_try(args):
                   f"it —\n  it installs the files itself, which is all those scripts do.")
         if facts["flags"]:
             print("\n  Options its README documents:")
+            width = max(6, *(len(entry["flag"]) for entry in facts["flags"]))
             for entry in facts["flags"]:
-                print(f"    {entry['flag']:<6} {entry['text']}")
+                print(f"    {entry['flag']:<{width}} {entry['text']}")
         if facts["variants"]:
             names = [v.stem for v in facts["variants"]]
             print(f"\n  Optional stylesheets you can layer on with --with:")
