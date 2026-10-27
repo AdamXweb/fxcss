@@ -4,13 +4,7 @@
 // fails, and an accepted one that npm no longer reports is flagged for removal.
 import { spawnSync } from 'node:child_process';
 
-const ACCEPTED = {
-  'GHSA-vfj7-8cjw-p6xm':
-    'braces <= 3.0.3 has no patched release. It is reached only through build ' +
-    'tools (vinext > vite-plugin-commonjs > vite-plugin-dynamic-import > ' +
-    'fast-glob, and the shadcn CLI), whose glob patterns come from this ' +
-    'repository, never from visitors. None of it is in the deployed Worker.',
-};
+const ACCEPTED = {};
 const LEVELS = ['info', 'low', 'moderate', 'high', 'critical'];
 const threshold = LEVELS.indexOf('moderate');
 

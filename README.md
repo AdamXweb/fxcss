@@ -51,7 +51,7 @@ In another terminal:
 just verify
 ```
 
-`npm run check:audit` runs `npm audit` and fails on any advisory at moderate or above, except those listed with a reason in `scripts/audit.mjs`. The one accepted today, GHSA-vfj7-8cjw-p6xm in `braces`, has no patched release and only reaches build tools, not the deployed Worker; the script notes when it can be removed.
+`npm run check:audit` runs `npm audit` and fails on any advisory at moderate or above. There are no accepted advisories in `scripts/audit.mjs`. The `miniflare` override in `package.json` pins the patched `undici` 7.30.1 while the Cloudflare development tools still pin an affected release; remove the override when their dependency is patched.
 
 The Website GitHub Actions workflow (`.github/workflows/website.yml`) runs the same checks, plus a deploy dry run, on every pull request and push to `website`, without deploying. A second job warns when the recorded documentation is behind `main`. The production check visits every documentation page, validates asset responses and the security headers on pages, redirects and static files, checks that every page carries the share card and that each labelled control's name contains its visible text, and verifies not-found responses and redirects. Browser checks cover navigation, search, code copying, keyboard-operated comparison controls, and narrow layouts.
 
