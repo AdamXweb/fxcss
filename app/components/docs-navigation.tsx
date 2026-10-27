@@ -1,5 +1,5 @@
 'use client';
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Search, X, ChevronDown } from 'lucide-react';
@@ -12,6 +12,8 @@ import {
   CollapsibleContent,
 } from '@/components/ui/collapsible';
 import { searchDocs, type SearchableDoc } from '@/lib/docs-search';
+import { revealSecret, searchSecret } from '@/lib/easter-eggs';
+import { retroDestinationForQuery, retroDestinations } from '@/lib/time-machine';
 export type NavPage = SearchableDoc;
 
 function Highlight({ text, query }: { text: string; query: string }) {
@@ -56,6 +58,8 @@ function DocsNavigation({
   const pathname = usePathname();
   const searchId = useId();
   const searchField = useRef<HTMLInputElement>(null);
+  const secret = searchSecret(query);
+  const retroDestination = retroDestinationForQuery(query);
   const searching = Boolean(query.trim());
   const matches = searchDocs(pages, query);
   const groups = [...new Set(pages.map((p) => p.chapter))];
@@ -106,12 +110,17 @@ function DocsNavigation({
       <output className="search-count">
         {!searching
           ? ''
+          : secret && !matches.length
+            ? 'Secret unlocked. Explore it below.'
           : matches.length
             ? `${matches.length} matching ${matches.length === 1 ? 'page' : 'pages'}`
             : 'No matching pages. Try a command or a shorter phrase.'}
       </output>
       {searching ? (
         <div className="docs-search-results">
+          {secret && <div className="search-secret">
+            {secret === 'coffee' ? <><strong>☕ Secret brew unlocked.</strong><button onClick={() => revealSecret('coffee')}>Brew another #c0ffee</button></> : secret === 'retro' && retroDestination ? <><strong>◷ Destination: {retroDestinations[retroDestination].label}, {retroDestinations[retroDestination].year}.</strong><button onClick={() => revealSecret('retro', retroDestination)}>Start the time machine</button><span>Switch desktops or return to the present above.</span></> : <><strong>A challenger appears.</strong><Link href="/important" onClick={onNavigate}>Enter the specificity boss battle ↗</Link></>}
+          </div>}
           {matches.map(({ page, href, excerpt }) => (
             <Link
               href={href}
@@ -174,6 +183,14 @@ export function DocsFrame({
 }) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
+  const previousSecret = useRef<string | null>(null);
+  const secret = searchSecret(query);
+  const retroDestination = retroDestinationForQuery(query);
+  const discovery = secret ? `${secret}:${query.trim().toLowerCase()}` : null;
+  useEffect(() => {
+    if (secret && discovery !== previousSecret.current && secret !== 'battle') revealSecret(secret, retroDestination || undefined);
+    previousSecret.current = discovery;
+  }, [secret, retroDestination, discovery]);
   const menuButton = useRef<HTMLButtonElement>(null);
   const navigation = {
     pages,

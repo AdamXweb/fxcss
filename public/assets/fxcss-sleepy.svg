@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <title>fxcss is taking a little nap</title>
+  <path d="M16 20C7 29 6 47 18 54c12 8 31 2 33-13-6 5-10 4-12 1 8-4 8-15 1-23 1 9-4 12-9 11-5-2-6-8-4-15-5 3-8 5-11 5Z" fill="#7d689b"/>
+  <path d="M19 39c3 3 6 3 9 0m7 0c3 3 6 3 9 0" stroke="#c0ffee" stroke-width="3" stroke-linecap="round"/>
+  <path d="M42 14h8l-8 9h8m2-19h8l-8 9h8" stroke="#7251c8" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+</svg>

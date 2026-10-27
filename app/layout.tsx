@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { CSPProvider } from "@base-ui/react/csp-provider";
 import { OutboundClickTracking } from "./components/outbound-click-tracking";
+import { EasterEggs } from "./components/easter-eggs";
+import { SleepyFavicon } from "./components/sleepy-favicon";
 import { SITE_ORIGIN } from "../lib/site";
 import { shareCard } from "../lib/share-card";
 import "./globals.css";
@@ -33,7 +35,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <a className="skip-link" href="#main">
           Skip to content
         </a>
-        <CSPProvider nonce={nonce}>{children}</CSPProvider>
+        <CSPProvider nonce={nonce}>
+          <EasterEggs />
+          <SleepyFavicon />
+          {children}
+        </CSPProvider>
         <OutboundClickTracking />
         <script
           async

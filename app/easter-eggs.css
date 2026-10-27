@@ -1,0 +1,283 @@
+/* Small discoveries, kept separate from the site's everyday presentation. */
+.footer-secret {
+  display: inline-block;
+  margin-top: 4px;
+  color: #767186;
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 11px;
+}
+.footer-secret:hover { color: #5537e9; }
+.search-secret {
+  display: grid;
+  gap: 10px;
+  padding: 15px;
+  margin: 10px 0;
+  background: #eeebff;
+  border: 1px solid #d2c7fb;
+  border-radius: 8px;
+  color: #33225b;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.search-secret button, .search-secret a {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #4a2abe;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.search-secret > span { font-size: 12px; }
+.time-machine-bar {
+  position: sticky;
+  top: 0;
+  z-index: 80;
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto auto;
+  align-items: center;
+  gap: 8px 20px;
+  padding: 10px 24px;
+  border: 2px outset #fff;
+  background: var(--retro-surface, #c0c0c0);
+  color: #111;
+  font: 13px/1.5 Tahoma, Verdana, sans-serif;
+}
+.time-machine-heading strong { display: block; font-size: 13px; }
+.time-machine-heading > span { color: #444; font-size: 11px; }
+.time-machine-destinations { display: flex; flex-wrap: wrap; gap: 5px; border: 0; padding: 0; margin: 0; min-width: 0; }
+.time-machine-destinations button { flex-direction: column; gap: 0 !important; font-size: 12px; line-height: 1.5; }
+.time-machine-destinations button > span { font-size: 10px; }
+.time-machine-destinations button[aria-pressed='true'] { border-style: inset; background: var(--retro-selection, #dedee9); font-weight: 700; }
+.time-machine-history { grid-column: 1 / -1; font-size: 11px; line-height: 1.5; }
+.time-machine-history summary { cursor: pointer; width: fit-content; }
+.time-machine-history p { margin: 8px 0 0; }
+.time-machine-history p > span { display: block; margin-top: 3px; color: #444; }
+.time-machine-history a { color: #123f85; text-decoration: underline; text-underline-offset: 2px; }
+.time-machine-bar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 2px outset #eee;
+  background: var(--retro-button, #ddd);
+  color: #111;
+  font: inherit;
+}
+.time-machine-bar button:active { border-style: inset; }
+.retro-window-chrome { display: none; }
+.coffee-confetti {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  overflow: hidden;
+  pointer-events: none;
+}
+.coffee-confetti i {
+  position: absolute;
+  top: -50px;
+  width: 10px;
+  height: 18px;
+  border-radius: 2px;
+  animation: coffee-fall 3.3s var(--delay) cubic-bezier(.2,.4,.7,.8) both;
+}
+.coffee-confetti .coffee-glyph { width: auto; height: auto; font-style: normal; font-size: 26px; }
+@keyframes coffee-fall {
+  from { transform: translate3d(0, -30px, 0) rotate(0); opacity: 0; }
+  8% { opacity: 1; }
+  85% { opacity: 1; }
+  to { transform: translate3d(var(--drift), calc(100dvh + 90px), 0) rotate(var(--turn)); opacity: 0; }
+}
+.coffee-toast {
+  position: fixed;
+  z-index: 96;
+  right: 24px;
+  bottom: 24px;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  max-width: min(420px, calc(100% - 32px));
+  padding: 20px;
+  border: 1px solid #8dd9bf;
+  border-radius: 14px;
+  box-shadow: 0 12px 50px #18213924;
+  background: #c0ffee;
+  color: #163e32;
+}
+.coffee-toast output { display: block; margin: 0 0 4px; font-size: 14px; }
+.coffee-toast strong { display: block; font-size: 20px; }
+.coffee-toast > div > span { font-size: 12px; }
+.coffee-cup { flex: none; margin-top: 4px; }
+.coffee-toast button { display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; color: inherit; }
+.coffee-replay { display: flex !important; padding: 8px 0 0; font-size: 12px; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+.coffee-dismiss { padding: 2px; margin-left: auto; }
+
+/* The arena uses the site's purple, orange and monospace details. */
+.battle-page { max-width: 960px; padding-top: 60px; padding-bottom: 100px; }
+.battle-intro { margin-bottom: 40px; }
+.battle-intro .eyebrow { color: #6842ce; }
+.battle-intro h1 { font-size: clamp(44px, 7vw, 76px); line-height: 1.04; letter-spacing: -3px; margin: 20px 0; }
+.battle-intro h1 > span { color: #6842ce; }
+.battle-intro > p { max-width: 520px; color: #626274; font-size: 18px; }
+.battle-shell { border: 1px solid #ded9ef; border-radius: 16px; overflow: hidden; background: #fff; box-shadow: 0 14px 60px #5537e90a; }
+.battle-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 28px; background: #18172a; color: #e4ddff; font: 11px/1.5 'SFMono-Regular', Consolas, monospace; letter-spacing: 1px; }
+.battle-toolbar > span:first-child { display: flex; align-items: center; gap: 10px; }
+.battle-progress { display: flex; gap: 5px; padding: 18px 28px 0; }
+.battle-progress span { height: 4px; border-radius: 3px; background: #ece9f4; flex: 1; }
+.battle-progress .done { background: #6842ce; }
+.battle-progress .current { background: #ff8d5d; }
+.battle-body { padding: 30px; }
+.battle-round-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.battle-round-heading .eyebrow { font-size: 10px; color: #746b84; }
+.battle-round-heading h2 { margin: 10px 0 16px; font-size: clamp(24px, 4vw, 34px); letter-spacing: -1px; }
+.battle-round-number { font: 50px/1 'SFMono-Regular', Consolas, monospace; color: #d8d0eb; }
+.battle-prompt { color: #626274; font-size: 14px; }
+.battle-markup { margin: 0; padding: 16px 18px; border: 1px solid #e5e0f0; background: #f7f5fc; color: #514568; border-radius: 8px; font-size: 12px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+.battle-preview { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 22px 0; }
+.battle-preview-tab { display: flex; justify-content: space-between; gap: 32px; border: 2px solid #b7b0c9; border-radius: 8px 8px 2px 2px; background: #f7f5fc; padding: 10px 14px; font-size: 14px; font-weight: 700; }
+.battle-preview > span:last-child { color: #696476; font-size: 12px; }
+.battle-rules { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; border: 0; padding: 0; margin: 0; min-width: 0; }
+.battle-rule { min-width: 0; padding: 18px; border: 2px solid #e3deee; border-radius: 10px; background: #fff; color: #292237; text-align: left; }
+.battle-rule:not([aria-disabled="true"]):hover { border-color: #9a7fe1; background: #faf8ff; }
+.battle-rule[aria-disabled="true"] { cursor: default; }
+.battle-rule-label { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 18px; font-size: 10px; letter-spacing: .7px; color: #756a85; }
+.battle-rule-label > span { font-weight: 700; color: #5c408d; }
+.battle-rule > code { display: block; font-size: 13px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+.battle-rule.winner { border-color: #4b9879; background: #f0fbf6; }
+.battle-rule.winner .battle-rule-label > span { color: #266647; }
+.battle-rule.missed { border-color: #b99570; background: #fff8ef; }
+.battle-weight { display: block; padding-top: 14px; font-size: 11px; color: #696476; }
+.battle-feedback { min-height: 120px; padding: 22px 0 6px; }
+.battle-feedback h3 { font-size: 16px; margin-bottom: 8px; }
+.battle-feedback p { margin-bottom: 10px; font-size: 14px; color: #626274; }
+.battle-controls { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.battle-controls > span { font-size: 12px; color: #696476; }
+.battle-hint-button { display: inline-flex; align-items: center; gap: 8px; background: transparent; border: 0; color: #5d3da8; padding: 10px 0; font-size: 13px; }
+.battle-hint { margin: 14px 0 0; padding: 12px 16px; background: #fffae9; border-left: 3px solid #e4b546; color: #6a5422; font-size: 13px; }
+.battle-footnote { border-top: 1px solid #e9e4f3; padding: 18px 30px; background: #faf9fd; font-size: 11px; line-height: 1.7; color: #716a7e; }
+.battle-footnote p { margin-bottom: 4px; }
+.battle-footnote a { color: #60449d; text-decoration: underline; text-underline-offset: 3px; }
+.battle-finish { padding: 44px 30px; text-align: center; }
+.battle-finish > svg { color: #ae7819; margin-bottom: 20px; }
+.battle-finish h2 { font-size: 36px; letter-spacing: -1px; }
+.battle-finish > p { max-width: 500px; margin-inline: auto; color: #626274; }
+.battle-finish ul { display: grid; gap: 12px; max-width: 440px; padding: 20px 0; margin: auto; list-style: none; text-align: left; }
+.battle-finish li { display: flex; align-items: flex-start; gap: 12px; font-size: 13px; line-height: 1.6; }
+.battle-finish li svg { color: #368461; flex: none; margin-top: 2px; }
+.battle-finish-actions { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 24px; margin: 24px 0; }
+.battle-finish .battle-secret { font-size: 12px; margin: 30px 0 0; max-width: none; }
+
+/* Reversible desktop-era styles. Evidence screenshots remain unmodified. */
+html[data-retro] {
+  --retro-desktop: #008080; --retro-surface: #c0c0c0; --retro-panel: #eee;
+  --retro-card: #dadada; --retro-button: #d0d0d0; --retro-selection: #dedee9;
+  --retro-titlebar: linear-gradient(90deg, #000080, #287ac2);
+  --retro-title-ink: #fff; --retro-accent: #000080; --retro-ink: #24245d;
+  --retro-font: Tahoma, Verdana, sans-serif;
+  --foreground: #141414; --primary: var(--retro-accent); --border: #888;
+  --muted: #ddd; --muted-foreground: #333;
+  scroll-padding-top: calc(var(--time-machine-height, 90px) + var(--retro-header-height, 120px));
+}
+html[data-retro] body { background: var(--retro-desktop); color: #141414; font-family: var(--retro-font); }
+html[data-retro] :is(.showcase, .field-guide) { background: var(--retro-surface); margin: 12px; border: 3px outset #eee; }
+html[data-retro] .site-header { top: var(--time-machine-height, 90px); flex-wrap: wrap; gap: 10px; background: var(--retro-titlebar); color: var(--retro-title-ink); margin: 0; max-width: none; padding-block: 8px 14px; }
+html[data-retro] .site-header nav a { color: var(--retro-title-ink); }
+html[data-retro] .site-header nav a[aria-current], html[data-retro] .site-header nav a:hover { color: var(--retro-title-ink); text-decoration: underline; text-underline-offset: 4px; }
+html[data-retro] .desktop-docs-nav { top: calc(var(--time-machine-height, 90px) + var(--retro-header-height, 120px)); max-height: calc(100dvh - var(--time-machine-height, 90px) - var(--retro-header-height, 120px)); }
+html[data-retro] .site-header .brand-dot { color: inherit; }
+html[data-retro] .site-header .github-link { border: 2px outset #ddd; border-radius: 0; }
+html[data-retro] :is(.showcase-hero, .journeys, .features, .showcase-demo, .install-band, .battle-intro) { background: var(--retro-surface); color: #111; }
+html[data-retro] :is(h1, h2, h3) { font-family: Georgia, 'Times New Roman', serif; }
+html[data-retro] :is(.showcase-hero h1 > span, .battle-intro h1 > span, .hero-description, .requirements, .section-heading > p, .feature-card p, .battle-intro > p) { color: var(--retro-ink); }
+html[data-retro] :is(.button, .feature-card, .journey-grid > article, .battle-shell, .search-secret, .battle-rule, .guide-search, .comparison, .appearance-preview) { border: 2px outset #eee; border-radius: 0; box-shadow: none; }
+html[data-retro] :is(.button.primary, .button.primary:hover) { background: var(--retro-button); color: #111; border: 2px outset #fff; }
+html[data-retro] :is(.button:active, .battle-rule:active) { border-style: inset; }
+html[data-retro] :is(.feature-card, .journey-grid > article, .install-band) { background: var(--retro-card); }
+html[data-retro] :is(.guide-sidebar, .guide-article, .guide-toc) { background: var(--retro-panel); color: #171717; }
+html[data-retro] :is(.guide-sidebar, .guide-content) { border-color: #808080; }
+html[data-retro] .guide-search { background: #fff; }
+html[data-retro] .site-footer { background: var(--retro-button); color: #252525; border-top: 2px groove #fff; }
+html[data-retro] .battle-page { background: var(--retro-surface); padding: 32px; margin-top: 20px; margin-bottom: 20px; border: 3px outset #eee; }
+html[data-retro] :is(.data-notice, .not-found) { background: var(--retro-panel); color: #171717; padding: 32px; margin-block: 20px; border: 2px outset #eee; }
+html[data-retro] .battle-toolbar { background: var(--retro-titlebar); color: var(--retro-title-ink); }
+html[data-retro] :is(.battle-body, .battle-finish) { background: var(--retro-panel); }
+html[data-retro] .text-link { color: var(--retro-accent); text-decoration: underline; }
+html[data-retro] .retro-window-chrome { flex-basis: 100%; display: flex; align-items: center; gap: 14px; min-width: 0; border-bottom: 1px solid #ffffff55; padding-bottom: 5px; font-size: 11px; line-height: 1.8; }
+.retro-window-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.retro-window-title > span, .retro-window-lights { display: none; }
+html[data-retro='windows'] .retro-title-windows, html[data-retro='mac'] .retro-title-mac, html[data-retro='linux'] .retro-title-linux { display: inline; }
+.retro-window-controls { flex: none; word-spacing: 6px; }
+
+/* Early Mac OS X: Aqua colours, pinstriped surfaces and glossy controls. */
+html[data-retro='mac'] {
+  --retro-desktop: linear-gradient(145deg, #456b96, #88afc9);
+  --retro-surface: repeating-linear-gradient(0deg, #f0f0f0 0 2px, #fafafa 2px 4px);
+  --retro-panel: #fafafa; --retro-card: #f6f6f6;
+  --retro-titlebar: linear-gradient(#fefefe, #d4d4d4 48%, #eee 49%, #d7d7d7);
+  --retro-title-ink: #252525; --retro-accent: #17529c; --retro-ink: #2b435c;
+  --retro-button: linear-gradient(#fff, #e6e6e6); --retro-selection: #d4e7ff;
+  --retro-font: 'Lucida Grande', 'Lucida Sans Unicode', Arial, sans-serif;
+}
+html[data-retro='mac'] :is(.showcase, .field-guide, .battle-page) { border: 1px solid #767676; border-radius: 10px 10px 0 0; box-shadow: 0 14px 45px #142c4c55; }
+html[data-retro='mac'] .site-header { border-radius: 9px 9px 0 0; border-bottom: 1px solid #a4a4a4; }
+html[data-retro='mac'] :is(h1, h2, h3) { font-family: var(--retro-font); }
+html[data-retro='mac'] .retro-window-chrome { border-color: #aaa; }
+html[data-retro='mac'] .retro-window-title { text-align: center; margin-right: 50px; text-shadow: 0 1px #fff; }
+html[data-retro='mac'] .retro-window-controls { display: none; }
+html[data-retro='mac'] .retro-window-lights { display: flex; gap: 6px; }
+.retro-window-lights i { width: 12px; height: 12px; border: 1px solid #a9564b; border-radius: 50%; background: radial-gradient(circle at 35% 25%, #ffe4de, #ec6255 65%); box-shadow: inset 0 -1px 2px #0002; }
+.retro-window-lights i:nth-child(2) { border-color: #ac8a2a; background: radial-gradient(circle at 35% 25%, #fff6d5, #edc34f 65%); }
+.retro-window-lights i:nth-child(3) { border-color: #4f8d36; background: radial-gradient(circle at 35% 25%, #e1ffd4, #7fbc5c 65%); }
+html[data-retro='mac'] :is(.button.primary, .button.primary:hover) { background: linear-gradient(#ebf5ff 0%, #98c4f7 48%, #65a4e8 49%, #c7e2ff 100%); color: #12365e; border: 1px solid #4f7aaa; border-radius: 18px; box-shadow: inset 0 1px #fff, 0 1px 2px #0003; text-shadow: 0 1px #ffffffaa; }
+html[data-retro='mac'] :is(.time-machine-bar button, .site-header .github-link) { border: 1px solid #999; border-radius: 7px; box-shadow: inset 0 1px #fff; }
+html[data-retro='mac'] .time-machine-destinations button[aria-pressed='true'] { background: linear-gradient(#e1efff, #b1cfee); border-color: #5c7caa; }
+html[data-retro='mac'] :is(.feature-card, .journey-grid > article, .battle-shell, .search-secret, .battle-rule, .guide-search, .comparison, .appearance-preview) { border: 1px solid #b6b6b6; border-radius: 6px; }
+
+/* Linux in 2002: a classic GTK-inspired desktop and a steel-blue title bar. */
+html[data-retro='linux'] {
+  --retro-desktop: #48576c; --retro-surface: #d6d4cc; --retro-panel: #eeede8;
+  --retro-card: #e4e2da; --retro-button: #dedcd4; --retro-selection: #becadd;
+  --retro-titlebar: linear-gradient(90deg, #354961, #74869c);
+  --retro-title-ink: #fff; --retro-accent: #334f75; --retro-ink: #34475c;
+  --retro-font: 'DejaVu Sans', 'Liberation Sans', Arial, sans-serif;
+}
+html[data-retro='linux'] :is(h1, h2, h3) { font-family: var(--retro-font); }
+html[data-retro='linux'] :is(.showcase, .field-guide, .battle-page) { border: 2px solid #808078; box-shadow: 4px 5px 0 #19232d55; }
+html[data-retro='linux'] :is(.button, .time-machine-bar button) { border: 1px solid #797b72; box-shadow: inset 1px 1px #fff, inset -1px -1px #aaa99f; border-radius: 2px; }
+html[data-retro='linux'] .time-machine-destinations button[aria-pressed='true'] { box-shadow: inset 1px 1px #8795a5; border-color: #5a6b80; }
+
+@media (max-width: 640px) {
+  .time-machine-bar { padding: 9px 12px; grid-template-columns: 1fr; gap: 8px; font-size: 11px; }
+  .time-machine-heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 0 12px; }
+  .time-machine-destinations button { flex: 1; }
+  .time-machine-return { justify-self: start; }
+  .time-machine-bar button { min-height: 36px; }
+  .coffee-toast { right: 16px; bottom: 16px; padding: 16px; gap: 10px; }
+  .battle-page { padding-top: 32px; padding-bottom: 50px; }
+  .battle-intro { margin-bottom: 28px; }
+  .battle-intro h1 { letter-spacing: -2px; }
+  .battle-intro > p { font-size: 16px; }
+  .battle-toolbar { padding: 14px 16px; font-size: 9px; letter-spacing: .4px; }
+  .battle-body, .battle-finish { padding: 20px 16px; }
+  .battle-progress { padding: 16px 16px 0; }
+  .battle-rules { grid-template-columns: 1fr; }
+  .battle-rule { padding: 16px; }
+  .battle-rule-label { margin-bottom: 12px; }
+  .battle-feedback { min-height: 0; padding-top: 18px; }
+  .battle-controls { margin-top: 12px; }
+  .battle-footnote { padding: 16px; }
+  .battle-finish h2 { font-size: 30px; }
+  html[data-retro] :is(.showcase, .field-guide) { margin: 4px; }
+  html[data-retro] .battle-page { padding: 20px 12px; }
+  html[data-retro] .site-header { padding-inline: 14px; }
+}
+@media (min-width: 641px) and (max-width: 1050px) {
+  .time-machine-bar { grid-template-columns: 1fr auto; }
+  .time-machine-heading { grid-column: 1 / -1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .coffee-confetti { display: none; }
+  html { scroll-behavior: auto; }
+  .battle-page *, .time-machine-bar *, .coffee-toast * { animation: none !important; transition: none !important; }
+}
