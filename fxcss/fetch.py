@@ -57,8 +57,11 @@ INSTALL_SCRIPTS = [
 # Themes commonly keep optional tweaks in one of these.
 VARIANT_DIRS = ["custom", "optional", "options", "extras", "variants"]
 
-# "- `-c` Left hand side tab close button" and similar list items.
-FLAG_LINE = re.compile(r"^\s*[-*+]\s*`?(-{1,2}[\w-]+)`?\s*[—:-]?\s+(.{4,120}?)\s*$")
+# "- `-c` Left hand side tab close button" and similar list items. Inside
+# backticks the flag keeps its argument: "- `-t <name>` Colour theme".
+FLAG_LINE = re.compile(
+    r"^\s*[-*+]\s*`?((?<=`)-{1,2}[\w-]+(?:[\s=][^`]*[^`\s])?(?=`)|-{1,2}[\w-]+)`?"
+    r"\s*[—:-]?\s+(.{4,120}?)\s*$")
 
 
 def parse_repo(spec: str):

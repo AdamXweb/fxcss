@@ -459,6 +459,35 @@ class FlagLineTests(unittest.TestCase):
         self.assertIsNotNone(m)
         self.assertEqual(m.group(1), "--dark")
 
+    def test_backticked_flag_keeps_its_argument(self):
+        from fxcss.fetch import FLAG_LINE
+        m = FLAG_LINE.match("- `-t <name>` Colour theme (see Colour themes below)")
+        self.assertEqual(m.groups(), ("-t <name>", "Colour theme (see Colour themes below)"))
+        m = FLAG_LINE.match("- `--theme=<name>`: pick a palette")
+        self.assertEqual(m.groups(), ("--theme=<name>", "pick a palette"))
+        # An unclosed backtick still reads as a bare flag, as before.
+        m = FLAG_LINE.match("- `-c Left hand side tab close button")
+        self.assertEqual(m.groups(), ("-c", "Left hand side tab close button"))
+
+    def test_try_info_aligns_flags_with_arguments(self):
+        import contextlib
+        import io
+        from fxcss import cli
+        with tempfile.TemporaryDirectory() as td:
+            (Path(td) / "chrome").mkdir()
+            (Path(td) / "chrome/userChrome.css").write_text("#nav-bar { }\n")
+            (Path(td) / "README.md").write_text(
+                "- `-c` Left hand side tab close button\n"
+                "- `-t <name>` Colour theme (see Colour themes below)\n")
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                code = cli.main(["try", td, "--info"])
+        out = buffer.getvalue()
+        self.assertEqual(code, 0)
+        self.assertIn("    -c        Left hand side tab close button\n", out)
+        self.assertIn("    -t <name> Colour theme (see Colour themes below)\n", out)
+        self.assertNotIn("`", out)
+
     def test_prose_bullets_do_not_parse(self):
         from fxcss.fetch import FLAG_LINE
         self.assertIsNone(FLAG_LINE.match("- just a sentence about things"))
