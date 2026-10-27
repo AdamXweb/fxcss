@@ -212,15 +212,15 @@ code,
   transform-origin: 256px 256px;
 }
 .brand:hover .brand-braces,
-.brand:focus-visible .brand-braces {
+.brand:focus-visible .brand-braces,
+.brand[data-spinning] .brand-braces {
   filter: drop-shadow(0 0 12px #00ddef) drop-shadow(0 0 24px #00ddef88);
 }
 @media (prefers-reduced-motion: no-preference) {
   .brand-braces {
     transition: filter 220ms ease;
   }
-  .brand:hover .brand-flames,
-  .brand:focus-visible .brand-flames {
+  .brand[data-spinning] .brand-flames {
     animation: fxcss-flame-spin 900ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 }
