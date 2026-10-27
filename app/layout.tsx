@@ -13,7 +13,12 @@ export const metadata: Metadata = {
   },
   description:
     "Try, build, and test Firefox userChrome.css themes. Live CSS editing, visual comparisons, and compatibility checks for macOS, Windows, and Linux.",
-  icons: { icon: "/assets/icon.png" },
+  icons: {
+    icon: [
+      { url: "/assets/icon.png", type: "image/png" },
+      { url: "/assets/fxcss-logo.svg", type: "image/svg+xml" },
+    ],
+  },
   ...shareCard({
     title: "fxcss — The Firefox theme toolkit",
     description: "Make Firefox your own. Try themes, edit CSS live, and keep every detail working.",
