@@ -15,13 +15,20 @@ property is exactly what an override silently dies against (the window-modal
 dialog stayed white under WhiteSur's dark palettes for that reason: the
 theme set `--in-content-page-background`, which current Firefox neither
 declares nor reads). Scanning the shipped sources answers both questions,
-covers documents the live audit cannot reach (dialogs, DevTools, in-content
-pages), and needs no second Firefox launch.
+covers documents the live audit cannot reach (dialogs, in-content pages), and
+needs no second Firefox launch.
+
+DevTools is kept apart. Its stylesheets style only DevTools' own documents,
+and it lags the browser's renames: Firefox 158's toolbar reads
+`--toolbarbutton-background-color-hover` while DevTools still declares and
+reads `--toolbarbutton-hover-background`. Pooled together, DevTools' reader
+vouched for an override no toolbar rule had read for releases.
 """
 import difflib
 import re
 import struct
 import zlib
+from collections import Counter
 from pathlib import Path
 
 # var(--x) in CSS is direct consumption. In scripts, any literal token is
@@ -36,6 +43,11 @@ CLASS_ATTR = re.compile(r'\bclass="([^"]+)"')
 
 SCRIPT_SUFFIXES = (".js", ".mjs", ".jsm")
 MARKUP_SUFFIXES = (".xhtml", ".html", ".xml", ".svg", ".inc")
+
+# Where DevTools packs its documents: chrome://devtools/ and
+# resource://devtools/ both map here. Not chrome/devtools-startup/, which is
+# the browser-side shim that opens DevTools and is loaded into every window.
+DEVTOOLS_ENTRY = "chrome/devtools/"
 
 
 def pack_paths(firefox):
@@ -93,19 +105,27 @@ def scan(firefox):
     Returns None when no omni.ja can be found (an unpackaged local build,
     say), in which case callers fall back to live probing. Otherwise a dict:
 
-      consumed  {property name: first file that reads it}
-      declared  {property name} declared in any shipped stylesheet
-      ids       {id: first markup file carrying it}
-      classes   {class: first markup file carrying it}
+      consumed           {property name: first file that reads it}
+      declared           {property name} declared in any shipped stylesheet
+      devtools_consumed  the same two, for DevTools' own files, which
+      devtools_declared  `consumed` and `declared` leave out
+      ids                {id: first markup file carrying it}
+      classes            {class: first markup file carrying it}
+
+    Markup ids and classes are not split: DevTools' markup is still where a
+    selector scoped to DevTools documents finds its element.
     """
     paths = pack_paths(firefox)
     if not paths:
         return None
-    consumed, declared, ids, classes = {}, set(), {}, {}
+    ids, classes = {}, {}
+    browser, devtools = ({}, set()), ({}, set())
     for pack in paths:
         label = Path(pack).name
         for name, content in read_entries(pack):
             where = f"{label}!{name}"
+            consumed, declared = (devtools if name.startswith(DEVTOOLS_ENTRY)
+                                  else browser)
             if name.endswith(".css"):
                 text = content.decode("utf-8", "replace")
                 for prop in CSS_VAR_USE.findall(text):
@@ -124,7 +144,8 @@ def scan(firefox):
                 for value in CLASS_ATTR.findall(text):
                     for cls in value.split():
                         classes.setdefault(cls, where)
-    return {"paths": paths, "consumed": consumed, "declared": declared,
+    return {"paths": paths, "consumed": browser[0], "declared": browser[1],
+            "devtools_consumed": devtools[0], "devtools_declared": devtools[1],
             "ids": ids, "classes": classes}
 
 
@@ -140,9 +161,62 @@ def _is_near_miss_property(name, candidate):
     return (len(name) - matched) + (len(candidate) - matched) <= 3
 
 
-def suggest_property(name, pack):
-    """The consumed property this dead one was probably renamed to, if any."""
-    pool = sorted(pack["consumed"])
+def _words(name):
+    return name.lstrip("-").split("-")
+
+
+def _is_reworded_property(name, candidate):
+    """The same words, reordered and at most one added, under the same lead.
+
+    Firefox's design tokens renamed by moving and appending words:
+    `--toolbarbutton-inner-padding` became `--toolbarbutton-padding-inner`,
+    `--toolbarbutton-hover-background` became
+    `--toolbarbutton-background-color-hover`. Character distance calls both
+    pairs strangers. The leading word names the component and survives such
+    renames, which keeps a theme's `--gnome-toolbar-color` off Firefox's
+    `--toolbar-color`; a dropped word is refused because it changes meaning
+    (`--toolbarbutton-icon-fill-opacity` is not `--toolbarbutton-icon-fill`).
+    """
+    old, new = _words(name), _words(candidate)
+    if name == candidate or old[0] != new[0]:
+        return False
+    old, new = Counter(old), Counter(new)
+    return not old - new and sum((new - old).values()) <= 1
+
+
+def _reworded(name, pool):
+    matches = [c for c in pool if _is_reworded_property(name, c)]
+    # A pure reorder before an added word, then the closest spelling.
+    matches.sort(key=lambda c: (
+        len(_words(c)),
+        -difflib.SequenceMatcher(None, name, c, autojunk=False).ratio(), c))
+    return matches[0] if matches else None
+
+
+def _pool(pack, key, devtools):
+    pool = set(pack[key])
+    if devtools:
+        pool |= set(pack.get(f"devtools_{key}", ()))
+    return sorted(pool)
+
+
+def suggest_property(name, pack, devtools=False):
+    """The consumed property this dead one was probably renamed to, if any.
+
+    `devtools` adds DevTools' readers to the pool, for a name the theme sets
+    where DevTools documents can see it.
+    """
+    pool = _pool(pack, "consumed", devtools)
     close = [c for c in difflib.get_close_matches(name, pool, n=4, cutoff=0.80)
              if _is_near_miss_property(name, c)]
-    return close[0] if close else None
+    return close[0] if close else _reworded(name, pool)
+
+
+def suggest_provided(name, pack, devtools=False):
+    """The declared property this undefined one was probably renamed to.
+
+    Rewordings only. A theme reading a name Firefox stopped providing has
+    almost always met a rename, and character distance there mostly finds
+    strangers: `--urlbar-width` is three letters from `--bar-width`.
+    """
+    return _reworded(name, _pool(pack, "declared", devtools))

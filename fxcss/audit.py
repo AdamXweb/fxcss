@@ -46,6 +46,9 @@ DOC_FUNCTION = re.compile(r"\b(url|url-prefix|domain|regexp)\(([^)]*)\)",
 # browser window, so this is the whole of what the collected DOM describes.
 AUDITED_DOCUMENT = "chrome://browser/content/browser.xhtml"
 
+DEVTOOLS_DOCUMENTS = "chrome://devtools/"
+DEVTOOLS_SAMPLE = DEVTOOLS_DOCUMENTS + "content/framework/toolbox.xhtml"
+
 
 def _document_functions(line):
     """The (kind, value) pairs of an @-moz-document condition on this line."""
@@ -68,6 +71,83 @@ def _scope_covers(functions, document=AUDITED_DOCUMENT):
         if kind in ("domain", "regexp"):
             return True
     return False
+
+
+def _reaches_devtools(functions):
+    """Can rules under this @-moz-document condition apply to DevTools?
+
+    The rule for counting a DevTools reader of a theme's property: the
+    declaration has to sit in an @-moz-document block that can match a
+    chrome://devtools/ document. userChrome.css does load into the toolbox
+    docked in a browser window, but not into the Browser Toolbox, which runs
+    in its own process and profile; and an unscoped rule is written for the
+    browser window -- WhiteSur set --toolbarbutton-hover-background on
+    #nav-bar, which no DevTools document has. A theme that does restyle
+    DevTools scopes it, as WhiteSur's own devtools.css does, and anything
+    else that means to can say so with fxcss-keep.
+
+    Unknown conditions count as not reaching, the opposite of _scope_covers
+    and for the same reason: here that is the direction that reports.
+    """
+    for kind, value in functions:
+        if kind == "url" and value.startswith(DEVTOOLS_DOCUMENTS):
+            return True
+        if kind == "url-prefix" and (value.startswith(DEVTOOLS_DOCUMENTS)
+                                     or DEVTOOLS_DOCUMENTS.startswith(value)):
+            return True
+        if kind == "domain" and value == "devtools":
+            return True
+        if kind == "regexp":
+            try:
+                if "devtools" in value or re.fullmatch(value, DEVTOOLS_SAMPLE):
+                    return True
+            except re.error:
+                pass
+    return False
+
+
+def _scoped_lines(blanked):
+    """Yield (index, line, cleaned, scopes) for each line of a stylesheet.
+
+    `blanked` has its comments blanked already. `cleaned` is the line with
+    strings and url() bodies neutralised, safe for counting braces and
+    finding selectors; `scopes` holds the function lists of the
+    @-moz-document blocks open on that line, outermost first.
+    """
+    # Brace depth and the @-moz-document blocks open at each depth. Counted
+    # on `cleaned`, so a brace inside a string or url() cannot shift it.
+    depth = 0
+    scope_stack = []
+    prelude = None
+
+    for index, scanned in enumerate(blanked.splitlines()):
+        cleaned = STRINGS.sub("''", URLS.sub("url()", scanned))
+
+        # Read the condition off `scanned`, where url() bodies survive.
+        # It may run past the end of the line -- a long list of url()s is
+        # usually wrapped -- so accumulate until the `{` that opens the
+        # block. Evaluating a half-read condition finds no functions at
+        # all, which would score as "excludes the audited window" and
+        # silently hide every finding inside.
+        if prelude is not None:
+            prelude += " " + scanned
+        elif MOZ_DOCUMENT.search(scanned):
+            prelude = scanned
+
+        for _ in range(cleaned.count("{")):
+            if prelude is not None:
+                scope_stack.append((depth, _document_functions(prelude)))
+                prelude = None
+            depth += 1
+
+        yield index, scanned, cleaned, [functions for _, functions in scope_stack]
+
+        # Closing braces after the caller has seen the line, so a `}` sharing
+        # a line with a declaration still counts that declaration as inside.
+        for _ in range(cleaned.count("}")):
+            depth = max(0, depth - 1)
+            if scope_stack and scope_stack[-1][0] == depth:
+                scope_stack.pop()
 
 
 def _looks_like_colour(kind, name):
@@ -94,44 +174,18 @@ def extract_tokens(theme: Path):
         blanked = COMMENT.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), raw)
         source_lines = raw.splitlines()
 
-        # Brace depth and the @-moz-document blocks open at each depth, so a
-        # rule scoped to a document the live audit never opens can be told
-        # apart from a global one. Counted on `cleaned`, where strings and
-        # url() bodies are already neutralised, so a brace inside either cannot
-        # shift the depth.
-        depth = 0
-        scope_stack = []
-        prelude = None
-
-        for index, scanned in enumerate(blanked.splitlines()):
-            cleaned = STRINGS.sub("''", URLS.sub("url()", scanned))
-
-            # Read the condition off `scanned`, where url() bodies survive.
-            # It may run past the end of the line -- a long list of url()s is
-            # usually wrapped -- so accumulate until the `{` that opens the
-            # block. Evaluating a half-read condition finds no functions at
-            # all, which would score as "excludes the audited window" and
-            # silently hide every finding inside.
-            if prelude is not None:
-                prelude += " " + scanned
-            elif MOZ_DOCUMENT.search(scanned):
-                prelude = scanned
-
-            for _ in range(cleaned.count("{")):
-                if prelude is not None:
-                    scope_stack.append(
-                        (depth, _scope_covers(_document_functions(prelude))))
-                    prelude = None
-                depth += 1
-
+        # The @-moz-document blocks open on each line, so a rule scoped to a
+        # document the live audit never opens can be told apart from a
+        # global one.
+        for index, _, cleaned, scopes in _scoped_lines(blanked):
             # One enclosing block that excludes the audited window is enough:
             # the rule can never apply there, whatever the outer blocks say.
-            scoped_out = any(not covers for _, covers in scope_stack)
+            scoped_out = any(not _scope_covers(functions) for functions in scopes)
 
             # Skip declaration-only lines so a property value cannot be
-            # mistaken for a selector -- but only for token extraction. The
-            # brace accounting still has to run below, or a `}` sharing a line
-            # with a declaration would leave the depth permanently wrong.
+            # mistaken for a selector -- but only for token extraction:
+            # _scoped_lines still counts their braces, or a `}` sharing a
+            # line with a declaration would leave the depth permanently wrong.
             declaration_only = ("{" not in cleaned
                                 and ";" in cleaned and ":" in cleaned)
 
@@ -148,11 +202,6 @@ def extract_tokens(theme: Path):
                         "text": source_lines[index].rstrip(),
                         "scoped_out": scoped_out,
                     })
-
-            for _ in range(cleaned.count("}")):
-                depth = max(0, depth - 1)
-                if scope_stack and scope_stack[-1][0] == depth:
-                    scope_stack.pop()
     return found
 
 
@@ -723,21 +772,29 @@ def custom_properties(paths):
     in the third return value: the theme author is saying "I know this looks
     dead here, keep it" — the usual reason being an older Firefox (an ESR)
     that still reads the name even though the audited build does not.
+
+    The fourth holds every name set or read inside a rule scoped to DevTools
+    documents (_reaches_devtools): the only names DevTools' own stylesheets
+    can count as reading or providing.
     """
-    defined, used, kept = {}, {}, set()
+    defined, used, kept, devtools = {}, {}, set(), set()
     for path in paths:
         text = path.read_text(encoding="utf-8", errors="replace")
         blanked = COMMENT.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), text)
         raw_lines = text.splitlines()
-        for number, line in enumerate(blanked.splitlines(), 1):
+        for index, line, _, scopes in _scoped_lines(blanked):
+            number = index + 1
             names = PROP_DEF.findall(line)
             for name in names:
                 defined.setdefault(name, []).append((path, number))
-            if names and "fxcss-keep" in raw_lines[number - 1]:
+            if names and "fxcss-keep" in raw_lines[index]:
                 kept.update(names)
-            for name in PROP_USE.findall(line):
+            uses = PROP_USE.findall(line)
+            for name in uses:
                 used.setdefault(name, []).append((path, number))
-    return defined, used, kept
+            if scopes and all(_reaches_devtools(functions) for functions in scopes):
+                devtools.update(names, uses)
+    return defined, used, kept, devtools
 
 
 PROBE_PROPERTIES = """
@@ -786,7 +843,7 @@ def collect_unused(theme: Path):
         else:
             orphans.append(sheet)
 
-    defined, used, kept = custom_properties(sorted(reachable))
+    defined, used, kept, devtools = custom_properties(sorted(reachable))
     return {
         "theme": theme,
         "reachable": len(reachable),
@@ -795,6 +852,7 @@ def collect_unused(theme: Path):
         "defined": defined,
         "used": used,
         "kept": kept,
+        "devtools": devtools,
     }
 
 
@@ -816,18 +874,35 @@ def classify_unused(static, firefox_knows, pack=None):
     resolution probe can never tell apart from a working one. That is exactly
     how `--in-content-page-background` died: it kept resolving on ESR-era
     guides while current Firefox had dropped every consumer.
+
+    The pack's DevTools half counts only for names the theme sets or reads
+    in a rule that can reach DevTools documents (_reaches_devtools). A name
+    only DevTools still claims is reported on its own, even when the theme
+    reads it too: the browser window provides no value for it, so the
+    theme's reads only ever see its own, and its overrides override nothing.
+    WhiteSur set --toolbarbutton-hover-background on #nav-bar and read it on
+    #back-button for months after the toolbar moved to
+    --toolbarbutton-background-color-hover, and only DevTools' reader of the
+    old name stood between that and a finding.
     """
     if static is None:
         return None
     theme = static["theme"]
     defined, used = static["defined"], static["used"]
     kept = static.get("kept", set())
+    scoped = static.get("devtools", set())
     defined_only = set(defined) - set(used)
 
     known = set(firefox_knows)
+    devtools_only = set()
     if pack:
-        known |= pack["declared"] | set(pack["consumed"])
         consumed = set(pack["consumed"])
+        known |= pack["declared"] | consumed
+        devtools_reads = set(pack.get("devtools_consumed", ()))
+        devtools_knows = pack.get("devtools_declared", set()) | devtools_reads
+        consumed |= devtools_reads & scoped
+        known |= devtools_knows & scoped
+        devtools_only = devtools_knows - known
         overrides = sorted(defined_only & consumed)
         stale = sorted(name for name in (defined_only & known) - consumed
                        if name not in kept)
@@ -838,36 +913,49 @@ def classify_unused(static, firefox_knows, pack=None):
     missing = [name for name in sorted(set(used) - set(defined))
                if name not in known]
     dead = [name for name in sorted(defined_only)
-            if name not in known and name not in kept]
+            if name not in known and name not in kept
+            and name not in devtools_only]
+    abandoned = [name for name in sorted(set(defined) & devtools_only)
+                 if name not in kept]
 
-    def _where(name):
+    def _where(name, places=defined):
         return {"name": name,
-                "file": str(defined[name][0][0].relative_to(theme)),
-                "line": defined[name][0][1]}
+                "file": str(places[name][0][0].relative_to(theme)),
+                "line": places[name][0][1]}
 
-    unused_properties = []
-    for name in dead:
-        item = _where(name)
+    def _suggest(item, provided=False):
         if pack:
             from . import omni
-            item["suggestion"] = omni.suggest_property(name, pack)
-        unused_properties.append(item)
+            suggest = omni.suggest_provided if provided else omni.suggest_property
+            item["suggestion"] = suggest(item["name"], pack,
+                                         devtools=item["name"] in scoped)
+        return item
+
+    devtools_properties = []
+    for name in abandoned:
+        item = _suggest(_where(name))
+        if name in used:
+            item["read_here"] = _where(name, used)
+        devtools_properties.append(item)
+
+    missing_properties = []
+    for name in missing:
+        item = _suggest(_where(name, used), provided=True)
+        item["uses"] = len(used[name])
+        item["devtools"] = name in devtools_only
+        missing_properties.append(item)
 
     return {
         "reachable": static["reachable"],
         "orphans": static["orphans"],
         "optional": static["optional"],
         "overrides": len(overrides),
-        "kept": sorted(kept & defined_only),
+        "kept": sorted(kept & (defined_only | devtools_only)),
         "packed": pack is not None,
         "stale_overrides": [_where(name) for name in stale],
-        "unused_properties": unused_properties,
-        "missing_properties": [
-            {"name": name,
-             "file": str(used[name][0][0].relative_to(theme)),
-             "line": used[name][0][1],
-             "uses": len(used[name])}
-            for name in missing],
+        "devtools_only": devtools_properties,
+        "unused_properties": [_suggest(_where(name)) for name in dead],
+        "missing_properties": missing_properties,
     }
 
 
@@ -879,6 +967,7 @@ def report_unused(unused, colour=True, show_all=False):
         return
     total = (len(unused["orphans"]) + len(unused["unused_properties"])
              + len(unused.get("stale_overrides", []))
+             + len(unused.get("devtools_only", []))
              + len(unused["missing_properties"]))
     print(c(BOLD, "  Unused and unreachable"))
     print(f"  {c(DIM, 'Housekeeping, not breakage — nothing here stops the theme working.')}")
@@ -902,6 +991,11 @@ def report_unused(unused, colour=True, show_all=False):
         for item in unused["missing_properties"][:10]:
             where = f"{item['file']}:{item['line']}"
             print(f"    {item['name']:<44} {c(DIM, where)} {c(DIM, '×' + str(item['uses']))}")
+            if item.get("devtools"):
+                print("      " + c(DIM, "only DevTools declares it, and these rules do not reach DevTools"))
+            if item.get("suggestion"):
+                print(f"      {c(GREEN, '→ ' + item['suggestion'])}"
+                      f" {c(DIM, 'is what this Firefox provides')}")
         print()
 
     if unused.get("stale_overrides"):
@@ -916,6 +1010,30 @@ def report_unused(unused, colour=True, show_all=False):
         for item in unused["stale_overrides"][:limit]:
             print(f"    {item['name']:<44} {c(DIM, item['file'] + ':' + str(item['line']))}")
         if limit and len(unused["stale_overrides"]) > limit:
+            print(f"    {c(DIM, 'Pass --all to list them.')}")
+        print()
+
+    if unused.get("devtools_only"):
+        count = len(unused["devtools_only"])
+        print(f"  {c(YELLOW, 'DEVTOOLS ONLY')} {count} custom "
+              f"propert{'ies' if count != 1 else 'y'} set here that only "
+              f"DevTools still uses")
+        print("  " + c(DIM, "This Firefox's browser chrome neither declares nor reads these names;"))
+        print("  " + c(DIM, "DevTools' stylesheets do, but only inside DevTools documents, which a"))
+        print("  " + c(DIM, "rule reaches from @-moz-document url-prefix(\"chrome://devtools/\")."))
+        print("  " + c(DIM, "Set anywhere else they override nothing: usually a rename the browser"))
+        print("  " + c(DIM, "made and DevTools did not."))
+        limit = None if show_all else 10
+        for item in unused["devtools_only"][:limit]:
+            print(f"    {item['name']:<44} {c(DIM, item['file'] + ':' + str(item['line']))}")
+            if item.get("read_here"):
+                read = item["read_here"]
+                print("      " + c(DIM, f"also read at {read['file']}:{read['line']}, "
+                                         "where only this theme's value reaches"))
+            if item.get("suggestion"):
+                print(f"      {c(GREEN, '→ ' + item['suggestion'])}"
+                      f" {c(DIM, 'is what this Firefox reads')}")
+        if limit and count > limit:
             print(f"    {c(DIM, 'Pass --all to list them.')}")
         print()
 
