@@ -157,11 +157,13 @@ jobs:
               }
 
               // Numbers only -- no strings from the artifact reach the comment.
-              // Exception: only_in_head names, each re-validated against the
-              // NAME allowlist and required to exist in full/ before use.
+              // Exception: view names, each re-validated against the NAME
+              // allowlist (and, for only_in_head, required to exist in full/).
               let pct = {};
               const fresh = [];
               const removed = [];
+              const below = [];
+              let minimum = 0, filtered = false;
               try {
                 const s = JSON.parse(fs.readFileSync(path.join(dir, 'summary.json'), 'utf8'));
                 for (const v of (Array.isArray(s.views) ? s.views : [])) {
@@ -185,6 +187,19 @@ jobs:
                     removed.push(n + '.png');
                   } else { excluded.add(String(n)); }
                 }
+                // Changes smaller than pr-preview.yml's FXCSS_MIN_CHANGED_PERCENT
+                // have no comparison image; list them so they are not mistaken
+                // for no change at all.
+                for (const v of (Array.isArray(s.below_threshold) ? s.below_threshold : [])) {
+                  if (v && typeof v.view === 'string' && NAME.test(v.view + '.png')
+                      && typeof pct[v.view] === 'number') {
+                    below.push(v.view + '.png');
+                  } else { excluded.add(String(v && v.view)); }
+                }
+                if (typeof s.min_changed_percent === 'number' && isFinite(s.min_changed_percent)) {
+                  minimum = Math.max(0, Math.min(100, s.min_changed_percent));
+                }
+                filtered = Array.isArray(s.views_filter) && s.views_filter.length > 0;
               } catch (e) {
                 core.setFailed(`unreadable summary.json for ${label}: ${e}`);
                 return;
@@ -195,7 +210,8 @@ jobs:
                 return;
               }
               report.push({ label, unreviewed: excluded.size, changed: changed.sort(), full: fulls.sort(),
-                            fresh: fresh.sort(), removed: removed.sort(), pct });
+                            fresh: fresh.sort(), removed: removed.sort(), below: below.sort(),
+                            minimum, filtered, pct });
             }
 
             if (!report.length) { core.setFailed('no valid platform reports'); return; }
@@ -294,11 +310,14 @@ jobs:
 
             const anyChange = report.some(r => r.changed.length || (r.fresh || []).length
                                           || (r.removed || []).length || r.unreviewed);
+            const anyBelow = report.some(r => (r.below || []).length);
+            const percent = (p) => `${Number(p.toFixed(4))}%`;
 
             for (const r of report) {
               const name = PLATFORM[r.label] || r.label;
               const fresh = r.fresh || [];
               const removed = r.removed || [];
+              const below = r.below || [];
               const parts = [];
               if (r.unreviewed) parts.push(`${r.unreviewed} unreviewed screenshot(s)`);
               if (r.changed.length) {
@@ -312,7 +331,11 @@ jobs:
               }
               body += `<details${parts.length ? ' open' : ''}>`;
               body += `<summary><b>${name}</b> — `;
-              body += parts.length ? parts.join(' · ') : 'no visual change';
+              body += parts.length ? parts.join(' · ')
+                : below.length ? `no change of ${percent(r.minimum)} or more` : 'no visual change';
+              if (below.length) {
+                body += ` · ${below.length} smaller change${below.length > 1 ? 's' : ''}`;
+              }
               body += `</summary>\n\n`;
 
               if (r.unreviewed) {
@@ -337,16 +360,32 @@ jobs:
                         `check whether the view was removed or could not be captured.\n\n`;
               }
 
+              if (below.length) {
+                body += `Changed by less than ${percent(r.minimum)} of pixels, not pictured: `;
+                body += below.map(f => {
+                  const p = r.pct[f.replace(/\.png$/, '')];
+                  return `${pretty(f)} (${percent(p)})`;
+                }).join(', ') + `\n\n`;
+              }
+
               if (!r.changed.length && !fresh.length && !removed.length && !r.unreviewed && r.full.length) {
-                body += `Nothing rendered differently. Current appearance:\n\n`;
+                body += below.length
+                  ? `Nothing changed by ${percent(r.minimum)} or more. Current appearance:\n\n`
+                  : `Nothing rendered differently. Current appearance:\n\n`;
                 body += `<img src="${base}/${r.label}/full/${r.full[0]}" width="900">\n\n`;
               }
               body += `</details>\n\n`;
             }
 
-            if (!anyChange) {
+            if (!anyChange && anyBelow) {
+              body += `No change on any platform reaches the threshold for a picture; ` +
+                      `the smaller changes are listed above.\n\n`;
+            } else if (!anyChange) {
               body += `No pixel differences on any platform — this PR does not change ` +
                       `how the browser chrome renders in these views.\n\n`;
+            }
+            if (report.some(r => r.filtered)) {
+              body += `Only the views selected by \`FXCSS_VIEWS\` in pr-preview.yml are compared.\n\n`;
             }
 
             body += `<sub>Views: browser window, focused address bar, find bar, modal ` +

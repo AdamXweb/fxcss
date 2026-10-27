@@ -1,5 +1,6 @@
 """The expected screenshot inventory and its machine-readable coverage report."""
 
+import fnmatch
 import json
 import re
 from pathlib import Path
@@ -9,6 +10,7 @@ EXTRAS = ("04-audio", "05-muted", "06-containers", "07-many-tabs", "08-private",
           "09-compact", "10-sidebar-bookmarks", "11-sidebar-history", "12-rtl",
           "13-customize", "14-vertical-tabs", "15-toolbar")
 VARIANT = re.compile(r"variant-[a-z0-9][a-z0-9+-]*\Z")
+VIEW_PATTERN = re.compile(r"[a-z0-9*?!+\[\]-]{1,160}\Z")
 
 
 def expected_views(variants=(), modes=("light", "dark")):
@@ -16,6 +18,52 @@ def expected_views(variants=(), modes=("light", "dark")):
              for view in ("01-window", "02-urlbar", "03-findbar", "04-dialog")]
             + [f"extra-{view}" for view in EXTRAS]
             + [f"variant-{slug}" for slug in sorted(variants)])
+
+
+def parse_view_patterns(spec):
+    """Turn a --views value into shell-style patterns, or None for every view.
+
+    Accepts a comma-separated string or a list of strings, so the same value
+    reads naturally on a command line and in .fxcss.json:
+
+        light-*,extra-07-many-tabs      light views plus the overflowing tab strip
+        *-02-urlbar                     the focused address bar in both schemes
+        variant-*                       every optional stylesheet capture
+    """
+    if spec is None:
+        return None
+    if isinstance(spec, str):
+        parts = spec.split(",")
+    elif isinstance(spec, list) and all(isinstance(p, str) for p in spec):
+        parts = spec
+    else:
+        raise ValueError("views must be a comma-separated string or a list of patterns")
+    patterns = []
+    for part in (p.strip().lower() for p in parts):
+        if not part:
+            continue
+        if not VIEW_PATTERN.fullmatch(part):
+            raise ValueError(f"invalid view pattern {part!r}; use view names such as "
+                             "light-01-window, with * and ? as wildcards")
+        if part not in patterns:
+            patterns.append(part)
+    return patterns or None
+
+
+def select_views(names, patterns):
+    """The names matching any pattern; a pattern that matches nothing is an error.
+
+    A typo must not quietly shrink what is compared, so every pattern has to
+    account for at least one view.
+    """
+    names = sorted(names)
+    if not patterns:
+        return names
+    unmatched = [p for p in patterns if not any(fnmatch.fnmatchcase(n, p) for n in names)]
+    if unmatched:
+        raise ValueError("no view matches " + ", ".join(unmatched)
+                         + "; views: " + (", ".join(names) or "none"))
+    return [n for n in names if any(fnmatch.fnmatchcase(n, p) for p in patterns)]
 
 
 def write_coverage(directory, info, expected, unsupported=None, failed=None,

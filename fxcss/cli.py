@@ -1518,9 +1518,15 @@ def cmd_init(args):
               f"your theme's root, or pass --theme", file=sys.stderr)
         return 2
     slugs = sorted(core.find_variant_sheets(theme))
+    try:
+        preview = scaffold.preview_settings(theme, args.variants, args.views,
+                                            args.min_changed_percent)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     written, skipped = scaffold.write_workflows(
         theme, slugs, watch=args.watch, showcase=args.showcase,
-        previews=args.previews, force=args.force)
+        previews=args.previews, force=args.force, preview=preview)
     print(scaffold.next_steps(written, skipped, slugs, args.watch, args.showcase,
                               args.previews))
     return 0
@@ -1796,7 +1802,8 @@ def cmd_compare(args):
     except ImportError as exc:
         return _needs_pillow("compare", exc)
     return compare.run(args.base.resolve(), args.head.resolve(),
-                       args.out.resolve(), args.platform)
+                       args.out.resolve(), args.platform, args.views,
+                       args.min_changed_percent)
 
 
 def cmd_check(args):
@@ -2088,6 +2095,15 @@ def build_parser():
     ini.add_argument("--previews", action="store_true",
                      help="also add the workflow that keeps README screenshots "
                           "of every view and variant up to date")
+    ini.add_argument("--variants", default="all", metavar="all|NAME[,NAME]",
+                     help="PR previews: optional stylesheets to capture; '' for "
+                          "none (default: all)")
+    ini.add_argument("--views", default="", metavar="PATTERN[,PATTERN]",
+                     help="PR previews: compare and show only matching views, "
+                          "e.g. 'light-*,extra-07-many-tabs' (default: every view)")
+    ini.add_argument("--min-changed-percent", type=float, default=0.0, metavar="N",
+                     help="PR previews: leave out views where less than N%% of "
+                          "pixels changed; the comment still counts them (default: 0)")
     ini.add_argument("--force", action="store_true",
                      help="replace workflow files that already exist")
     ini.set_defaults(func=cmd_init)
@@ -2179,6 +2195,13 @@ def build_parser():
                         "publish plain screenshots, read <out>/full/ here or "
                         "`fxcss shot`'s --out directly")
     c.add_argument("--platform", default="local")
+    c.add_argument("--views", default=None, metavar="PATTERN[,PATTERN]",
+                   help="compare only captures whose names match, e.g. "
+                        "'light-*,extra-07-many-tabs'; * and ? are wildcards. "
+                        "A pattern that matches nothing is an error")
+    c.add_argument("--min-changed-percent", type=float, default=0.0, metavar="N",
+                   help="report a view where less than N%% of pixels changed "
+                        "without drawing it or counting it as changed (default: 0)")
     c.set_defaults(func=cmd_compare)
 
     ck = sub.add_parser("check", help="audit, capture and compare with saved project settings")
@@ -2197,6 +2220,10 @@ def build_parser():
                     help="fail on dead custom properties (default: false)")
     ck.add_argument("--max-changed-percent", type=float,
                     help="fail if any view exceeds this percent of changed pixels (0–100)")
+    ck.add_argument("--views", metavar="PATTERN[,PATTERN]",
+                    help="compare only matching views, e.g. 'light-*,variant-*'")
+    ck.add_argument("--min-changed-percent", type=float,
+                    help="report smaller changes without picturing them (0–100)")
     ck.set_defaults(func=cmd_check)
 
     g = sub.add_parser("catalogue", help="build the themeable UI directory")

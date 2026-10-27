@@ -6,7 +6,9 @@ each matching view, and writes one stacked comparison image per view that
 changed, plus a summary.json describing what changed and by how much.
 
 Views that render identically are reported but not drawn -- the point is to put
-the reviewer's eye straight on the difference.
+the reviewer's eye straight on the difference. --views narrows the comparison
+to matching captures, and --min-changed-percent reports a view whose change is
+smaller than that share of its pixels without drawing it.
 
 Usage:
     fxcss compare --base base/ --head head/ --out out/ --platform macos
@@ -14,10 +16,13 @@ Usage:
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 
 from PIL import Image, ImageChops, ImageDraw, ImageFont
+
+from .capture import parse_view_patterns, select_views
 
 # Width each panel is normalised to. GitHub renders comment images at roughly
 # 800px, so this stays sharp without making the comment enormous.
@@ -124,7 +129,7 @@ def stack(panels, width):
     return canvas
 
 
-def compare_view(name, base_path, head_path, outdir):
+def compare_view(name, base_path, head_path, outdir, min_percent=0.0):
     base = normalise(Image.open(base_path))
     head = normalise(Image.open(head_path))
 
@@ -154,7 +159,8 @@ def compare_view(name, base_path, head_path, outdir):
         "percent": round(pct, 4),
         "image": None,
     }
-    if changed == 0:
+    # Below the threshold the change is still counted, just not drawn.
+    if changed == 0 or pct < min_percent:
         return result
 
     comparison = stack(
@@ -203,21 +209,34 @@ def _clear_previous(out):
     previous.unlink()
 
 
-def run(base_dir: Path, head_dir: Path, out: Path, platform: str):
+def run(base_dir: Path, head_dir: Path, out: Path, platform: str, views=None,
+        min_changed_percent=0.0):
     try:
-        return _run(base_dir.resolve(), head_dir.resolve(), out.resolve(), platform)
+        return _run(base_dir.resolve(), head_dir.resolve(), out.resolve(), platform,
+                    views, min_changed_percent)
     except (OSError, ValueError, KeyError, TypeError) as exc:
         print(f"error: cannot compare screenshots: {exc}", file=sys.stderr)
         return 2
 
 
-def _run(base_dir, head_dir, out, platform):
+def _run(base_dir, head_dir, out, platform, views=None, min_changed_percent=0.0):
     for source in (base_dir, head_dir):
         if out == source or out in source.parents or source in out.parents:
             raise ValueError("comparison output must be separate from the input directories")
+    minimum = min_changed_percent or 0.0
+    if (type(minimum) not in (int, float) or not math.isfinite(minimum)
+            or not 0 <= minimum <= 100):
+        raise ValueError("--min-changed-percent must be a number from 0 to 100")
+    patterns = parse_view_patterns(views)
 
     base_shots = _captures(base_dir)
     head_shots = _captures(head_dir)
+    if patterns:
+        # Matched against both sides, so selecting a view that one revision
+        # lacks still reports it as added or missing.
+        selected = set(select_views(set(base_shots) | set(head_shots), patterns))
+        base_shots = {k: v for k, v in base_shots.items() if k in selected}
+        head_shots = {k: v for k, v in head_shots.items() if k in selected}
     if (out / "full").is_symlink():
         raise ValueError("comparison full/ directory must not be a symlink")
     shared = sorted(set(base_shots) & set(head_shots))
@@ -226,15 +245,18 @@ def _run(base_dir, head_dir, out, platform):
 
     summary = {
         "platform": platform,
+        "views_filter": patterns,
+        "min_changed_percent": minimum,
         "views": [],
         "only_in_base": sorted(set(base_shots) - set(head_shots)),
         "only_in_head": sorted(set(head_shots) - set(base_shots)),
     }
 
     for name in shared:
-        result = compare_view(name, base_shots[name], head_shots[name], out)
+        result = compare_view(name, base_shots[name], head_shots[name], out, minimum)
         summary["views"].append(result)
-        state = "changed" if result["changed_pixels"] else "identical"
+        state = ("changed" if result["image"] else
+                 "below threshold" if result["changed_pixels"] else "identical")
         print(f"  {name}: {state} ({result['percent']:.3f}%)", flush=True)
 
     # Always ship the head screenshots too, so a reviewer can see the whole UI
@@ -244,7 +266,9 @@ def _run(base_dir, head_dir, out, platform):
     for name, path in head_shots.items():
         normalise(Image.open(path)).save(full_dir / f"{name}.png", optimize=True)
 
-    summary["changed_views"] = [v for v in summary["views"] if v["changed_pixels"]]
+    summary["changed_views"] = [v for v in summary["views"] if v["image"]]
+    summary["below_threshold"] = [v for v in summary["views"]
+                                  if v["changed_pixels"] and not v["image"]]
     # A view with no base-side counterpart -- a variant this PR adds, say -- is
     # a visual change too, even though there was nothing to diff it against.
     summary["any_change"] = bool(summary["changed_views"] or summary["only_in_head"]
@@ -256,6 +280,9 @@ def _run(base_dir, head_dir, out, platform):
 
     (out / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(f"\n{len(summary['changed_views'])} of {len(shared)} views changed on {platform}")
+    if summary["below_threshold"]:
+        print(f"{len(summary['below_threshold'])} more changed by less than "
+              f"{minimum:g}% and are not drawn")
     if summary["only_in_head"]:
         print(f"{len(summary['only_in_head'])} more exist only on the head side")
     if summary["only_in_base"]:
@@ -269,8 +296,11 @@ def main():
     ap.add_argument("--head", required=True, type=Path)
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--platform", required=True)
+    ap.add_argument("--views", default=None)
+    ap.add_argument("--min-changed-percent", type=float, default=0.0)
     args = ap.parse_args()
-    return run(args.base, args.head, args.out, args.platform)
+    return run(args.base, args.head, args.out, args.platform, args.views,
+               args.min_changed_percent)
 
 
 if __name__ == "__main__":
