@@ -147,9 +147,11 @@ class Marionette:
             "sandbox": "system", "newSandbox": False, "scriptTimeout": timeout,
         }))
 
-    def screenshot(self):
-        return base64.b64decode(self.command(
-            "WebDriver:TakeScreenshot", {"full": True, "hash": False})["value"])
+    def screenshot(self, element=None):
+        params = {"full": True, "hash": False}
+        if element is not None:
+            params = {"id": element, "full": False, "hash": False, "scroll": False}
+        return base64.b64decode(self.command("WebDriver:TakeScreenshot", params)["value"])
 
     def quit(self):
         try:
@@ -1115,7 +1117,7 @@ def _capture_audio_views(m, outdir):
             state = m.script(AUDIO_STATE) or {}
             if not state.get("playing") or state.get("muted") is not muted:
                 raise RuntimeError(f"could not establish audio indicator state for {name}: {state}")
-            _shot(m, outdir, name)
+            _shot(m, outdir, name, layout=True)
     finally:
         # Audio-only theme rules must not affect later sidebar or toolbar views.
         m.script(SET_AUDIO_STATE, [None])
@@ -1317,9 +1319,11 @@ const sleep = ms => new Promise(resolve => {
     previous = shot;
   }
 
+  const frameBox = frame.getBoundingClientRect();
+  const box = [frameBox.x, frameBox.y, frameBox.width, frameBox.height];
   dlg.getButton("cancel").click();
   await Promise.race([dlgPromise.catch(() => {}), sleep(3000)]);
-  await put({done: true, shot});
+  await put({done: true, shot, box});
 })().catch(async e => {
   try {
     const browser = win.document.querySelector("#window-modal-dialog browser");
@@ -1375,8 +1379,439 @@ def _dialog_shot(session: "Session", outdir: Path, name: str, timeout=45.0):
     if len(png) < 2000:
         raise RuntimeError(f"screenshot {name} is implausibly small ({len(png)} bytes)")
     (outdir / f"{name}.png").write_bytes(png)
+    _add_dialog_to_layout(outdir, name, result.get("box"))
     print(f"  captured {name}.png ({len(png) // 1024} KB)", flush=True)
 
+
+def _add_dialog_to_layout(outdir, name, box):
+    """Place the prompt itself in the layout noted before it opened."""
+    from . import capture
+    path = outdir / capture.LAYOUT
+    if not (isinstance(box, list) and len(box) == 4 and path.is_file()):
+        return
+    try:
+        layout = json.loads(path.read_text(encoding="utf-8"))
+        layout[name]["boxes"].append(["Dialogs", *box])
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return
+    path.write_text(json.dumps(layout, indent=1) + "\n", encoding="utf-8")
+
+
+# --- surface views ---------------------------------------------------------
+#
+# Parts of the UI no full-window view shows: toolbar buttons under the
+# pointer, the search engine button and its menu, the panels that drop from
+# the toolbar, and Settings. Each image is cropped to its own surface, so a
+# change somewhere else -- a restyled tab strip, say -- leaves it alone, and a
+# preview only pictures these when they really changed.
+
+# The surface views' window: tall enough that an open panel lies entirely over
+# Firefox's own window -- so its translucent edges and rounded corners show
+# the browser, never whatever else is on the desktop -- and no larger than the
+# screen, so a screen capture can reach all of it (GitHub's Windows runners
+# have a 1024x768 screen).
+SURFACE_WINDOW_HEIGHT = 900
+
+SURFACE_WINDOW = """
+const [width, height] = arguments;
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+const screen = win.screen;
+win.moveTo(screen.availLeft, screen.availTop);
+win.resizeTo(Math.min(width, screen.availWidth), Math.min(height, screen.availHeight));
+return [win.outerWidth, win.outerHeight];
+"""
+
+# Locked rather than hovered with the pointer so several show at once. The
+# lock is the state :hover rules see; moz-button hosts (the search engine
+# button) ignore it, which is why that view moves the pointer instead.
+HOVER_BUTTONS = ("sidebar-button", "reload-button", "home-button", "firefox-view-button",
+                 "tabs-newtab-button", "alltabs-button", "unified-extensions-button",
+                 "fxa-toolbar-menu-button", "PanelUI-menu-button")
+
+HOVER_LOCK = """
+const [ids, on] = arguments;
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+let count = 0;
+for (const id of ids) {
+  const el = win.document.getElementById(id);
+  if (!el) { continue; }
+  if (on) {
+    win.InspectorUtils.addPseudoClassLock(el, ":hover");
+    count += 1;
+  } else {
+    win.InspectorUtils.clearPseudoClassLocks(el);
+  }
+}
+return count;
+"""
+
+# A visible element to crop a capture to. Marionette crops a chrome-context
+# screenshot to an element reference itself, so no image library is needed.
+SURFACE_ELEMENT = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+const el = arguments[0] === "selected-browser" ? win.gBrowser.selectedBrowser
+  : win.document.querySelector(arguments[0]);
+if (!el) { return null; }
+const r = el.getBoundingClientRect();
+return r.width > 0 && r.height > 0 ? el : null;
+"""
+
+# The address bar focused and empty, which is when Firefox shows the search
+# engine button. Returns the button's box, or null where there is none.
+SEARCH_BUTTON = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+if (arguments[0]) {
+  win.gURLBar.focus();
+  win.gURLBar.value = "";
+  win.gURLBar.setPageProxyState("invalid");
+}
+const button = [...win.document.querySelectorAll("#urlbar .searchmode-switcher")]
+  .find(el => !el.checkVisibility || el.checkVisibility());
+if (!button) { return null; }
+const r = button.getBoundingClientRect();
+return r.width > 0 && r.height > 0 ? [r.x, r.y, r.width, r.height] : null;
+"""
+
+# Brings this Firefox to the front and waits for the window to take focus.
+# Panels are their own OS windows: a screen capture photographs whatever is on
+# top, and a panel opened while focus is still moving closes itself again.
+ACTIVATE_WINDOW = """
+const done = arguments[arguments.length - 1];
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+(async () => {
+  const sleep = ms => new Promise(resolve => win.setTimeout(resolve, ms));
+  try {
+    Cc["@mozilla.org/widget/macdocksupport;1"]
+      .getService(Ci.nsIMacDockSupport).activateApplication(true);
+  } catch (e) {}
+  win.focus();
+  for (let i = 0; i < 25; i++) {
+    if (win.document.hasFocus() && Services.focus.activeWindow === win) { break; }
+    await sleep(200);
+  }
+  await sleep(600);
+  done(true);
+})().catch(e => done(String(e)));
+"""
+
+# Screen geometry: CSS pixels times `scale` are the desktop coordinates a
+# screen capture takes (points on macOS, device pixels elsewhere).
+SCREEN_GEOMETRY = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+const nav = win.document.getElementById("nav-bar").getBoundingClientRect();
+const desktop = win.desktopToDeviceScale || 1;
+return {x: win.mozInnerScreenX, y: win.mozInnerScreenY, dpr: win.devicePixelRatio,
+        scale: win.devicePixelRatio / desktop, navbar: [nav.x, nav.y, nav.width, nav.height]};
+"""
+
+OPEN_PANEL = """
+const done = arguments[arguments.length - 1];
+const which = arguments[0];
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+const doc = win.document;
+(async () => {
+  const sleep = ms => new Promise(resolve => win.setTimeout(resolve, ms));
+  const visible = el => el && (!el.checkVisibility || el.checkVisibility());
+  if (which === "app-menu") {
+    win.PanelUI.show();
+  } else if (which === "extensions-panel") {
+    const button = doc.getElementById("unified-extensions-button");
+    if (!visible(button)) { return done({skip: "no extensions button on this Firefox"}); }
+    button.click();
+  } else if (which === "account-panel") {
+    const button = doc.getElementById("fxa-toolbar-menu-button");
+    if (!visible(button)) { return done({skip: "no account button on this Firefox"}); }
+    button.click();
+  }
+  // The search engine menu was opened by a pointer click before this ran.
+  for (let i = 0; i < 30; i++) {
+    const open = [...doc.querySelectorAll("panel, menupopup")]
+      .filter(p => p.state === "open")
+      .map(p => [p, p.getOuterScreenRect()])
+      .filter(([p, r]) => r.width > 0 && r.height > 0)
+      .sort((a, b) => b[1].width * b[1].height - a[1].width * a[1].height);
+    if (open.length) {
+      await sleep(700);
+      const r = open[0][0].getOuterScreenRect();
+      return done({rect: [r.x, r.y, r.width, r.height]});
+    }
+    await sleep(200);
+  }
+  done({error: "the panel did not open"});
+})().catch(e => done({error: String(e)}));
+"""
+
+CLOSE_PANELS = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+for (const p of win.document.querySelectorAll("panel, menupopup")) {
+  if (p.state === "open" || p.state === "showing") { p.hidePopup(); }
+}
+return true;
+"""
+
+OPEN_SETTINGS = """
+const done = arguments[arguments.length - 1];
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+(async () => {
+  const sleep = ms => new Promise(resolve => win.setTimeout(resolve, ms));
+  const sp = Services.scriptSecurityManager.getSystemPrincipal();
+  // Remembered so closing Settings returns to the same tab: every later view
+  // shows it, and a panel's translucent edge shows the page behind it.
+  win._fxcssBeforeSettings = win.gBrowser.selectedTab;
+  const tab = win.gBrowser.addTab("about:preferences", {triggeringPrincipal: sp});
+  win.gBrowser.selectedTab = tab;
+  for (let i = 0; i < 100; i++) {
+    const doc = tab.linkedBrowser.contentDocument;
+    if (doc && doc.readyState === "complete" && doc.querySelector("#categories, moz-page-nav")) {
+      await sleep(1000);
+      // Rest state: no focus ring on the search field Settings focuses.
+      if (doc.activeElement && doc.activeElement !== doc.body) { doc.activeElement.blur(); }
+      return done(true);
+    }
+    await sleep(100);
+  }
+  done(false);
+})().catch(e => done(String(e)));
+"""
+
+CLOSE_SETTINGS = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+const tab = win.gBrowser.selectedTab;
+const previous = win._fxcssBeforeSettings;
+if (tab.linkedBrowser.currentURI.spec.startsWith("about:preferences")) {
+  if (previous && !previous.closing) { win.gBrowser.selectedTab = previous; }
+  win.gBrowser.removeTab(tab, {animate: false});
+}
+delete win._fxcssBeforeSettings;
+return win.gBrowser.selectedTab === previous;
+"""
+
+
+def _pointer(m, x=None, y=None, click=False):
+    """Move the synthesized pointer to (x, y) in the window, optionally clicking."""
+    actions = []
+    if x is not None:
+        actions.append({"type": "pointerMove", "x": int(x), "y": int(y),
+                        "origin": "viewport", "duration": 0})
+    if click:
+        actions += [{"type": "pointerDown", "button": 0}, {"type": "pointerUp", "button": 0}]
+    m.command("WebDriver:PerformActions", {"actions": [{
+        "type": "pointer", "id": "fxcss-pointer", "parameters": {"pointerType": "mouse"},
+        "actions": actions}]})
+
+
+def _element_ref(m, selector):
+    found = m.script(SURFACE_ELEMENT, [selector])
+    if isinstance(found, dict) and found:
+        return next(iter(found.values()))
+    return None
+
+
+def _screen_grab(box):
+    from PIL import ImageGrab
+    x, y, w, h = box
+    return ImageGrab.grab(bbox=(round(x), round(y), round(x + w), round(y + h))).convert("RGB")
+
+
+def _screen_capture_problem(m):
+    """None when a screen capture shows this Firefox window, else the reason.
+
+    Checked against Marionette's own capture of the navigation bar, so a
+    missing screen-recording permission, another window on top or a display
+    the capture cannot reach is reported rather than photographed.
+    """
+    try:
+        from PIL import Image, ImageChops, ImageGrab  # noqa: F401
+    except ImportError:
+        return "screen capture needs Pillow"
+    import io
+    m.async_script(ACTIVATE_WINDOW)
+    geometry = m.script(SCREEN_GEOMETRY)
+    dpr, scale = geometry["dpr"], geometry["scale"]
+    x, y, w, h = geometry["navbar"]
+    try:
+        seen = _screen_grab(((geometry["x"] + x) * scale, (geometry["y"] + y) * scale,
+                             w * scale, h * scale))
+    except Exception as exc:
+        print(f"  note: screen capture failed: {str(exc)[:120]}", flush=True)
+        return "screen capture cannot see the Firefox window"
+    own = Image.open(io.BytesIO(_capture_png(m))).convert("RGB").crop(
+        (round(x * dpr), round(y * dpr), round((x + w) * dpr), round((y + h) * dpr)))
+    if seen.size != own.size:
+        seen = seen.resize(own.size)
+    histogram = ImageChops.difference(seen, own).convert("L").histogram()
+    mean = sum(i * n for i, n in enumerate(histogram)) / max(1, own.width * own.height)
+    if mean > 8:
+        print(f"  note: the screen shows something other than Firefox there "
+              f"(mean difference {mean:.1f})", flush=True)
+        return "screen capture cannot see the Firefox window"
+    return None
+
+
+def _open_search_menu(m):
+    """Click the search engine button; True once its menu is open."""
+    m.script(SEARCH_BUTTON, [True])
+    time.sleep(0.5)
+    button = m.script(SEARCH_BUTTON, [False])
+    if not button:
+        return False
+    bx, by, bw, bh = button
+    _pointer(m, bx + bw / 2, by + bh / 2, click=True)
+    time.sleep(0.8)
+    return bool(m.script(SEARCH_MENU_OPEN))
+
+
+SEARCH_MENU_OPEN = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+const list = win.document.querySelector(".searchmode-switcher-panel-list");
+return Boolean(list && list.hasAttribute("open"));
+"""
+
+
+def _panel_shot(m, outdir, name, which, tries=8):
+    """Open a panel and capture its screen area once two captures agree.
+
+    Returns an unsupported reason, or None once the view is captured or skipped.
+    """
+    # Focus first: a panel open while focus is still arriving closes itself.
+    m.async_script(ACTIVATE_WINDOW)
+    try:
+        if which == "search-menu" and not (_open_search_menu(m) or _open_search_menu(m)):
+            print(f"  note: the search engine menu did not open; skipping {name}", flush=True)
+            return None
+        result = m.async_script(OPEN_PANEL, [which]) or {}
+        if result.get("skip"):
+            return result["skip"]
+        if "rect" not in result:
+            print(f"  note: {result.get('error', 'no panel')}; skipping {name}", flush=True)
+            return None
+        geometry = m.script(SCREEN_GEOMETRY)
+        scale, dpr = geometry["scale"], geometry["dpr"]
+        x, y, w, h = result["rect"]
+        box = (x * scale, y * scale, w * scale, h * scale)
+        previous = _screen_grab(box)
+        image = previous
+        for _ in range(tries):
+            time.sleep(0.5)
+            image = _screen_grab(box)
+            if image.tobytes() == previous.tobytes():
+                break
+            previous = image
+        else:
+            print(f"  warning: {name} never settled after {tries} attempts; "
+                  f"this view may compare as changed when nothing did", flush=True)
+        # The same pixel density as Marionette's captures on every platform.
+        size = (round(w * dpr), round(h * dpr))
+        if abs(image.width - size[0]) > 1 or abs(image.height - size[1]) > 1:
+            image = image.resize(size)
+        image.save(outdir / f"{name}.png", optimize=True)
+        print(f"  captured {name}.png ({(outdir / f'{name}.png').stat().st_size // 1024} KB)",
+              flush=True)
+        return None
+    finally:
+        m.script(CLOSE_PANELS)
+        time.sleep(0.8)
+
+
+def _capture_surface_views(session, outdir, modes, coverage):
+    """The cropped surface views, in a session of their own.
+
+    Pointer position, hover locks and opened panels all leave traces, so none
+    of this may run in the window the full-window views come from. Settings
+    goes first, in both schemes, before the pointer has moved anywhere it could
+    hover a part of the page.
+    """
+    from . import capture
+    m = session.m
+    size = m.script(SURFACE_WINDOW, [WINDOW_WIDTH, SURFACE_WINDOW_HEIGHT])
+    print(f"  surface views: window {size[0]}x{size[1]}", flush=True)
+    time.sleep(1.5)
+    for mode in modes:
+        session.set_dark(mode == "dark")
+        time.sleep(2.0)
+        if m.async_script(OPEN_SETTINGS) is True:
+            ref = _element_ref(m, "selected-browser")
+            if ref:
+                _shot(m, outdir, f"{mode}-11-settings", element=ref)
+            if not m.script(CLOSE_SETTINGS):
+                print("  warning: could not return to the original tab after Settings; "
+                      "later views may show a different tab", flush=True)
+            time.sleep(0.8)
+        else:
+            print("  note: Settings did not open; skipping that view", flush=True)
+
+    screen_problem = None
+    checked_screen = False
+    for mode in modes:
+        session.set_dark(mode == "dark")
+        time.sleep(2.0)
+
+        locked = m.script(HOVER_LOCK, [list(HOVER_BUTTONS), True])
+        time.sleep(0.8)
+        try:
+            ref = _element_ref(m, "#navigator-toolbox")
+            if locked and ref:
+                _shot(m, outdir, f"{mode}-05-toolbar-hover", element=ref)
+            else:
+                print("  note: no toolbar buttons to hover; skipping that view", flush=True)
+        finally:
+            m.script(HOVER_LOCK, [list(HOVER_BUTTONS), False])
+        time.sleep(0.5)
+
+        button = m.script(SEARCH_BUTTON, [True])
+        time.sleep(0.8)
+        button = m.script(SEARCH_BUTTON, [False])
+        if button:
+            bx, by, bw, bh = button
+            _pointer(m, bx + bw / 2, by + bh / 2)
+            time.sleep(0.8)
+            ref = _element_ref(m, "#urlbar-container")
+            if ref:
+                _shot(m, outdir, f"{mode}-06-search-engine", element=ref)
+            else:
+                print("  note: no address bar to crop to; skipping that view", flush=True)
+        else:
+            for name in (f"{mode}-06-search-engine", f"{mode}-07-search-menu"):
+                coverage["unsupported"][name] = capture.NO_SEARCH_BUTTON
+                print(f"  unsupported {name}: {capture.NO_SEARCH_BUTTON}", flush=True)
+
+        if not checked_screen:
+            screen_problem = _screen_capture_problem(m)
+            checked_screen = True
+        panels = [("08-app-menu", "app-menu"), ("09-extensions-panel", "extensions-panel"),
+                  ("10-account-panel", "account-panel")]
+        if button:
+            panels.insert(0, ("07-search-menu", "search-menu"))
+        for key, which in panels:
+            name = f"{mode}-{key}"
+            reason = screen_problem or _panel_shot(m, outdir, name, which)
+            if reason:
+                coverage["unsupported"][name] = reason
+                print(f"  unsupported {name}: {reason}", flush=True)
+        m.script(RESTORE_URLBAR)
+        # Park the pointer low on the page, clear of every toolbar and panel.
+        width, height = m.script(VIEWPORT_SIZE)
+        _pointer(m, width // 2, height - 8)
+        time.sleep(0.5)
+
+
+# Back to showing the page's address, as every other view does: emptying the
+# address bar for the search engine button leaves it empty after a blur.
+RESTORE_URLBAR = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+if (win.gURLBar.view.isOpen) { win.gURLBar.view.close(); }
+win.gURLBar.blur();
+win.gBrowser.selectedBrowser.focus();
+if (typeof win.gURLBar.handleRevert === "function") { win.gURLBar.handleRevert(); }
+else { win.gURLBar.setURI(); }
+return win.gURLBar.value;
+"""
+
+
+VIEWPORT_SIZE = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+return [win.innerWidth, win.innerHeight];
+"""
 
 def capture_views(session: Session, outdir: Path, modes=("light", "dark"),
                   variants=None, toolbar=None):
@@ -1388,6 +1823,8 @@ def capture_views(session: Session, outdir: Path, modes=("light", "dark"),
     for path in outdir.glob("*.png"):
         if path.stem in capture.expected_views() or capture.VARIANT.fullmatch(path.stem):
             path.unlink()
+    if (outdir / capture.LAYOUT).is_file():
+        (outdir / capture.LAYOUT).unlink()
     coverage = {"info": {}, "unsupported": {}, "failed": {}}
     interrupted = False
     try:
@@ -1425,11 +1862,11 @@ def _capture_views(session: Session, outdir: Path, modes=("light", "dark"),
         if mode == "dark":
             time.sleep(2.0)
 
-        _shot(m, outdir, f"{mode}-01-window")
+        _shot(m, outdir, f"{mode}-01-window", layout=True)
 
         m.script(FOCUS_URLBAR, ["firefox css theme"])
         time.sleep(1.0)
-        _shot(m, outdir, f"{mode}-02-urlbar")
+        _shot(m, outdir, f"{mode}-02-urlbar", layout=True)
         m.script(BLUR_URLBAR)
         time.sleep(0.8)
 
@@ -1442,10 +1879,12 @@ def _capture_views(session: Session, outdir: Path, modes=("light", "dark"),
         time.sleep(1.2)
         m.script(RESET_FINDBAR)
         time.sleep(0.8)
-        _shot(m, outdir, f"{mode}-03-findbar", before=RESET_FINDBAR)
+        _shot(m, outdir, f"{mode}-03-findbar", before=RESET_FINDBAR, layout=True)
         m.script(CLOSE_FINDBAR)
         time.sleep(0.6)
 
+        # The dialog draws itself, so note the window's layout before it opens.
+        _record_layout(m, outdir, f"{mode}-04-dialog")
         # The window-modal prompt is a per-scheme view like the three above:
         # its body is painted by its own document, and dark is where themes
         # break it (see DIALOG_VIEW). Captured through its handoff file, not
@@ -1475,7 +1914,7 @@ def _capture_views(session: Session, outdir: Path, modes=("light", "dark"),
     containers = m.script(CONTAINER_TABS, [session.urls["docs.html"]])
     time.sleep(3.0)
     if containers:
-        _shot(m, outdir, "extra-06-containers")
+        _shot(m, outdir, "extra-06-containers", layout=True)
     else:
         print("  note: no container identities available; skipping that view", flush=True)
 
@@ -1483,7 +1922,7 @@ def _capture_views(session: Session, outdir: Path, modes=("light", "dark"),
     # and the shrunken tab layout.
     m.script(MANY_TABS, [session.urls["docs.html"], 18])
     time.sleep(3.0)
-    _shot(m, outdir, "extra-07-many-tabs", before=PIN_TABSTRIP)
+    _shot(m, outdir, "extra-07-many-tabs", before=PIN_TABSTRIP, layout=True)
 
     # A private window is a separate window with its own styling; plenty of
     # themes style it and never look at it again.
@@ -1509,7 +1948,7 @@ def _capture_views(session: Session, outdir: Path, modes=("light", "dark"),
         m.script(NAVIGATE, [session.urls["start.html"]])
         time.sleep(3.0)
         if mode:
-            _shot(m, outdir, "extra-08-private")
+            _shot(m, outdir, "extra-08-private", layout=True)
         else:
             print("  note: new window is not private; skipping that view", flush=True)
         m.script(CLOSE_WINDOW)
@@ -1525,7 +1964,7 @@ def _capture_views(session: Session, outdir: Path, modes=("light", "dark"),
     # changed so the next view starts from the same place.
     m.script(SET_DENSITY, [1])
     time.sleep(1.5)
-    _shot(m, outdir, "extra-09-compact", before=PIN_TABSTRIP)
+    _shot(m, outdir, "extra-09-compact", before=PIN_TABSTRIP, layout=True)
     m.script(SET_DENSITY, [0])
     time.sleep(1.0)
 
@@ -1535,7 +1974,7 @@ def _capture_views(session: Session, outdir: Path, modes=("light", "dark"),
             time.sleep(1.0)
             m.script(EXPAND_SIDEBAR_TREE)
             time.sleep(0.8)
-            _shot(m, outdir, name, before=PIN_TABSTRIP)
+            _shot(m, outdir, name, before=PIN_TABSTRIP, layout=True)
         else:
             print(f"  note: {panel} unavailable here; skipping that view",
                   flush=True)
@@ -1552,13 +1991,13 @@ def _capture_views(session: Session, outdir: Path, modes=("light", "dark"),
                  extra_prefs='user_pref("intl.l10n.pseudo", "bidi");\n') as rtl:
         rtl.setup_window()
         if rtl.m.script(GET_DIRECTION) == "rtl":
-            _shot(rtl.m, outdir, "extra-12-rtl", before=SYNC_TAB_LABEL_OVERFLOW)
+            _shot(rtl.m, outdir, "extra-12-rtl", before=SYNC_TAB_LABEL_OVERFLOW, layout=True)
         else:
             print("  note: chrome did not come up RTL; skipping that view", flush=True)
 
     if m.script(ENTER_CUSTOMIZE):
         time.sleep(2.5)
-        _shot(m, outdir, "extra-13-customize", before=PIN_TABSTRIP)
+        _shot(m, outdir, "extra-13-customize", before=PIN_TABSTRIP, layout=True)
         m.script(EXIT_CUSTOMIZE)
         time.sleep(2.0)
     else:
@@ -1584,7 +2023,7 @@ def _capture_views(session: Session, outdir: Path, modes=("light", "dark"),
         if (state.get("orient") == "vertical"
                 and state.get("parent") == "vertical-tabs"
                 and state.get("width")):
-            _shot(vt.m, outdir, "extra-14-vertical-tabs")
+            _shot(vt.m, outdir, "extra-14-vertical-tabs", layout=True)
         else:
             version = re.match(r"\d+", str(info.get("version", "")))
             if version and int(version[0]) < 133:
@@ -1605,10 +2044,14 @@ def _capture_views(session: Session, outdir: Path, modes=("light", "dark"),
                 print("  note: the nav bar overflowed, so some widgets are "
                       "behind the chevron rather than visible", flush=True)
             time.sleep(2.0)
-            _shot(tb.m, outdir, "extra-15-toolbar", before=PIN_TABSTRIP)
+            _shot(tb.m, outdir, "extra-15-toolbar", before=PIN_TABSTRIP, layout=True)
         else:
             print("  note: could not rearrange the toolbar; skipping that view",
                   flush=True)
+
+    with Session(session.repo, session.firefox) as sf:
+        sf.setup_window()
+        _capture_surface_views(sf, outdir, modes, coverage)
 
     # Optional stylesheets, one capture per variant. Loaded live as a user
     # sheet by file URI -- relative url()s inside the sheet keep resolving --
@@ -1631,7 +2074,7 @@ def _capture_views(session: Session, outdir: Path, modes=("light", "dark"),
                 for sheet in ([sheets] if isinstance(sheets, Path) else sheets):
                     vr.m.script(LOAD_VARIANT_SHEET, [sheet.resolve().as_uri()])
                 time.sleep(1.5)
-                _shot(vr.m, outdir, "variant-" + slug)
+                _shot(vr.m, outdir, "variant-" + slug, layout=True)
                 vr.m.script(UNLOAD_VARIANT_SHEETS)
                 time.sleep(0.8)
 
@@ -1639,7 +2082,7 @@ def _capture_views(session: Session, outdir: Path, modes=("light", "dark"),
     return info
 
 
-def _capture_png(m, attempts=4, delay=1.5):
+def _capture_png(m, attempts=4, delay=1.5, element=None):
     """Take a screenshot, tolerating transient capture failures.
 
     Windows runners occasionally fail a single WebDriver:TakeScreenshot with
@@ -1651,7 +2094,7 @@ def _capture_png(m, attempts=4, delay=1.5):
     last = None
     for attempt in range(attempts):
         try:
-            return m.screenshot()
+            return m.screenshot(element) if element is not None else m.screenshot()
         except MarionetteError as exc:
             last = exc
             if attempt < attempts - 1:
@@ -1661,7 +2104,41 @@ def _capture_png(m, attempts=4, delay=1.5):
     raise last
 
 
-def _shot(m, outdir: Path, name: str, tries=8, delay=0.5, before=None):
+LAYOUT_STATE = """
+const [landmarks] = arguments;
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+const boxes = [];
+for (const [category, selector] of landmarks) {
+  for (const el of win.document.querySelectorAll(selector)) {
+    const r = el.getBoundingClientRect();
+    if (r.width > 0 && r.height > 0 && (!el.checkVisibility || el.checkVisibility())) {
+      boxes.push([category, r.x, r.y, r.width, r.height]);
+    }
+  }
+}
+return {width: win.innerWidth, height: win.innerHeight, boxes};
+"""
+
+
+def _record_layout(m, outdir: Path, name: str):
+    """Note where each landmark was in a full-window capture (see capture.LAYOUT)."""
+    from . import capture
+    try:
+        state = m.script(LAYOUT_STATE, [[list(pair) for pair in capture.LAYOUT_LANDMARKS]])
+    except MarionetteError as exc:
+        print(f"  note: could not record the layout of {name}: {str(exc)[:80]}", flush=True)
+        return
+    path = outdir / capture.LAYOUT
+    try:
+        layout = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except ValueError:
+        layout = {}
+    layout[name] = state
+    path.write_text(json.dumps(layout, indent=1) + "\n", encoding="utf-8")
+
+
+def _shot(m, outdir: Path, name: str, tries=8, delay=0.5, before=None, element=None,
+          layout=False):
     """Capture once the window has stopped changing.
 
     Some UI state arrives asynchronously -- the find bar recolours its field
@@ -1676,16 +2153,19 @@ def _shot(m, outdir: Path, name: str, tries=8, delay=0.5, before=None):
     a widget may set again asynchronously after being cleared once. Two
     consecutive identical captures then mean it stayed cleared, rather than
     merely having been cleared at some earlier point.
+
+    `element` crops the capture to that element; `layout` records where the
+    window's landmarks were for a full-window view.
     """
     if before:
         m.script(before)
-    previous = _capture_png(m)
+    previous = _capture_png(m, element=element)
     png = previous
     for attempt in range(tries):
         time.sleep(delay)
         if before:
             m.script(before)
-        png = _capture_png(m)
+        png = _capture_png(m, element=element)
         if png == previous:
             break
         previous = png
@@ -1696,6 +2176,8 @@ def _shot(m, outdir: Path, name: str, tries=8, delay=0.5, before=None):
     if len(png) < 2000:
         raise RuntimeError(f"screenshot {name} is implausibly small ({len(png)} bytes)")
     (outdir / f"{name}.png").write_bytes(png)
+    if layout:
+        _record_layout(m, outdir, name)
     print(f"  captured {name}.png ({len(png) // 1024} KB)", flush=True)
 
 

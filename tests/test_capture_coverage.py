@@ -54,6 +54,55 @@ class CaptureCoverageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "incomplete capture"):
             capture.validate_coverage(self.root)
 
+    def test_a_baseline_from_an_older_fxcss_may_lack_newer_views(self):
+        old = [n for n in capture.expected_views() if n not in capture.new_since("0.24.0")]
+        for name in old:
+            self.png(name)
+        capture.write_coverage(self.root, {"version": "158.0"}, old)
+        path = self.root / capture.REPORT
+        data = json.loads(path.read_text())
+        data["fxcss"] = "0.24.0"
+        path.write_text(json.dumps(data))
+        capture.validate_coverage(self.root)
+        # A capture this fxcss makes must have every view, and so must a
+        # baseline that records a version which already captured them.
+        with self.assertRaisesRegex(ValueError, "inventory"):
+            capture.validate_coverage(self.root, capture.expected_views())
+        del data["fxcss"]
+        path.write_text(json.dumps(data))
+        capture.validate_coverage(self.root)
+        data["fxcss"] = "0.25.0"
+        path.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError, "inventory"):
+            capture.validate_coverage(self.root)
+
+    def test_screen_capture_reasons_only_excuse_views_that_need_one(self):
+        names = capture.expected_views()
+        for name in names:
+            self.png(name)
+        reason = "screen capture cannot see the Firefox window"
+        skipped = {"light-08-app-menu": reason, "dark-07-search-menu": reason}
+        for name in skipped:
+            (self.root / f"{name}.png").unlink()
+        capture.write_coverage(self.root, {"version": "158.0"}, names, skipped)
+        capture.validate_coverage(self.root)
+        (self.root / "light-11-settings.png").unlink()
+        capture.write_coverage(self.root, {"version": "158.0"}, names,
+                               {**skipped, "light-11-settings": reason})
+        with self.assertRaisesRegex(ValueError, "light-11-settings"):
+            capture.validate_coverage(self.root)
+
+    def test_every_view_has_a_known_category(self):
+        for name in capture.expected_views(["x"]):
+            with self.subTest(name=name):
+                self.assertIn(capture.category_for(name), capture.CATEGORIES)
+        for category, _ in capture.LAYOUT_LANDMARKS:
+            self.assertIn(category, capture.CATEGORIES)
+        from fxcss import catalogue
+        for area, slug, *_ in catalogue.LANDMARKS:
+            with self.subTest(landmark=slug):
+                self.assertIn(area, capture.CATEGORIES)
+
     def test_audio_capture_requires_the_actual_indicator_attributes(self):
         m = Mock()
         for states in (({},), ({"playing": True, "muted": False}, {"playing": False, "muted": True})):

@@ -1568,6 +1568,7 @@ class PublishAllowlistCoverageTests(unittest.TestCase):
     """
 
     def view_names(self):
+        from fxcss import capture
         source = (Path(__file__).parent.parent / "fxcss" / "core.py").read_text()
         # Match the names wherever they are written, not just as a literal
         # argument to _shot: views captured in a loop keep their names in a
@@ -1576,15 +1577,21 @@ class PublishAllowlistCoverageTests(unittest.TestCase):
         names = set(re.findall(r'"(extra-\d{2}-[a-z0-9-]+)"', source))
         for name in re.findall(r'f"\{mode\}-(\d{2}-[a-z0-9-]+)"', source):
             names.update({f"light-{name}", f"dark-{name}"})
-        return names
+        for name in re.findall(r'\("(\d{2}-[a-z0-9-]+)", "[a-z-]+"\)', source):
+            names.update({f"light-{name}", f"dark-{name}"})
+        return names | set(capture.expected_views())
 
-    def test_every_captured_view_is_publishable(self):
+    def rendered(self):
+        from fxcss import scaffold
         template = (Path(__file__).parent.parent / "fxcss" / "templates"
                     / "pr-preview-publish.yml").read_text()
+        return scaffold.render_template(template, "0", "", None)
+
+    def test_every_captured_view_is_publishable(self):
+        template = self.rendered()
         pattern = re.search(r"const NAME = /\^(.+?)\$/", template).group(1)
-        pattern = pattern.replace("__FXCSS_VARIANT_ALT__", "")
         names = self.view_names()
-        self.assertGreaterEqual(len(names), 12, "view extraction looks broken")
+        self.assertGreaterEqual(len(names), 34, "view extraction looks broken")
         for name in sorted(names):
             with self.subTest(view=name):
                 self.assertRegex(name + ".png", pattern,
@@ -1602,12 +1609,12 @@ class PublishAllowlistCoverageTests(unittest.TestCase):
         self.assertIn("new in this PR", template)
 
     def test_every_extra_view_has_a_title(self):
-        template = (Path(__file__).parent.parent / "fxcss" / "templates"
-                    / "pr-preview-publish.yml").read_text()
-        titled = set(re.findall(r"'([0-9]{2}-[a-z0-9-]+)':", template))
+        template = self.rendered()
+        table = json.loads(re.search(r"const VIEWS = (\{.+?\});", template).group(1))
+        titled = set(table)
         for name in sorted(self.view_names()):
-            key = name.split("-", 1)[1] if name.startswith(("light-", "dark-")) else name
-            key = key[len("extra-"):] if key.startswith("extra-") else key
+            group = "scheme" if name.startswith(("light-", "dark-")) else "extra"
+            key = group + ":" + name.split("-", 1)[1]
             with self.subTest(view=name):
                 self.assertIn(key, titled,
                               f"{name} would appear in the PR comment as a raw "

@@ -79,6 +79,11 @@ class WorkflowBehaviorTests(unittest.TestCase):
                 with self.subTest(workflow=name, path=path):
                     self.assertTrue(any(fnmatch.fnmatch(path, pattern) for pattern in patterns))
 
+    def test_every_generated_workflow_has_its_placeholders_filled(self):
+        for path in (self.theme / ".github/workflows").iterdir():
+            with self.subTest(workflow=path.name):
+                self.assertNotIn("__FXCSS_", path.read_text())
+
     def test_preview_settings_default_to_everything_and_reach_fxcss_quoted(self):
         text = self.workflow("pr-preview.yml")
         self.assertEqual(workflow_env(text), {"FXCSS_VARIANTS": "all", "FXCSS_VIEWS": "",
@@ -148,8 +153,10 @@ class WorkflowBehaviorTests(unittest.TestCase):
         self.assertEqual(data["errors"], [])
         body = data["body"]
         self.assertIn("1 view changed · 1 smaller change", body)
-        self.assertIn("**Browser window — light**", body)
-        self.assertIn("Changed by less than 5% of pixels, not pictured: Find bar — light (1.", body)
+        self.assertIn("**1. Browser window — light** · macOS", body)
+        self.assertIn("/macos/change-01.png", body)
+        self.assertIn("[Browser window — light](", body)
+        self.assertIn("Changed by less than 5% of pixels, not pictured: Find bar — light (0.78", body)
         self.assertIn("Only the views selected by `FXCSS_VIEWS`", body)
         self.assertNotIn("dark", body.split("<sub>")[0])
         self.assertNotIn("No pixel differences", body)
@@ -485,6 +492,81 @@ class WorkflowBehaviorTests(unittest.TestCase):
         self.assertNotIn("no visual change", data["body"])
         self.assertNotIn("brand-new+compact", data["body"])
 
+
+    def platform_artifact(self, label, changes, changed=("light-01-window", "dark-01-window")):
+        artifact = self.root / f"artifacts/preview-{label}"
+        captures = artifact / label
+        (captures / "full").mkdir(parents=True)
+        (artifact / "pr-number.txt").write_text("7")
+        (artifact / "head-sha.txt").write_text("a" * 40)
+        views = []
+        for name in changed:
+            (captures / f"{name}.png").write_bytes(PNG)
+            (captures / f"full/{name}.png").write_bytes(PNG)
+            views.append({"view": name, "percent": 0.62, "changed_pixels": 9, "image": f"{name}.png"})
+        for change in changes:
+            if isinstance(change.get("image"), str) and "/" not in change["image"]:
+                (captures / change["image"]).write_bytes(PNG)
+        (captures / "summary.json").write_text(json.dumps({
+            "views": views, "changes": changes, "only_in_head": [], "only_in_base": [],
+            "unsupported": ["light-08-app-menu"]}))
+
+    @unittest.skipUnless(shutil.which("node"), "publisher scripts require Node")
+    def test_a_change_on_every_platform_is_pictured_once_under_its_category(self):
+        tabs = {"image": "change-01.png", "category": "Tabs", "views": ["light-01-window", "dark-01-window"],
+                "box": [0, 0, 960, 40], "frame": [960, 360], "width": 960, "height": 140}
+        self.platform_artifact("macos", [tabs])
+        self.platform_artifact("windows", [dict(tabs, box=[0, 2, 960, 44])])
+        self.platform_artifact("linux", [dict(tabs, image="change-01.png", category="Panels",
+                                              views=["light-01-window"], box=[10, 10, 50, 50])],
+                               changed=("light-01-window",))
+        data = self.publish()
+        self.assertEqual(data["errors"], [])
+        body = data["body"]
+        self.assertEqual(body.count("<img"), 2, body)
+        self.assertIn("**2 distinct changes** across 5 changed views on macOS, Windows and Linux", body)
+        self.assertLess(body.index("#### Tabs"), body.index("#### Panels"))
+        self.assertIn("**1. Browser window — light** and 1 more view · only on macOS and Windows", body)
+        self.assertIn("/macos/change-01.png", body)
+        self.assertNotIn("/windows/change-01.png", body)
+        self.assertIn("2 views on macOS · 2 views on Windows", body)
+        self.assertIn("**2. Browser window — light** · only on Linux", body)
+        self.assertIn("[Browser window — dark](https://raw.githubusercontent.com/test/theme/"
+                      "ci-previews/pr-7/" + "a" * 40 + "/windows/dark-01-window.png) (0.62%)", body)
+        self.assertIn("Not captured on this runner, so not compared: App menu — light.", body)
+
+    @unittest.skipUnless(shutil.which("node"), "publisher scripts require Node")
+    def test_a_huge_run_still_fits_in_one_comment(self):
+        names = [f"variant-option-{i:03d}" for i in range(250)]
+        change = {"image": "change-01.png", "category": "Optional stylesheets", "views": names,
+                  "box": [0, 0, 960, 40], "frame": [960, 360], "width": 960}
+        for label in ("macos", "windows", "linux"):
+            self.platform_artifact(label, [change], changed=names)
+        data = self.publish()
+        self.assertEqual(data["errors"], [])
+        self.assertLess(len(data["body"]), 65536)
+        self.assertIn("Views are listed without links to fit GitHub's comment size", data["body"])
+        self.assertIn("Variant: option-249 (0.62%)", data["body"])
+
+    @unittest.skipUnless(shutil.which("node"), "publisher scripts require Node")
+    def test_change_records_from_the_artifact_are_revalidated(self):
+        good = {"image": "change-01.png", "category": "Tabs", "views": ["light-01-window"],
+                "box": [0, 0, 10, 10], "frame": [960, 360], "width": 960}
+        hostile = [dict(good, image="change-02.png", category="<script>"),
+                   dict(good, image="../../change-03.png"),
+                   dict(good, image="change-04.png", views=["<img src=x>", "constructor"]),
+                   dict(good, image="change-05.png", box="0,0,1,1")]
+        self.platform_artifact("macos", [good] + hostile)
+        data = self.publish()
+        self.assertEqual(data["errors"], [])
+        body = data["body"]
+        self.assertIn("4 unreviewed screenshot(s)", body)
+        for text in ("<script>", "change-02", "change-03", "change-04", "change-05",
+                     "<img src=x>", "constructor"):
+            self.assertNotIn(text, body)
+        self.assertIn("/macos/change-01.png", body)
+        # A changed view no valid record accounts for is still pictured.
+        self.assertIn("/macos/dark-01-window.png\" width=", body)
 
     def publish(self):
         text = self.workflow("pr-preview-publish.yml")
