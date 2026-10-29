@@ -29,10 +29,18 @@
   text-underline-offset: 3px;
 }
 .search-secret > span { font-size: 12px; }
-.time-machine-bar {
+.time-machine-panel {
   position: sticky;
   top: 0;
   z-index: 80;
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 240ms ease;
+}
+.time-machine-panel[data-minimised] { grid-template-rows: 0fr; }
+.time-machine-panel-content { min-height: 0; overflow: hidden; }
+.time-machine-announcement { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.time-machine-bar {
   display: grid;
   grid-template-columns: minmax(180px, 1fr) auto auto;
   align-items: center;
@@ -45,6 +53,7 @@
 }
 .time-machine-heading strong { display: block; font-size: 13px; }
 .time-machine-heading > span { color: #444; font-size: 11px; }
+.time-machine-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .time-machine-destinations { display: flex; flex-wrap: wrap; gap: 5px; border: 0; padding: 0; margin: 0; min-width: 0; }
 .time-machine-destinations button { flex-direction: column; gap: 0 !important; font-size: 12px; line-height: 1.5; }
 .time-machine-destinations button > span { font-size: 10px; }
@@ -210,9 +219,19 @@ html[data-retro] :is(.battle-body, .battle-finish) { background: var(--retro-pan
 html[data-retro] .text-link { color: var(--retro-accent); text-decoration: underline; }
 html[data-retro] .retro-window-chrome { flex-basis: 100%; display: flex; align-items: center; gap: 14px; min-width: 0; border-bottom: 1px solid #ffffff55; padding-bottom: 5px; font-size: 11px; line-height: 1.8; }
 .retro-window-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.retro-window-title > span, .retro-window-lights { display: none; }
-html[data-retro='windows'] .retro-title-windows, html[data-retro='mac'] .retro-title-mac, html[data-retro='linux'] .retro-title-linux { display: inline; }
-.retro-window-controls { flex: none; word-spacing: 6px; }
+.retro-window-controls { flex: none; display: flex; gap: 3px; min-width: 0; border: 0; padding: 0; margin: 0; }
+.retro-window-button { position: relative; display: grid; place-items: center; width: 28px; height: 28px; padding: 3px; border: 0; background: transparent; color: #111; cursor: pointer; }
+.retro-window-button-face { display: grid; place-items: center; width: 22px; height: 22px; border: 2px outset #eee; background: var(--retro-button); }
+.retro-window-button:not(:disabled):hover .retro-window-button-face { filter: brightness(1.12); }
+.retro-window-button:not(:disabled):active .retro-window-button-face { border-style: inset; }
+.retro-window-button:disabled { cursor: default; }
+.retro-window-button:disabled svg { opacity: .35; }
+.retro-window-button:focus-visible { outline: 2px solid var(--retro-title-ink); outline-offset: 1px; border-radius: 2px; }
+.retro-window-tooltip { position: absolute; z-index: 2; top: calc(100% + 5px); right: 0; width: max-content; max-width: min(230px, 75vw); padding: 5px 8px; border: 1px solid #b8ae87; background: #fffbe7; color: #252525; font: 11px/1.5 Tahoma, Verdana, sans-serif; text-align: left; pointer-events: none; opacity: 0; visibility: hidden; }
+.retro-window-button:is(:hover, :focus-visible) .retro-window-tooltip { opacity: 1; visibility: visible; }
+.retro-controls-restore { flex: none; border: 1px solid currentColor; border-radius: 3px; padding: 3px 8px; background: transparent; color: inherit; font: inherit; cursor: pointer; animation: retro-controls-arrive 240ms ease-out; }
+.retro-controls-restore:is(:hover, :focus-visible) { background: #ffffff33; text-decoration: underline; text-underline-offset: 2px; }
+@keyframes retro-controls-arrive { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
 
 /* Early Mac OS X: Aqua colours, pinstriped surfaces and glossy controls. */
 html[data-retro='mac'] {
@@ -228,12 +247,15 @@ html[data-retro='mac'] :is(.showcase, .field-guide, .battle-page) { border: 1px 
 html[data-retro='mac'] .site-header { border-radius: 9px 9px 0 0; border-bottom: 1px solid #a4a4a4; }
 html[data-retro='mac'] :is(h1, h2, h3) { font-family: var(--retro-font); }
 html[data-retro='mac'] .retro-window-chrome { border-color: #aaa; }
-html[data-retro='mac'] .retro-window-title { text-align: center; margin-right: 50px; text-shadow: 0 1px #fff; }
-html[data-retro='mac'] .retro-window-controls { display: none; }
-html[data-retro='mac'] .retro-window-lights { display: flex; gap: 6px; }
-.retro-window-lights i { width: 12px; height: 12px; border: 1px solid #a9564b; border-radius: 50%; background: radial-gradient(circle at 35% 25%, #ffe4de, #ec6255 65%); box-shadow: inset 0 -1px 2px #0002; }
-.retro-window-lights i:nth-child(2) { border-color: #ac8a2a; background: radial-gradient(circle at 35% 25%, #fff6d5, #edc34f 65%); }
-.retro-window-lights i:nth-child(3) { border-color: #4f8d36; background: radial-gradient(circle at 35% 25%, #e1ffd4, #7fbc5c 65%); }
+html[data-retro='mac'] .retro-window-title { text-align: center; text-shadow: 0 1px #fff; }
+html[data-retro='mac'] .retro-window-controls { order: -1; gap: 0; }
+html[data-retro='mac'] .retro-window-button-face { width: 15px; height: 15px; border: 1px solid #a9564b; border-radius: 50%; background: radial-gradient(circle at 35% 25%, #ffe4de, #ec6255 65%); box-shadow: inset 0 -1px 2px #0002; }
+html[data-retro='mac'] .retro-window-minimise .retro-window-button-face { border-color: #ac8a2a; background: radial-gradient(circle at 35% 25%, #fff6d5, #edc34f 65%); }
+html[data-retro='mac'] .retro-window-restore .retro-window-button-face { border-color: #4f8d36; background: radial-gradient(circle at 35% 25%, #e1ffd4, #7fbc5c 65%); }
+html[data-retro='mac'] .retro-window-button svg { width: 10px; height: 10px; opacity: 0; }
+html[data-retro='mac'] .retro-window-controls:is(:hover, :focus-within) .retro-window-button:not(:disabled) svg { opacity: 1; }
+html[data-retro='mac'] .retro-window-button:not(:disabled):active .retro-window-button-face { filter: brightness(.85); }
+html[data-retro='mac'] .retro-window-tooltip { left: 0; right: auto; }
 html[data-retro='mac'] :is(.button.primary, .button.primary:hover) { background: linear-gradient(#ebf5ff 0%, #98c4f7 48%, #65a4e8 49%, #c7e2ff 100%); color: #12365e; border: 1px solid #4f7aaa; border-radius: 18px; box-shadow: inset 0 1px #fff, 0 1px 2px #0003; text-shadow: 0 1px #ffffffaa; }
 html[data-retro='mac'] :is(.time-machine-bar button, .site-header .github-link) { border: 1px solid #999; border-radius: 7px; box-shadow: inset 0 1px #fff; }
 html[data-retro='mac'] .time-machine-destinations button[aria-pressed='true'] { background: linear-gradient(#e1efff, #b1cfee); border-color: #5c7caa; }
@@ -258,6 +280,9 @@ html[data-retro='linux'] .time-machine-destinations button[aria-pressed='true'] 
   .time-machine-destinations button { flex: 1; }
   .time-machine-return { justify-self: start; }
   .time-machine-bar button { min-height: 36px; }
+  html[data-retro] .retro-window-chrome { gap: 6px; }
+  .retro-window-button { width: 36px; height: 36px; }
+  .retro-controls-restore { min-height: 36px; padding-inline: 6px; }
   .coffee-toast { right: 16px; bottom: 16px; padding: 16px; gap: 10px; }
   .battle-page { padding-top: 32px; padding-bottom: 50px; }
   .battle-intro { margin-bottom: 28px; }
@@ -281,8 +306,11 @@ html[data-retro='linux'] .time-machine-destinations button[aria-pressed='true'] 
   .time-machine-bar { grid-template-columns: 1fr auto; }
   .time-machine-heading { grid-column: 1 / -1; }
 }
+@media (hover: none) {
+  html[data-retro='mac'] .retro-window-button:not(:disabled) svg { opacity: 1; }
+}
 @media (prefers-reduced-motion: reduce) {
   .coffee-confetti { display: none; }
   html { scroll-behavior: auto; }
-  .battle-page *, .time-machine-bar *, .coffee-toast * { animation: none !important; transition: none !important; }
+  .time-machine-panel, .retro-window-chrome *, .battle-page *, .time-machine-bar *, .coffee-toast * { animation: none !important; transition: none !important; }
 }
