@@ -219,7 +219,7 @@ html[data-retro='mac'] {
   --retro-desktop: linear-gradient(145deg, #456b96, #88afc9);
   --retro-surface: repeating-linear-gradient(0deg, #f0f0f0 0 2px, #fafafa 2px 4px);
   --retro-panel: #fafafa; --retro-card: #f6f6f6;
-  --retro-titlebar: linear-gradient(#fefefe, #d4d4d4 48%, #eee 49%, #d7d7d7);
+  --retro-titlebar: #e6e6e6;
   --retro-title-ink: #252525; --retro-accent: #17529c; --retro-ink: #2b435c;
   --retro-button: linear-gradient(#fff, #e6e6e6); --retro-selection: #d4e7ff;
   --retro-font: 'Lucida Grande', 'Lucida Sans Unicode', Arial, sans-serif;
