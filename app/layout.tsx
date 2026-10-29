@@ -36,9 +36,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           Skip to content
         </a>
         <CSPProvider nonce={nonce}>
-          <EasterEggs />
-          <SleepyFavicon />
-          {children}
+          <EasterEggs>
+            <SleepyFavicon />
+            {children}
+          </EasterEggs>
         </CSPProvider>
         <OutboundClickTracking />
         <script

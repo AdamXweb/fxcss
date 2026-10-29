@@ -3,6 +3,7 @@ import Image from "next/image";
 import { ArrowUpRight, GitFork } from "lucide-react";
 import { BrandMark } from "./brand-mark";
 import { BrandLink } from "./brand-link";
+import { RetroWindowChrome } from "./retro-window-chrome";
 
 export const REPO = "https://github.com/AdamXweb/fxcss";
 export function Brand() {
@@ -18,11 +19,7 @@ export function Brand() {
 export function SiteHeader({ docs = false }: { docs?: boolean }) {
   return (
     <header className={`site-header ${docs ? "docs-header" : ""}`}>
-      <div className="retro-window-chrome" aria-hidden="true">
-        <span className="retro-window-lights"><i /><i /><i /></span>
-        <span className="retro-window-title"><span className="retro-title-windows">fxcss.com — The pre-Firefox web</span><span className="retro-title-mac">fxcss.com — Mozilla Firebird 0.6</span><span className="retro-title-linux">fxcss.com — Phoenix 0.1</span></span>
-        <span className="retro-window-controls">_ □ ×</span>
-      </div>
+      <RetroWindowChrome />
       <Brand />
       <nav aria-label="Main navigation">
         <Link href="/docs" aria-current={docs ? "page" : undefined}>

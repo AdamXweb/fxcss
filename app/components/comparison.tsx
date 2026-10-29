@@ -276,7 +276,7 @@ export function Comparison({
                 height={evidence.dimensions.height}
                 alt={shown.afterAlt}
                 draggable={false}
-                priority
+                preload
               />
             </div>
             <div className="before-layer">
@@ -288,7 +288,7 @@ export function Comparison({
                   height={evidence.dimensions.height}
                   alt={shown.beforeAlt}
                   draggable={false}
-                  priority
+                  preload
                 />
               </div>
             </div>
