@@ -53,6 +53,8 @@ just verify
 
 `npm run check:audit` runs `npm audit` and fails on any advisory at moderate or above. There are no accepted advisories in `scripts/audit.mjs`. The `miniflare` override in `package.json` pins the patched `undici` 7.30.1 while the Cloudflare development tools still pin an affected release; remove the override when their dependency is patched.
 
+vinext 1.0.1 includes `@vercel/og` 1.0.3 with the Satori SVG-escaping fix and the framework's HarfBuzz runtime support. The `satori` override pins `fflate` 0.7.5 to fix its ZIP64 parsing advisory while Satori pins 0.7.3; remove that override once Satori uses a patched release. The lockfile also keeps `@hono/node-server` and `systeminformation` on patched versions within their existing dependency ranges.
+
 The Website GitHub Actions workflow (`.github/workflows/website.yml`) runs the same checks, plus a deploy dry run, on every pull request and push to `website`, without deploying. A second job warns when the recorded documentation is behind `main`. The production check visits every documentation page, validates asset responses and the security headers on pages, redirects and static files, checks that every page carries the share card and that each labelled control's name contains its visible text, and verifies not-found responses and redirects. Browser checks cover navigation, search, code copying, keyboard-operated comparison controls, and narrow layouts.
 
 ## Documentation source
