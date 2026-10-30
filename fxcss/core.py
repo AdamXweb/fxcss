@@ -1390,7 +1390,10 @@ const sleep = ms => new Promise(resolve => {
       "http://www.w3.org/1999/xhtml", "canvas");
     canvas.width = width * scale;
     canvas.height = height * scale;
-    const ctx = canvas.getContext("2d");
+    // This canvas is only read back, never displayed. Pin it to software
+    // rendering so GPU/backend selection cannot change glyph-edge pixels
+    // between otherwise identical Windows captures.
+    const ctx = canvas.getContext("2d", {willReadFrequently: true});
     ctx.scale(scale, scale);
     ctx.drawWindow(win, 0, 0, width, height, "#ffffff");
     return canvas.toDataURL("image/png");
