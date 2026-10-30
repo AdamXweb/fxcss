@@ -887,7 +887,10 @@ def classify_unused(static, firefox_knows, pack=None):
     """
     if static is None:
         return None
-    theme = static["theme"]
+    # import_graph resolves each source, including imports and chrome/ links
+    # outside the theme. Resolve both sides to handle filesystem aliases (on
+    # macOS, /var is /private/var), and keep external sources addressable.
+    theme = static["theme"].resolve()
     defined, used = static["defined"], static["used"]
     kept = static.get("kept", set())
     scoped = static.get("devtools", set())
@@ -919,8 +922,13 @@ def classify_unused(static, firefox_knows, pack=None):
                  if name not in kept]
 
     def _where(name, places=defined):
+        path = places[name][0][0].resolve()
+        try:
+            location = path.relative_to(theme)
+        except ValueError:
+            location = path
         return {"name": name,
-                "file": str(places[name][0][0].relative_to(theme)),
+                "file": str(location),
                 "line": places[name][0][1]}
 
     def _suggest(item, provided=False):

@@ -104,9 +104,13 @@ def _record(out, stack, buffer):
     prop, value = _tidy(prop), _tidy(value)
     if not prop or not value:
         return
-    # Everything an @media/@supports wrapper adds is part of the address: the
-    # same declaration under two different conditions is two declarations.
-    context = tuple(_tidy(entry) for entry in stack[:-1] if entry.startswith("@"))
+    # Both conditions and enclosing style rules are part of the address.
+    # Dropping .x from `.x { & > #a { ... } }` would make it conflict with
+    # the same child under .y. Keep parents as context rather than trying to
+    # expand native nesting (including selector lists and implicit &).
+    context = tuple(_tidy(entry) if entry.startswith("@")
+                    else "style " + _tidy_selector(entry)
+                    for entry in stack[:-1])
     for selector in rule.split(","):
         selector = _tidy_selector(selector)
         if selector:
@@ -116,8 +120,10 @@ def _record(out, stack, buffer):
 def declarations(text):
     """Every declaration in a stylesheet, keyed by where it lands.
 
-    Returns {(at-rule context, selector, property): value}. Hand-rolled rather
-    than a CSS parser: the answer needed is "does this sheet set that, there",
+    Returns {(ancestor context, selector, property): value}. Parent selectors
+    are retained without expanding nesting, so equivalent flattened rules
+    may not compare equal. Hand-rolled rather than a CSS parser: the answer
+    needed is "does this sheet set that, there",
     which needs brace and quote tracking and nothing else. Anything it cannot
     make sense of is skipped rather than guessed at -- a missed declaration
     weakens a warning, an invented one produces a false refusal.
