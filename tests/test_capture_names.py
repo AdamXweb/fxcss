@@ -169,8 +169,11 @@ class VariantSlugCollisionTests(unittest.TestCase):
             with self.subTest(command=argv[0]):
                 code, _, err = self.run_cli(*argv)
                 self.assertEqual(code, 2)
-                self.assertIn("error: optional stylesheets custom/Hide_Tabs.css and "
-                              "custom/hide-tabs.css would both be called `hide-tabs`", err)
+                self.assertIn("error: optional stylesheets ", err)
+                self.assertIn("custom/Hide_Tabs.css", err)
+                self.assertIn("custom/hide-tabs.css", err)
+                self.assertIn("would both be called `hide-tabs`", err)
+                self.assertNotIn("Traceback", err)
         self.assertFalse((self.theme / ".github").exists())
 
     @unittest.skipUnless(HAVE_PILLOW, "fxcss check needs Pillow")

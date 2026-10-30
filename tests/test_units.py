@@ -1496,7 +1496,8 @@ class FirefoxDiscoveryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             self.fake_apps(td, ["Firefox Nightly", "Firefox", "LibreWolf"])
             builds = discover_firefoxes(extra_roots=[Path(td)])
-            labels = [b["label"] for b in builds if str(td) in b["path"]]
+            labels = [b["label"] for b in builds
+                      if Path(td).resolve() in Path(b["path"]).parents]
             self.assertEqual(labels, ["stable", "nightly", "librewolf"])
 
     def test_channel_resolution_and_helpful_error(self):
@@ -3552,11 +3553,12 @@ class ProfileIdentityTests(unittest.TestCase):
     def test_home_paths_are_shortened(self):
         from fxcss.cli import _short_path
         inside = Path.home() / "Library" / "profile"
-        self.assertEqual(_short_path(inside), "~/Library/profile")
+        self.assertEqual(Path(_short_path(inside)), Path("~/Library/profile"))
 
     def test_paths_outside_home_are_left_alone(self):
         from fxcss.cli import _short_path
-        self.assertEqual(_short_path(Path("/opt/profile")), "/opt/profile")
+        outside = Path("/opt/profile")
+        self.assertEqual(_short_path(outside), str(outside))
 
     def test_a_profile_with_its_own_chrome_is_called_out(self):
         from fxcss.cli import _profile_notes
@@ -4137,7 +4139,7 @@ class DevToolsOnlyPropertyTests(unittest.TestCase):
         self.assertEqual([i["name"] for i in result["devtools_only"]],
                          ["--toolbarbutton-hover-background"])
         item = result["devtools_only"][0]
-        self.assertEqual((item["file"], item["line"]), ("chrome/toolbar.css", 2))
+        self.assertEqual((Path(item["file"]), item["line"]), (Path("chrome/toolbar.css"), 2))
         self.assertEqual(item["suggestion"], "--toolbarbutton-background-color-hover")
         # Read by the theme too, which is why "read nowhere here" missed it.
         self.assertEqual(item["read_here"]["line"], 6)
@@ -4187,7 +4189,7 @@ class DevToolsOnlyPropertyTests(unittest.TestCase):
         self.assertIn("DEVTOOLS ONLY", text)
         self.assertIn("→ --toolbarbutton-background-color-hover is what this Firefox reads",
                       text)
-        self.assertIn("also read at chrome/toolbar.css:6", text)
+        self.assertIn(f"also read at {Path('chrome/toolbar.css')}:6", text)
         self.assertIn("→ --toolbarbutton-padding-inner is what this Firefox provides", text)
         self.assertIn("only DevTools declares it", text)
 

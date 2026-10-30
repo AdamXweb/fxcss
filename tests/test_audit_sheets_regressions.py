@@ -31,7 +31,8 @@ class AuditSourceLocationTests(unittest.TestCase):
         return result
 
     def test_root_alias_and_relative_theme_keep_relative_locations(self):
-        with tempfile.TemporaryDirectory() as td:
+        # relpath needs the fixture and working directory on the same drive.
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as td:
             root = Path(td)
             theme = root / "theme"
             (theme / "chrome").mkdir(parents=True)
@@ -43,7 +44,7 @@ class AuditSourceLocationTests(unittest.TestCase):
                 with self.subTest(base=base):
                     result = self.check_locations(base, source)
                     self.assertEqual(result["unused_properties"][0]["file"],
-                                     "chrome/userChrome.css")
+                                     str(Path("chrome/userChrome.css")))
 
     def test_external_directory_file_and_import_locations_remain_usable(self):
         for mode in ("chrome", "file", "import"):

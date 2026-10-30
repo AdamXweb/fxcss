@@ -68,6 +68,7 @@ def installed_checks(stage, root, wheel):
         (profile / "chrome").mkdir(parents=True)
         (profile / "chrome/userChrome.css").write_text("/* original personal theme */\n")
         (profile / "user.js").write_text('user_pref("personal.setting", true);\n')
+        (root / "original-user.js").write_bytes((profile / "user.js").read_bytes())
         install.install_theme(theme, profile, str(theme.resolve()))
         (profile / "chrome/my-notes.css").write_text("/* user addition */\n")
         second = root / "lifecycle profile"
@@ -83,7 +84,7 @@ def installed_checks(stage, root, wheel):
         removed = install.uninstall_theme(profile)
         assert "chrome/userChrome.css" in removed["kept"], removed
         assert (profile / "chrome/my-notes.css").read_text() == "/* user addition */\n"
-        assert (profile / "user.js").read_text() == 'user_pref("personal.setting", true);\n'
+        assert (profile / "user.js").read_bytes() == (root / "original-user.js").read_bytes()
         # A separate released install exercises upgrade -> rollback -> removal.
         second = root / "lifecycle profile"
         first = install.read_manifest(second)

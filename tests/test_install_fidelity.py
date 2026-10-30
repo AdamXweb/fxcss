@@ -85,6 +85,35 @@ class UserJsBytesTests(unittest.TestCase):
         self.assertEqual((profile / "user.js").read_bytes(),
                          b'user_pref("a", 1);\nuser_pref("added \xe9", 2);\r\n')
 
+    def test_legacy_windows_blocks_survive_upgrade_rollback_and_uninstall(self):
+        original = b'user_pref("personal.setting", true);\r\n\r\n'
+        for action in ("uninstall", "upgrade", "rollback"):
+            with self.subTest(action=action):
+                profile = self.fresh_profile(original)
+                first = install.install_theme(self.theme, profile, "o/n@v1",
+                                              stamp="20260101000000")
+                prefs = profile / "user.js"
+                # Older releases used write_text: Windows translated the
+                # separator and the entire managed block to CRLF.
+                prefs.write_bytes(prefs.read_text(encoding="utf-8").replace(
+                    "\n", "\r\n").encode("utf-8"))
+                if action == "upgrade":
+                    install.install_theme(self.theme, profile, "o/n@v2",
+                                          stamp="20260102000000")
+                if action == "rollback":
+                    install.rollback_to(profile, first["backup"],
+                                        stamp="20260103000000")
+                else:
+                    install.uninstall_theme(profile)
+                self.assertEqual(prefs.read_bytes(), original)
+
+    def test_legacy_block_removal_keeps_later_user_preferences(self):
+        before = 'user_pref("before", true);\r\n'
+        after = 'user_pref("after", true);\r\n'
+        legacy = (before + "\r\n" + install.BLOCK_BEGIN + "\r\n" +
+                  install.STYLESHEET_PREF + "\r\n" + install.BLOCK_END + "\r\n" + after)
+        self.assertEqual(install.strip_user_js_block(legacy), before + after)
+
 
 class ThemeMarkerTests(unittest.TestCase):
     """A theme's configuration/user.js is untrusted and may hold our markers."""

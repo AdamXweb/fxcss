@@ -356,9 +356,14 @@ def strip_user_js_block(text):
         if lines[i].strip() == BLOCK_BEGIN:
             for j in range(i + 1, len(lines)):
                 if lines[j].strip() == BLOCK_END:
-                    if out and out[-1] == "\n":
+                    # Older Windows installs wrote the separator and markers
+                    # with CRLF. Match the marker's ending so a new LF block
+                    # after a user's lone CR still preserves that CR.
+                    separator = "\r\n" if lines[i].endswith("\r\n") else "\n"
+                    if out and out[-1] == separator:
                         out.pop()
-                    elif out and out[-1].endswith("\n") and j + 1 == len(lines):
+                    elif (separator == "\n" and out and out[-1].endswith("\n")
+                          and j + 1 == len(lines)):
                         # Only at the end: with lines after the block, joining
                         # two lines could let a // comment swallow a pref.
                         out[-1] = out[-1][:-1]

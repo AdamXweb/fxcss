@@ -203,8 +203,8 @@ class WorkflowBehaviorTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("bash"), "the watch step needs bash")
     def test_watch_fix_pull_requests_open_with_the_support_check(self):
-        bindir, temp, repo = self.root / "bin", self.root / "runner", self.root / "repo"
-        for folder in (bindir, temp, repo / "chrome"):
+        temp, repo = self.root / "runner", self.root / "repo"
+        for folder in (temp, repo / "chrome"):
             folder.mkdir(parents=True)
         (repo / "chrome/userChrome.css").write_text("#sidebar-box {}\n")
         (repo / "fxcss-fix.patch").write_text("--- a\n+++ b\n")
@@ -220,20 +220,21 @@ class WorkflowBehaviorTests(unittest.TestCase):
             "gh": 'echo "gh $*" >> "$LOG"\n'
                   'while [ $# -gt 0 ]; do [ "$1" = --body-file ] && cp "$2" "$BODY"; shift; done',
         }
-        for name, body in tools.items():
-            (bindir / name).write_text("#!/bin/sh\n" + body + "\n")
-            (bindir / name).chmod(0o755)
-        env = dict(os.environ, PATH=str(bindir) + os.pathsep + os.environ["PATH"], LOG=str(log),
-                   SRC=str(repo), BODY=str(self.root / "body.md"), RUNNER_TEMP=str(temp),
+        # Shell functions avoid Windows PATH/executable-extension lookup and
+        # CRLF shebangs. Subshells keep a stub's exit local to that command.
+        stubs = "".join(f"{name}() (\n{body}\n)\n" for name, body in tools.items())
+        env = dict(os.environ, LOG=log.as_posix(),
+                   SRC=repo.as_posix(), BODY=(self.root / "body.md").as_posix(),
+                   RUNNER_TEMP=temp.as_posix(),
                    CHANNEL="beta", VERSION="160.0b1", FIREFOX_BIN="/ff/firefox",
                    FXCSS_OLDEST_FIREFOX="esr", GITHUB_REF_NAME="main", GH_TOKEN="x")
         text = self.workflow("firefox-watch.yml")
-        result = subprocess.run([shutil.which("bash"), "-c", script(
+        result = subprocess.run([shutil.which("bash"), "-c", stubs + script(
             text, "Open a pull request with the confident fixes")],
             cwd=repo, env=env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = log.read_text()
-        self.assertIn(f"fxcss support --base {temp}/before-fix --head . --firefox /ff/firefox "
+        self.assertIn(f"fxcss support --base {temp.as_posix()}/before-fix --head . --firefox /ff/firefox "
                       "--oldest=esr --channel beta --markdown", calls)
         self.assertTrue((temp / "before-fix/chrome/userChrome.css").is_file())
         body = (self.root / "body.md").read_text()
@@ -243,7 +244,7 @@ class WorkflowBehaviorTests(unittest.TestCase):
 
         env["FXCSS_OLDEST_FIREFOX"] = ""
         log.write_text("")
-        subprocess.run([shutil.which("bash"), "-c", script(
+        subprocess.run([shutil.which("bash"), "-c", stubs + script(
             text, "Open a pull request with the confident fixes")],
             cwd=repo, env=env, capture_output=True, text=True, check=True)
         self.assertNotIn("fxcss support", log.read_text())
@@ -327,6 +328,8 @@ class WorkflowBehaviorTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("no pixel difference", result.stdout)
 
+    @unittest.skipUnless(shutil.which("bash") and shutil.which("git"),
+                         "the CI scope step needs bash and Git")
     def test_readme_changes_skip_expensive_ci_for_pushes_and_pull_requests(self):
         ci = (Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text()
         body = script(ci, "Identify README-only changes")
@@ -365,9 +368,11 @@ class WorkflowBehaviorTests(unittest.TestCase):
             env = dict(os.environ, EVENT_NAME=event, PR_BASE=before,
                        PR_HEAD=head, PUSH_BASE=before, PUSH_HEAD=head,
                        RUNNER_TEMP=str(self.root), GITHUB_OUTPUT=str(output))
-            result = subprocess.run(["bash", "-c", body], cwd=repo,
+            # An unqualified executable can resolve to the Windows WSL
+            # launcher before PATH; use the Bash found for the other tests.
+            result = subprocess.run([shutil.which("bash"), "-c", body], cwd=repo,
                                     env=env, capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
             return output.read_text().strip()
 
         self.assertEqual(scope("pull_request", base, site), "full=false")
@@ -451,11 +456,6 @@ class WorkflowBehaviorTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("bash"), "publishing requires bash")
     def test_publishing_keeps_crops_and_full_images(self):
-        bindir = self.root / "bin"
-        bindir.mkdir()
-        fake_git = bindir / "git"
-        fake_git.write_text("#!/bin/sh\nexit 0\n")
-        fake_git.chmod(0o755)
         for with_crops in (True, False):
             with self.subTest(with_crops=with_crops):
                 work = self.root / str(with_crops)
@@ -464,9 +464,8 @@ class WorkflowBehaviorTests(unittest.TestCase):
                 (work / "shots/light-01-window.png").write_bytes(b"full capture")
                 if with_crops:
                     (work / "crops/compact-diff.png").write_bytes(b"option crop")
-                env = dict(os.environ, PATH=str(bindir) + os.pathsep + os.environ["PATH"],
-                           GITHUB_SHA="local-test")
-                result = subprocess.run([shutil.which("bash"), "-c", script(
+                env = dict(os.environ, GITHUB_SHA="local-test")
+                result = subprocess.run([shutil.which("bash"), "-c", "git() { :; }\n" + script(
                     self.workflow("readme-previews.yml"), "Publish to previews branch")],
                     cwd=work, env=env, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
