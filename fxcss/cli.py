@@ -1481,7 +1481,11 @@ def cmd_tweaks(args):
     if not (theme / "chrome" / "userChrome.css").exists():
         print(f"error: no chrome/userChrome.css under {theme}", file=sys.stderr)
         return 2
-    available = core.find_variant_sheets(theme)
+    try:
+        available = core.find_variant_sheets(theme)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     if not available:
         print("This theme ships no optional stylesheets (looked in custom/, "
               "optional/, options/, extras/, variants/), so there is nothing "
@@ -1525,8 +1529,8 @@ def cmd_init(args):
         print(f"error: no chrome/userChrome.css under {theme} - run this from "
               f"your theme's root, or pass --theme", file=sys.stderr)
         return 2
-    slugs = sorted(core.find_variant_sheets(theme))
     try:
+        slugs = sorted(core.find_variant_sheets(theme))
         preview = scaffold.preview_settings(theme, args.variants, args.views,
                                             args.min_changed_percent, args.oldest_firefox)
     except ValueError as exc:

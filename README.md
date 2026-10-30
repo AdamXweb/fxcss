@@ -763,8 +763,11 @@ window around it, which is why themes break it without noticing — a dark theme
 whose dialog body renders white shows up here and nowhere else.
 
 The captures land **flat** in `--out`, one file per view (`shots/before/light-01-window.png`);
-`--url` captures go to `<out>/live/`. This is the directory to publish from if
-you want plain screenshots — `fxcss compare` writes a different shape, below.
+`--url` captures go to `<out>/live/`, named after the URL without its scheme,
+`www.`, query or fragment; URLs that differ only in those parts are numbered in
+the order given (`example-com`, `example-com-2`) rather than overwriting each
+other. This is the directory to publish from if you want plain screenshots —
+`fxcss compare` writes a different shape, below.
 
 ```bash
 fxcss shot --out shots --variants all
@@ -774,6 +777,10 @@ fxcss shot --out shots --variants all
 ships (`custom/`, `optional/`, `variants/`…), each loaded on its own and removed
 again — so `tabs-swapclose` or `compact-tabs` are checked by CI without a
 separate install. Name specific ones (`--variants a,b`) or take them all.
+Names are the filename lower-cased with punctuation folded to `-`. Two sheets
+with the same name in different folders are told apart by folder
+(`custom-tabs`, `optional-tabs`); two in one folder that differ only in case
+or punctuation are reported as an error, since nothing distinguishes them.
 
 #### Browser states it captures
 

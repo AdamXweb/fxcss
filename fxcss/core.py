@@ -26,6 +26,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections import Counter
 from pathlib import Path
 
 MARIONETTE_DEFAULT_PORT = 2828
@@ -375,6 +376,24 @@ def _write_atomic(path: Path, text: str):
     os.replace(tmp, path)
 
 
+CUSTOM_CHROME_PLACEHOLDER = "/* placeholder created by fxcss */\n"
+
+
+def _ensure_custom_chrome(theme_chrome: Path, dest_chrome: Path):
+    """Make sure `@import "customChrome.css"` resolves in a copied chrome/ tree.
+
+    userChrome.css conventionally @imports customChrome.css as the place for a
+    user's own overrides, and most themes leave it unshipped; an empty file
+    keeps the import from failing. A theme that does ship one has put rules in
+    it, and those must survive the copy the way `fxcss install` keeps them --
+    writing the placeholder over the top would preview a theme missing part of
+    itself.
+    """
+    if not (theme_chrome / "customChrome.css").is_file():
+        (dest_chrome / "customChrome.css").write_text(
+            CUSTOM_CHROME_PLACEHOLDER, encoding="utf-8")
+
+
 def build_profile(repo: Path, profile: Path, dark=False, native_menus=None,
                   empty_user_chrome=False, port=MARIONETTE_DEFAULT_PORT,
                   devtools=False, extra_prefs=None):
@@ -386,11 +405,7 @@ def build_profile(repo: Path, profile: Path, dark=False, native_menus=None,
     """
     profile.mkdir(parents=True, exist_ok=True)
     shutil.copytree(repo / "chrome", profile / "chrome", dirs_exist_ok=True)
-
-    # userChrome.css @imports customChrome.css, which the repo does not ship.
-    # Some themes @import this; create it empty so the import resolves.
-    (profile / "chrome" / "customChrome.css").write_text(
-        "/* placeholder created by fxcss */\n", encoding="utf-8")
+    _ensure_custom_chrome(repo / "chrome", profile / "chrome")
     if empty_user_chrome:
         (profile / "chrome" / "userChrome.css").write_text(
             '@import "customChrome.css";\n', encoding="utf-8")
@@ -722,9 +737,7 @@ class Session:
         self._generation += 1
         dest = self.profile / "chrome" / f"live-{self._generation}"
         shutil.copytree(self.repo / "chrome", dest, dirs_exist_ok=True)
-        # Keep the CI-only overrides that customChrome.css normally supplies.
-        (dest / "customChrome.css").write_text(
-            "/* placeholder created by fxcss */\n", encoding="utf-8")
+        _ensure_custom_chrome(self.repo / "chrome", dest)
 
         uri = (dest / "userChrome.css").resolve().as_uri()
         self.m.script(SWAP_FILE_SHEET, [uri])
@@ -2343,16 +2356,42 @@ def find_variant_sheets(theme: Path):
 
     Looks in the same folders `fxcss try --with` does. Keys are slugs safe for
     a filename, so a capture can be named after its variant.
+
+    Slugs fold case and punctuation, so two sheets can arrive at the same one.
+    Letting the later file silently replace the earlier would capture, list and
+    complete only one of them. Sheets in different folders are told apart by
+    folder (`custom-tabs` and `optional-tabs`) -- a stable name, since it only
+    depends on the two files themselves. Sheets in one folder that differ only
+    in case or punctuation have nothing to tell them apart, and are an error
+    that names both files.
     """
     from .fetch import VARIANT_DIRS
-    sheets = {}
+    by_slug = {}
     for folder in VARIANT_DIRS:
         directory = theme / folder
         if directory.is_dir():
             for css in sorted(directory.glob("*.css")):
                 slug = re.sub(r"[^a-z0-9-]+", "-", css.stem.lower()).strip("-")
                 if slug:
-                    sheets[slug] = css
+                    by_slug.setdefault(slug, []).append((folder, css))
+
+    def clash(name, first, second):
+        first, second = (p.relative_to(theme).as_posix() for p in (first, second))
+        return ValueError(
+            f"optional stylesheets {first} and {second} would both be called "
+            f"`{name}`; rename one so --variants can tell them apart")
+
+    sheets = {}
+    for slug, entries in by_slug.items():
+        per_folder = Counter(folder for folder, _ in entries)
+        if len(entries) > 1 and max(per_folder.values()) > 1:
+            same = [css for folder, css in entries if per_folder[folder] > 1]
+            raise clash(slug, same[0], same[1])
+        for folder, css in entries:
+            name = slug if len(entries) == 1 else f"{folder}-{slug}"
+            if name in sheets:
+                raise clash(name, sheets[name], css)
+            sheets[name] = css
     return sheets
 
 
@@ -2541,6 +2580,36 @@ def slugify_url(url):
     return (slug or "page")[:48]
 
 
+def live_capture_names(urls):
+    """Pair each requested URL with a distinct, deterministic capture name.
+
+    slugify_url drops the scheme, `www.`, query and fragment and truncates long
+    paths, so two different URLs can share a slug -- and the second capture
+    would silently overwrite the first. A URL whose slug nobody else has keeps
+    it, so existing names do not move. Clashing URLs are numbered in request
+    order, skipping any name another URL already holds outright. The same
+    `--url` list therefore always yields the same names.
+    """
+    urls = list(urls)
+    slugs = [slugify_url(url) for url in urls]
+    shared = {slug for slug, count in Counter(slugs).items() if count > 1}
+    taken = set(slugs)
+    ordinal = Counter()
+    named = []
+    for url, slug in zip(urls, slugs):
+        name = slug
+        if slug in shared:
+            ordinal[slug] += 1
+            if ordinal[slug] > 1:
+                suffix = ordinal[slug]
+                while f"{slug}-{suffix}" in taken:
+                    suffix += 1
+                name = f"{slug}-{suffix}"
+        taken.add(name)
+        named.append((url, name))
+    return named
+
+
 def capture_live(session, outdir: Path, urls, modes=("light", "dark"), settle=6.0):
     """Screenshot the theme against real websites.
 
@@ -2556,8 +2625,7 @@ def capture_live(session, outdir: Path, urls, modes=("light", "dark"), settle=6.
     session.setup_window()
 
     captured = []
-    for url in urls:
-        slug = slugify_url(url)
+    for url, slug in live_capture_names(urls):
         m.script(NAVIGATE, [url])
 
         # Wait for the tab to stop reporting itself busy, then let the page
