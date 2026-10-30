@@ -666,6 +666,18 @@ code,
 .film {
   padding: 8px 0 24px;
 }
+.film-transcript {
+  margin-top: 16px;
+  max-width: 75ch;
+  line-height: 1.65;
+}
+.film-transcript summary {
+  cursor: pointer;
+  text-decoration: underline;
+}
+.film-transcript li {
+  margin-block: 12px;
+}
 .film video {
   display: block;
   width: 100%;

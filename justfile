@@ -23,7 +23,7 @@ public_url := "https://fxcss.com"
 default:
     @just --list --unsorted
 
-# Needs Node 22.13 or newer (package.json engines); CI uses 24.
+# Needs Node 22.18 or newer (package.json engines); CI uses 24.
 [doc("Fresh checkout: install the locked dependencies")]
 setup:
     npm ci
@@ -64,6 +64,11 @@ dev: _installed
 build: _installed
     npm run build
     @echo "▸ Built. Config at {{wrangler_config}}"
+
+# Install Chromium once with `npx playwright install chromium`.
+[doc("Run browser interaction checks against the built Worker")]
+browser: _built
+    npm run test:browser
 
 # The built Worker under wrangler (workerd), the same runtime as production.
 [doc("Serve the built Worker on http://127.0.0.1:4318")]

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { searchDocs } from '../lib/docs-search.ts';
+import { describeMarkdown } from '../scripts/doc-text.mjs';
 const read = (p) => fs.readFileSync(new URL(p, import.meta.url));
 const docs = JSON.parse(read('../content/docs.json'));
 const manifest = JSON.parse(read('../public/evidence/manifest.json'));
@@ -100,9 +101,45 @@ test('full-text search finds command options and links to their passage', () => 
       ({ page }) => page.slug === 'install',
     ),
   );
-  assert.equal(searchDocs(docs.pages, 'no such command').length, 0);
+  assert.equal(searchDocs(docs.pages, 'no unfindable-command-option').length, 0);
   assert.equal(searchDocs(docs.pages, 'unfindable-command-option').length, 0);
 });
+test('search accepts reordered terms and ranks exact phrases first', () => {
+  const page = { title: 'Guide', description: '', chapter: 'Guide', group: 'guide' };
+  const candidates = [
+    { ...page, slug: 'fallback', search: [{ id: 'one', text: 'Screenshots show the result.' }, { id: 'two', text: 'Compare each release.' }] },
+    { ...page, slug: 'exact', search: [{ id: 'three', text: 'Compare screenshots with fxcss.' }] },
+    { ...page, slug: 'missing', search: [{ id: 'four', text: 'Compare colours.' }] },
+  ];
+  assert.deepEqual(searchDocs(candidates, 'compare screenshots').map(({ page }) => page.slug), ['exact', 'fallback']);
+  assert.deepEqual(new Set(searchDocs(candidates, 'screenshots compare').map(({ page }) => page.slug)), new Set(['exact', 'fallback']));
+  assert.equal(searchDocs(candidates, 'screenshots impossible').length, 0);
+  assert.equal(searchDocs(candidates, '  ').length, 0);
+  for (const query of ['screenshots compare', 'mode dark', 'install --profile']) {
+    assert.ok(searchDocs(docs.pages, query).length, query);
+  }
+});
+
+test('the separately cached search index matches the generated pages and its hash', () => {
+  const { url } = JSON.parse(read('../content/search-index.json'));
+  const bytes = read('../public' + url);
+  assert.equal(url, `/search/index-${hash(bytes).slice(0, 16)}.json`);
+  assert.deepEqual(JSON.parse(bytes), docs.pages.map(({ slug, title, description, chapter, group, search }) =>
+    ({ slug, title, description, chapter, group, search }),
+  ));
+});
+
+test('descriptions use prose, omit Markdown tables, and keep whole words', () => {
+  assert.equal(describeMarkdown('# Heading\n\n| Name | Value |\n| --- | --- |\n| theme | blue |\n\nUse **fxcss** & save [your theme](https://example.com).', 'Fallback'), 'Use fxcss & save your theme.');
+  assert.equal(describeMarkdown('- One\n- Two', 'Fallback'), 'Fallback');
+  const prose = 'A useful description with complete words. '.repeat(8).trim();
+  const result = describeMarkdown(prose, 'Fallback');
+  assert.ok(result.length <= 160);
+  assert.ok(result.endsWith('…'));
+  assert.ok(prose.startsWith(result.slice(0, -1)));
+  assert.match(prose.slice(result.length - 1), /^[ .]/);
+});
+
 test('screenshot assets match the recorded evidence without pixel edits', () => {
   assert.deepEqual(JSON.parse(read('../content/evidence.json')), manifest);
   for (const [file, expected] of Object.entries(manifest.assets))

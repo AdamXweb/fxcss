@@ -21,7 +21,7 @@ img { max-width: 100%; border-radius: 8px; border: 1px solid var(--line); displa
 .tabs { display:flex; gap:8px; margin: 0 0 12px; }
 .tabs button { font: inherit; padding: 6px 14px; border-radius: 999px; cursor: pointer;
    border: 1px solid var(--line); background: var(--card); color: var(--fg); }
-.tabs button[aria-selected=true] { background: var(--accent); color:#fff; border-color:transparent; }
+.tabs button[aria-pressed=true] { background: var(--accent); color:#fff; border-color:transparent; }
 .card { border:1px solid var(--line); border-radius:12px; padding:16px 18px;
         margin-bottom:14px; background:var(--card); }
 .card h3 { margin:0 0 2px; font-size:17px; }
@@ -424,7 +424,7 @@ function showMode(m) {
     el.hidden = el.dataset.mode !== m;
   });
   document.querySelectorAll('.tabs button').forEach(function (b) {
-    b.setAttribute('aria-selected', String(b.dataset.set === m));
+    b.setAttribute('aria-pressed', String(b.dataset.set === m));
   });
 }
 document.addEventListener('DOMContentLoaded', function () { showMode('light'); });

@@ -10,7 +10,7 @@ This is the `website` branch of [AdamXweb/fxcss](https://github.com/AdamXweb/fxc
 
 | Command | What it does |
 | --- | --- |
-| `just setup` | Install the locked dependencies (Node.js 22.13 or newer). |
+| `just setup` | Install the locked dependencies (Node.js 22.18 or newer). |
 | `just dev` | Development server on http://127.0.0.1:4317. |
 | `just check` | What Website CI checks before building: docs, types, lint, tests, the installer, and the dependency audit. |
 | `just build` | Build the Worker into `dist/`. |
@@ -55,11 +55,11 @@ just verify
 
 vinext 1.0.1 includes `@vercel/og` 1.0.3 with the Satori SVG-escaping fix and the framework's HarfBuzz runtime support. The `satori` override pins `fflate` 0.7.5 to fix its ZIP64 parsing advisory while Satori pins 0.7.3; remove that override once Satori uses a patched release. The lockfile also keeps `@hono/node-server` and `systeminformation` on patched versions within their existing dependency ranges.
 
-The Website GitHub Actions workflow (`.github/workflows/website.yml`) runs the same checks, plus a deploy dry run, on every pull request and push to `website`, without deploying. A second job warns when the recorded documentation is behind `main`. The production check visits every documentation page, validates asset responses and the security headers on pages, redirects and static files, checks that every page carries the share card and that each labelled control's name contains its visible text, and verifies not-found responses and redirects. Browser checks cover navigation, search, code copying, keyboard-operated comparison controls, and narrow layouts.
+The Website GitHub Actions workflow (`.github/workflows/website.yml`) runs the same checks, plus a deploy dry run, on every pull request and push to `website`, without deploying. A second job warns when the recorded documentation is behind `main`. The production check visits every documentation page, validates asset responses and the security headers on pages, redirects and static files, checks that every page carries the share card and that each labelled control's name contains its visible text, and verifies not-found responses and redirects. On Node 24, CI also runs the Playwright Chromium suite (`npm run test:browser`) against the built Worker. It covers journey selection, game completion, search loading and recovery, code copying, keyboard-operated comparison controls, catalogue toggles, and mobile Escape handling. The main checks also run on the declared minimum Node 22.18.0. For local browser checks, run `npx playwright install chromium`, `npm run build`, then `npm run test:browser`; Playwright starts and stops its own local Worker and blocks outside requests.
 
 ## Documentation source
 
-`README.md` on `main` is the reference source. This branch keeps a recorded copy of it, and of the fxcss version, in `content/source/`. `npm run content` generates and sanitises `content/docs.json` from that copy; it runs automatically before development and production builds. Source hashes and tests detect stale generated content and missing command pages.
+`README.md` on `main` is the reference source. This branch keeps a recorded copy of it, and of the fxcss version, in `content/source/`. `npm run content` generates and sanitises `content/docs.json` from that copy; it runs automatically before development and production builds. Source hashes and tests detect stale generated content and missing command pages. The build also writes a content-hashed search index under `public/search/` and records its URL in `content/search-index.json`. Documentation navigation receives only page labels; search downloads the index on first focus or input, with a retry control if it fails. Exact phrases rank first, followed by pages containing all query words in any order. Descriptions use the first prose paragraph and end at a word boundary.
 
 The copy refreshes itself. The Refresh docs workflow (`.github/workflows/refresh-docs.yml`) regenerates it from `main` and pushes it to this branch, and Workers Builds deploys the result. `main`'s Website docs workflow starts it after each release reaches PyPI and after each README change. Before pushing, it:
 - skips a version PyPI doesn't serve yet, so the site never advertises an install that fails;
@@ -105,12 +105,14 @@ This launches disposable Firefox sessions, captures 20 states for the unchanged 
 
 ## Homepage film
 
-The homepage plays a 57-second silent film between the introduction and the three starting points. `public/media/fxcss-film.mp4` is H.264 at 1920x1080 (CRF 27, BT.709, `+faststart`, about 5 MB); `public/media/fxcss-film-poster.jpg` is its frame at 2.5 seconds with a "Get started on your first theme today." play card added on the right; that card appears only on the poster, not in the film. The video uses `preload="none"`, so visitors download only the poster until they press play. The film ends on the logo, without a URL or install command, because the page carries both.
+The homepage plays a 57-second silent film between the introduction and the three starting points. `public/media/fxcss-film.mp4` is H.264 at 1920x1080 (CRF 27, BT.709, `+faststart`, about 5 MB); `public/media/fxcss-film-poster.jpg` is its frame at 2.5 seconds with a "Get started on your first theme today." play card added on the right; that card appears only on the poster, not in the film. An expandable text description below the film provides its steps without requiring video playback. The video uses `preload="none"`, so visitors download only the poster until they press play. The film ends on the logo, without a URL or install command, because the page carries both.
 
-The film is rendered from an HTML source outside this repository. Its on-screen commands and output match fxcss's real CLI, and the theme colours come from WhiteSur's `custom/theme-*.css`. Replace both files together when the film changes.
+The film is rendered from an HTML source outside this repository. Its on-screen commands and output match fxcss's real CLI, and the theme colours come from WhiteSur's `custom/theme-*.css`. Replace both files and update the adjacent text description in `app/page.tsx` when the film changes.
 
 ## Publishing
 
 The site is prepared for **https://fxcss.com**. `/install.sh` serves the interactive installer directly as plain text. Canonical URLs, the sitemap, and setup examples use that domain. Publish the matching package metadata when the domain is live. See [DEPLOYMENT.md](DEPLOYMENT.md) for the launch, the Cloudflare zone settings and deploying on every push.
 
-Nothing has been published yet. The site runs as the Cloudflare Worker `fxcss-website`, configured in `vite.config.ts`; the `deploy` script attaches the `fxcss.com` and `www.fxcss.com` custom domains. `npm run build` writes `dist/server/index.js`, `dist/client/` and the generated `dist/server/wrangler.json`, and `npm run deploy` publishes them. Production scripts require the generated Worker configuration. The public installer must work without a browser session or a sign-in redirect. Do not serve the development server publicly.
+The site runs as the Cloudflare Worker `fxcss-website`, configured in `vite.config.ts`; the `deploy` script attaches the `fxcss.com` and `www.fxcss.com` custom domains. `npm run build` writes `dist/server/index.js`, `dist/client/` and the generated `dist/server/wrangler.json`, and `npm run deploy` publishes them. Production scripts require the generated Worker configuration. The public installer must work without a browser session or a sign-in redirect. Do not serve the development server publicly.
+
+The tab favicon uses the existing lightweight SVG, independently of the recorded source icon. The catalogue capture script normalises older toolkit output to `aria-pressed` toggle buttons after each recapture.

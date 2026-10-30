@@ -1,9 +1,8 @@
 'use client';
-import { useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Search, X, ChevronDown } from 'lucide-react';
-import { Sidebar, SidebarProvider } from '@/components/ui/sidebar';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import {
@@ -14,7 +13,8 @@ import {
 import { searchDocs, type SearchableDoc } from '@/lib/docs-search';
 import { revealSecret, searchSecret } from '@/lib/easter-eggs';
 import { retroDestinationForQuery, retroDestinations } from '@/lib/time-machine';
-export type NavPage = SearchableDoc;
+export type NavPage = Pick<SearchableDoc, 'slug' | 'title' | 'chapter' | 'group'>;
+type SearchStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 function Highlight({ text, query }: { text: string; query: string }) {
   const terms = [
@@ -48,12 +48,18 @@ function DocsNavigation({
   query,
   setQuery,
   onNavigate,
+  searchPages,
+  searchStatus,
+  loadSearch,
 }: {
   pages: NavPage[];
   version: string;
   query: string;
   setQuery: (query: string) => void;
   onNavigate: () => void;
+  searchPages: SearchableDoc[];
+  searchStatus: SearchStatus;
+  loadSearch: () => void;
 }) {
   const pathname = usePathname();
   const searchId = useId();
@@ -61,7 +67,7 @@ function DocsNavigation({
   const secret = searchSecret(query);
   const retroDestination = retroDestinationForQuery(query);
   const searching = Boolean(query.trim());
-  const matches = searchDocs(pages, query);
+  const matches = searchDocs(searchPages, query);
   const groups = [...new Set(pages.map((p) => p.chapter))];
   return (
     <nav aria-label="Documentation">
@@ -74,7 +80,8 @@ function DocsNavigation({
             ref={searchField}
             placeholder="Command, option or guide"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onFocus={loadSearch}
+            onChange={(e) => { setQuery(e.target.value); loadSearch(); }}
             onKeyDown={(event) => {
               // Escape clears a search first; a second Escape reaches the menu.
               if (event.key !== 'Escape' || !query) return;
@@ -110,12 +117,17 @@ function DocsNavigation({
       <output className="search-count">
         {!searching
           ? ''
+          : searchStatus === 'error'
+            ? 'Search could not load. Try again or browse the documentation.'
+          : searchStatus !== 'ready'
+            ? 'Loading search…'
           : secret && !matches.length
             ? 'Secret unlocked. Explore it below.'
           : matches.length
             ? `${matches.length} matching ${matches.length === 1 ? 'page' : 'pages'}`
             : 'No matching pages. Try a command or a shorter phrase.'}
       </output>
+      {searchStatus === 'error' && <button onClick={loadSearch}>Retry search</button>}
       {searching ? (
         <div className="docs-search-results">
           {secret && <div className="search-secret">
@@ -175,14 +187,34 @@ function DocsNavigation({
 export function DocsFrame({
   pages,
   version,
+  searchUrl,
   children,
 }: {
   pages: NavPage[];
   version: string;
+  searchUrl: string;
   children: React.ReactNode;
 }) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
+  const [searchPages, setSearchPages] = useState<SearchableDoc[]>([]);
+  const [searchStatus, setSearchStatus] = useState<SearchStatus>('idle');
+  const searchRequest = useRef<Promise<void> | null>(null);
+  const loadSearch = useCallback(() => {
+    if (searchRequest.current) return;
+    setSearchStatus('loading');
+    searchRequest.current = fetch(searchUrl)
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Search index unavailable');
+        const pages: SearchableDoc[] = await response.json();
+        setSearchPages(pages);
+        setSearchStatus('ready');
+      })
+      .catch(() => {
+        searchRequest.current = null;
+        setSearchStatus('error');
+      });
+  }, [searchUrl]);
   const previousSecret = useRef<string | null>(null);
   const secret = searchSecret(query);
   const retroDestination = retroDestinationForQuery(query);
@@ -198,10 +230,13 @@ export function DocsFrame({
     query,
     setQuery,
     onNavigate: () => setOpen(false),
+    searchPages,
+    searchStatus,
+    loadSearch,
   };
   return (
-    <SidebarProvider className="guide-layout">
-      <Sidebar collapsible="none" className="guide-sidebar">
+    <div className="guide-layout" data-slot="sidebar-wrapper">
+      <aside className="guide-sidebar" data-slot="sidebar">
         <div className="desktop-docs-nav">
           <DocsNavigation {...navigation} />
         </div>
@@ -211,7 +246,9 @@ export function DocsFrame({
           className="mobile-docs-nav"
           onKeyDown={(event) => {
             // Escape closes the open menu and returns focus to its button.
-            if (event.key !== 'Escape' || !open) return;
+            if (event.key !== 'Escape' || event.defaultPrevented || !open) return;
+            event.preventDefault();
+            event.stopPropagation();
             setOpen(false);
             menuButton.current?.focus();
           }}
@@ -223,8 +260,8 @@ export function DocsFrame({
             <DocsNavigation {...navigation} />
           </CollapsibleContent>
         </Collapsible>
-      </Sidebar>
+      </aside>
       {children}
-    </SidebarProvider>
+    </div>
   );
 }

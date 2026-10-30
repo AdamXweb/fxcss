@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { marked, Renderer } from 'marked';
 import sanitizeHtml from 'sanitize-html';
+import { describeMarkdown, plainText } from './doc-text.mjs';
 
 const site = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // The site lives on the `website` branch; the README it documents lives on
@@ -113,20 +114,8 @@ for (const page of pages) {
   const codes = [];
   const headings = [];
   const search = [];
-  const searchText = (html) =>
-    sanitizeHtml(html.replace(/<\/(?:p|li|div|tr|h[1-6])>/g, ' '), {
-      allowedTags: [],
-      allowedAttributes: {},
-    })
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'")
-      .replace(/\s+/g, ' ')
-      .trim();
   const addPassage = (html, id) => {
-    const text = searchText(html);
+    const text = plainText(html);
     if (!text) return null;
     const passageId = id || `passage-${search.length + 1}`;
     search.push({ id: passageId, text });
@@ -237,14 +226,7 @@ for (const page of pages) {
       }),
     },
   });
-  const description = markdown
-    .replace(/```[\s\S]*?```/g, '')
-    .replace(/<[^>]+>/g, '')
-    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/[*_`#>]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 190);
+  const description = describeMarkdown(markdown, page.title);
   docs.push({
     slug: page.slug,
     title: page.title,
@@ -268,6 +250,20 @@ await fs.writeFile(
   path.join(site, 'content/docs.json'),
   JSON.stringify(output, null, 2) + '\n',
 );
+// A content-hashed asset can be cached independently of the nonce-bearing HTML.
+const searchIndex = JSON.stringify(docs.map(({ slug, title, description, chapter, group, search }) =>
+  ({ slug, title, description, chapter, group, search }),
+));
+const searchHash = crypto.createHash('sha256').update(searchIndex).digest('hex').slice(0, 16);
+const searchName = `index-${searchHash}.json`;
+const searchDirectory = path.join(site, 'public/search');
+await fs.mkdir(searchDirectory, { recursive: true });
+for (const file of await fs.readdir(searchDirectory)) {
+  if (/^index-[a-f0-9]+\.json$/.test(file) && file !== searchName)
+    await fs.unlink(path.join(searchDirectory, file));
+}
+await fs.writeFile(path.join(searchDirectory, searchName), searchIndex);
+await fs.writeFile(path.join(site, 'content/search-index.json'), JSON.stringify({ url: `/search/${searchName}` }, null, 2) + '\n');
 // Keep public downloads outside the module graph; share the same recorded data.
 await fs.copyFile(
   path.join(site, 'public/evidence/manifest.json'),

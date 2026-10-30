@@ -67,7 +67,7 @@ export function SpecificityBattle() {
           <ul>{battleRounds.map((item) => <li key={item.title}><Check size={16} />{item.takeaway}</li>)}</ul>
           <div className="battle-finish-actions">
             <button className="button primary" onClick={restart}><RotateCcw size={16} /> Play again</button>
-            <Link href="/docs/build" className="text-link">Build something with it <ArrowRight size={16} /></Link>
+            <Link href="/docs?path=build" className="text-link">Build something with it <ArrowRight size={16} /></Link>
           </div>
           <p className="battle-secret">Victory deserves a coffee. Try searching the docs for <code>c0ffee</code>.</p>
         </div>

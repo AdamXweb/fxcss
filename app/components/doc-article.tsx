@@ -1,8 +1,11 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 export function DocArticle({ html, codes }: { html: string; codes: string[] }) {
   const ref = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState("");
+  // Status announcements must not replace the article DOM and erase the
+  // copied button's label (or keyboard focus and scrollable-code attributes).
+  const markup = useMemo(() => ({ __html: html }), [html]);
   useEffect(() => {
     const element = ref.current;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -54,7 +57,7 @@ export function DocArticle({ html, codes }: { html: string; codes: string[] }) {
   }, [codes]);
   return (
     <>
-      <div className="doc-body" ref={ref} dangerouslySetInnerHTML={{ __html: html }} />
+      <div className="doc-body" ref={ref} dangerouslySetInnerHTML={markup} />
       <output className="doc-copy-status">{status}</output>
     </>
   );

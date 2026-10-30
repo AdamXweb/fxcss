@@ -23,11 +23,15 @@ jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.18.0', '24']
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: '24'
+          node-version: ${{ matrix.node }}
           cache: npm
       - uses: actions/setup-python@v7
         with:
@@ -55,6 +59,12 @@ jobs:
         env:
           WRANGLER_SEND_METRICS: 'false'
         run: scripts/check-built-site.sh
+      - name: Install the browser test runtime
+        if: matrix.node == '24'
+        run: npx playwright install --with-deps chromium
+      - name: Check browser interactions
+        if: matrix.node == '24'
+        run: npm run test:browser
 
   # The documentation is a recorded copy of main's README (content/source).
   # Refresh docs normally keeps it current, but a refresh can fail or wait for

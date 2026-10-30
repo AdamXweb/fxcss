@@ -42,3 +42,7 @@ next-env.d.ts
 !/public/evidence/*.png
 !/public/catalogue/**/*.png
 *.tsbuildinfo
+
+# Browser checks
+/playwright-report/
+/test-results/
