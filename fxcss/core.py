@@ -26,6 +26,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections import Counter
 from pathlib import Path
 
 MARIONETTE_DEFAULT_PORT = 2828
@@ -66,27 +67,77 @@ class Marionette:
         self._msgid = 0
         self._buf = b""
 
-    def connect(self, timeout=120):
-        deadline = time.time() + timeout
-        last = None
-        while time.time() < deadline:
-            try:
-                self.sock = socket.create_connection((self.host, self.port), timeout=30)
-                self.sock.settimeout(180)
-                break
-            except OSError as exc:
-                last = exc
-                time.sleep(0.5)
-        else:
-            raise MarionetteError(f"could not connect to Marionette in {timeout}s: {last}")
+    def connect(self, timeout=120, *, process=None):
+        """Connect, optionally watching a Firefox process owned by the caller.
 
-        handshake = self._recv()
-        if "marionetteProtocol" not in handshake:
-            raise MarionetteError(f"unexpected Marionette handshake: {handshake}")
-        self.command("WebDriver:NewSession", {"capabilities": {}})
+        Remote clients have no process to watch and keep their usual socket
+        timeouts. Owned launches also poll while waiting for the handshake or
+        NewSession response, since the listener can open before Firefox exits.
+        """
+        deadline = time.monotonic() + timeout
+        self._startup_process = process
+        self._startup_deadline = deadline
+        last = None
+        try:
+            while time.monotonic() < deadline:
+                self._check_startup_process()
+                try:
+                    self.sock = socket.create_connection(
+                        (self.host, self.port), timeout=0.5 if process is not None else 30)
+                    self.sock.settimeout(0.5 if process is not None else 180)
+                    break
+                except OSError as exc:
+                    last = exc
+                    self._check_startup_process()
+                    time.sleep(0.5)
+            else:
+                self._check_startup_process()
+                raise MarionetteError(
+                    f"could not connect to Marionette at {self.host}:{self.port} "
+                    f"in {timeout}s: {last}; check that Firefox is running "
+                    "with Marionette enabled and the host/port are reachable")
+
+            self._check_startup_process()
+            handshake = self._recv()
+            if "marionetteProtocol" not in handshake:
+                raise MarionetteError(f"unexpected Marionette handshake: {handshake}")
+            self.command("WebDriver:NewSession", {"capabilities": {}})
+            self._check_startup_process()
+            self.sock.settimeout(180)
+        except BaseException as exc:
+            if self.sock is not None:
+                self.sock.close()
+                self.sock = None
+            self._buf = b""
+            if isinstance(exc, (OSError, MarionetteError)):
+                self._check_startup_process()
+                raise MarionetteError(
+                    f"Marionette connection at {self.host}:{self.port} failed: {exc}") from exc
+            raise
+        finally:
+            self._startup_process = None
+
+    def _check_startup_process(self):
+        process = getattr(self, "_startup_process", None)
+        if process is not None:
+            code = process.poll()
+            if code is not None:
+                raise MarionetteError(
+                    f"Firefox exited with status {code} before Marionette was ready "
+                    f"at {self.host}:{self.port}")
 
     def _read_more(self):
-        chunk = self.sock.recv(1 << 16)
+        while True:
+            self._check_startup_process()
+            if (getattr(self, "_startup_process", None) is not None
+                    and time.monotonic() >= self._startup_deadline):
+                raise MarionetteError("timed out waiting for Marionette startup response")
+            try:
+                chunk = self.sock.recv(1 << 16)
+                break
+            except socket.timeout:
+                if getattr(self, "_startup_process", None) is None:
+                    raise
         if not chunk:
             raise MarionetteError("Marionette connection closed unexpectedly")
         self._buf += chunk
@@ -325,6 +376,24 @@ def _write_atomic(path: Path, text: str):
     os.replace(tmp, path)
 
 
+CUSTOM_CHROME_PLACEHOLDER = "/* placeholder created by fxcss */\n"
+
+
+def _ensure_custom_chrome(theme_chrome: Path, dest_chrome: Path):
+    """Make sure `@import "customChrome.css"` resolves in a copied chrome/ tree.
+
+    userChrome.css conventionally @imports customChrome.css as the place for a
+    user's own overrides, and most themes leave it unshipped; an empty file
+    keeps the import from failing. A theme that does ship one has put rules in
+    it, and those must survive the copy the way `fxcss install` keeps them --
+    writing the placeholder over the top would preview a theme missing part of
+    itself.
+    """
+    if not (theme_chrome / "customChrome.css").is_file():
+        (dest_chrome / "customChrome.css").write_text(
+            CUSTOM_CHROME_PLACEHOLDER, encoding="utf-8")
+
+
 def build_profile(repo: Path, profile: Path, dark=False, native_menus=None,
                   empty_user_chrome=False, port=MARIONETTE_DEFAULT_PORT,
                   devtools=False, extra_prefs=None):
@@ -336,14 +405,10 @@ def build_profile(repo: Path, profile: Path, dark=False, native_menus=None,
     """
     profile.mkdir(parents=True, exist_ok=True)
     shutil.copytree(repo / "chrome", profile / "chrome", dirs_exist_ok=True)
-
-    # userChrome.css @imports customChrome.css, which the repo does not ship.
-    # Some themes @import this; create it empty so the import resolves.
-    (profile / "chrome" / "customChrome.css").write_text(
-        "/* placeholder created by fxcss */\n", encoding="utf-8")
+    _ensure_custom_chrome(repo / "chrome", profile / "chrome")
     if empty_user_chrome:
         (profile / "chrome" / "userChrome.css").write_text(
-            '@import "customChrome.css";\n', encoding="utf-8")
+            '/* Theme styles are loaded explicitly by the caller. */\n', encoding="utf-8")
 
     prefs = ""
     repo_userjs = repo / "configuration" / "user.js"
@@ -495,10 +560,21 @@ class Session:
             # firefox.exe is a launcher on Windows. Keep it alive until its
             # browser exits so cleanup cannot race the browser's shutdown.
             cmd.append("-wait-for-browser")
-        self.proc = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL,
-                                     stderr=subprocess.DEVNULL)
+        try:
+            self.proc = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL,
+                                         stderr=subprocess.DEVNULL)
+        except OSError as exc:
+            raise MarionetteError(
+                f"could not launch Firefox {self.firefox!r}: {exc}; "
+                "check --firefox points to an executable Firefox binary") from exc
         self.m = Marionette(port=self.port)
-        self.m.connect()
+        try:
+            self.m.connect(process=self.proc)
+        except MarionetteError as exc:
+            raise MarionetteError(
+                f"could not start Firefox {self.firefox!r}: {exc}. "
+                "Try running that binary directly to inspect its startup output, "
+                "or select another build with --firefox") from exc
         self.m.set_context("chrome")
         self.m.script(RESIZE, [WINDOW_WIDTH, WINDOW_HEIGHT])
         self.apply_harness_css()
@@ -511,9 +587,20 @@ class Session:
     def _stop_browser(self):
         m, self.m = self.m, None
         proc, self.proc = self.proc, None
+        # No established connection means Quit cannot stop the owned process.
+        # Kill it immediately rather than waiting another 45s after a failed
+        # connection. Never apply this to a caller's remote Firefox.
+        disconnected = m is None or m.sock is None
         if m:
             m.quit()
         if proc:
+            if disconnected and proc.poll() is None:
+                if sys.platform == "win32":
+                    subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                   check=False)
+                else:
+                    proc.kill()
             try:
                 proc.wait(timeout=45)
             except subprocess.TimeoutExpired:
@@ -650,9 +737,7 @@ class Session:
         self._generation += 1
         dest = self.profile / "chrome" / f"live-{self._generation}"
         shutil.copytree(self.repo / "chrome", dest, dirs_exist_ok=True)
-        # Keep the CI-only overrides that customChrome.css normally supplies.
-        (dest / "customChrome.css").write_text(
-            "/* placeholder created by fxcss */\n", encoding="utf-8")
+        _ensure_custom_chrome(self.repo / "chrome", dest)
 
         uri = (dest / "userChrome.css").resolve().as_uri()
         self.m.script(SWAP_FILE_SHEET, [uri])
@@ -2271,16 +2356,42 @@ def find_variant_sheets(theme: Path):
 
     Looks in the same folders `fxcss try --with` does. Keys are slugs safe for
     a filename, so a capture can be named after its variant.
+
+    Slugs fold case and punctuation, so two sheets can arrive at the same one.
+    Letting the later file silently replace the earlier would capture, list and
+    complete only one of them. Sheets in different folders are told apart by
+    folder (`custom-tabs` and `optional-tabs`) -- a stable name, since it only
+    depends on the two files themselves. Sheets in one folder that differ only
+    in case or punctuation have nothing to tell them apart, and are an error
+    that names both files.
     """
     from .fetch import VARIANT_DIRS
-    sheets = {}
+    by_slug = {}
     for folder in VARIANT_DIRS:
         directory = theme / folder
         if directory.is_dir():
             for css in sorted(directory.glob("*.css")):
                 slug = re.sub(r"[^a-z0-9-]+", "-", css.stem.lower()).strip("-")
                 if slug:
-                    sheets[slug] = css
+                    by_slug.setdefault(slug, []).append((folder, css))
+
+    def clash(name, first, second):
+        first, second = (p.relative_to(theme).as_posix() for p in (first, second))
+        return ValueError(
+            f"optional stylesheets {first} and {second} would both be called "
+            f"`{name}`; rename one so --variants can tell them apart")
+
+    sheets = {}
+    for slug, entries in by_slug.items():
+        per_folder = Counter(folder for folder, _ in entries)
+        if len(entries) > 1 and max(per_folder.values()) > 1:
+            same = [css for folder, css in entries if per_folder[folder] > 1]
+            raise clash(slug, same[0], same[1])
+        for folder, css in entries:
+            name = slug if len(entries) == 1 else f"{folder}-{slug}"
+            if name in sheets:
+                raise clash(name, sheets[name], css)
+            sheets[name] = css
     return sheets
 
 
@@ -2330,12 +2441,17 @@ CHANNEL_ALIASES = {"dev": "developer", "developer-edition": "developer",
 def _label_for(name):
     """Which build a file or app name looks like, or None."""
     n = name.lower()
-    for label in CHANNEL_ORDER[1:]:
+    # A channel word alone (for example T3 Code (Beta)) is not evidence of
+    # Firefox. Bound fork names too: "Citizen" is not Zen.
+    for fork in CHANNEL_ORDER[5:]:
+        if re.search(r"(?<![a-z0-9])" + fork + r"(?![a-z0-9])", n):
+            return fork
+    if not re.search(r"(?<![a-z0-9])firefox(?:esr)?(?![a-z0-9])", n):
+        return None
+    for label in CHANNEL_ORDER[1:5]:
         if label in n:
             return label
-    if "firefox" in n or n in ("zen browser",):
-        return "stable"
-    return None
+    return "stable"
 
 
 def _mac_binary(app: Path):
@@ -2346,9 +2462,7 @@ def _mac_binary(app: Path):
         candidate = macos_dir / name
         if candidate.is_file():
             return candidate
-    executables = [p for p in macos_dir.iterdir()
-                   if p.is_file() and os.access(p, os.X_OK)]
-    return executables[0] if len(executables) == 1 else None
+    return None
 
 
 def discover_firefoxes(extra_roots=None):
@@ -2466,6 +2580,36 @@ def slugify_url(url):
     return (slug or "page")[:48]
 
 
+def live_capture_names(urls):
+    """Pair each requested URL with a distinct, deterministic capture name.
+
+    slugify_url drops the scheme, `www.`, query and fragment and truncates long
+    paths, so two different URLs can share a slug -- and the second capture
+    would silently overwrite the first. A URL whose slug nobody else has keeps
+    it, so existing names do not move. Clashing URLs are numbered in request
+    order, skipping any name another URL already holds outright. The same
+    `--url` list therefore always yields the same names.
+    """
+    urls = list(urls)
+    slugs = [slugify_url(url) for url in urls]
+    shared = {slug for slug, count in Counter(slugs).items() if count > 1}
+    taken = set(slugs)
+    ordinal = Counter()
+    named = []
+    for url, slug in zip(urls, slugs):
+        name = slug
+        if slug in shared:
+            ordinal[slug] += 1
+            if ordinal[slug] > 1:
+                suffix = ordinal[slug]
+                while f"{slug}-{suffix}" in taken:
+                    suffix += 1
+                name = f"{slug}-{suffix}"
+        taken.add(name)
+        named.append((url, name))
+    return named
+
+
 def capture_live(session, outdir: Path, urls, modes=("light", "dark"), settle=6.0):
     """Screenshot the theme against real websites.
 
@@ -2481,8 +2625,7 @@ def capture_live(session, outdir: Path, urls, modes=("light", "dark"), settle=6.
     session.setup_window()
 
     captured = []
-    for url in urls:
-        slug = slugify_url(url)
+    for url, slug in live_capture_names(urls):
         m.script(NAVIGATE, [url])
 
         # Wait for the tab to stop reporting itself busy, then let the page

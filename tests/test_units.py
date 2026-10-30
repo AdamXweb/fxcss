@@ -1496,7 +1496,8 @@ class FirefoxDiscoveryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             self.fake_apps(td, ["Firefox Nightly", "Firefox", "LibreWolf"])
             builds = discover_firefoxes(extra_roots=[Path(td)])
-            labels = [b["label"] for b in builds if str(td) in b["path"]]
+            labels = [b["label"] for b in builds
+                      if Path(td).resolve() in Path(b["path"]).parents]
             self.assertEqual(labels, ["stable", "nightly", "librewolf"])
 
     def test_channel_resolution_and_helpful_error(self):
@@ -2235,19 +2236,23 @@ class InstallFailureTests(unittest.TestCase):
     def test_prefs_and_manifest_write_failures_leave_the_original_untouched(self):
         from unittest.mock import patch
         from fxcss import install
-        write_text = Path.write_text
+        write_text, write_bytes = Path.write_text, Path.write_bytes
         for filename in ("user.js", install.MANIFEST_NAME):
             with self.subTest(filename=filename), tempfile.TemporaryDirectory() as td:
                 root = Path(td)
                 theme, profile = _make_theme(root), _make_profile(root)
                 before = self.snapshot(profile)
 
-                def fail_write(path, *args, **kwargs):
-                    if path.name == filename:
-                        raise OSError("simulated write failure")
-                    return write_text(path, *args, **kwargs)
+                def failing(original):
+                    def fail_write(path, *args, **kwargs):
+                        if path.name == filename:
+                            raise OSError("simulated write failure")
+                        return original(path, *args, **kwargs)
+                    return fail_write
 
-                with patch.object(Path, "write_text", fail_write):
+                # user.js is written as bytes, so its exact contents survive.
+                with patch.object(Path, "write_text", failing(write_text)), \
+                        patch.object(Path, "write_bytes", failing(write_bytes)):
                     with self.assertRaisesRegex(RuntimeError, "simulated write failure"):
                         install.install_theme(theme, profile, "o/n@v2")
                 self.assertEqual(self.snapshot(profile), before)
@@ -3018,6 +3023,12 @@ class BlobShaTests(unittest.TestCase):
         """Checked against git itself rather than a copied constant.
 
         Skipped where git is missing; the CI images all have it.
+
+        blob_sha hashes the bytes as they are, which is what git stores
+        when no filter applies. `--no-filters` asks git for that same
+        reading, so a developer's `core.autocrlf=input` (which would
+        quietly hash the CRLF file as LF) cannot turn this into a test of
+        their git configuration.
         """
         import shutil as sh
         import subprocess
@@ -3031,9 +3042,13 @@ class BlobShaTests(unittest.TestCase):
                                ("crlf.css", b".a {\r\n  color: red;\r\n}\r\n")):
                 path = Path(td) / name
                 path.write_bytes(data)
-                want = subprocess.run(["git", "hash-object", str(path)],
-                                      capture_output=True, text=True).stdout
-                self.assertEqual(blob_sha(data), want.strip(), name)
+                for autocrlf in ("false", "input", "true"):
+                    want = subprocess.run(
+                        ["git", "-c", f"core.autocrlf={autocrlf}", "hash-object",
+                         "--no-filters", str(path)],
+                        capture_output=True, text=True, check=True).stdout
+                    self.assertEqual(blob_sha(data), want.strip(),
+                                     f"{name} with core.autocrlf={autocrlf}")
 
     def test_crlf_files_offer_an_lf_reading_and_others_do_not(self):
         from fxcss.adopt import blob_sha, file_blob_sha
@@ -3538,11 +3553,12 @@ class ProfileIdentityTests(unittest.TestCase):
     def test_home_paths_are_shortened(self):
         from fxcss.cli import _short_path
         inside = Path.home() / "Library" / "profile"
-        self.assertEqual(_short_path(inside), "~/Library/profile")
+        self.assertEqual(Path(_short_path(inside)), Path("~/Library/profile"))
 
     def test_paths_outside_home_are_left_alone(self):
         from fxcss.cli import _short_path
-        self.assertEqual(_short_path(Path("/opt/profile")), "/opt/profile")
+        outside = Path("/opt/profile")
+        self.assertEqual(_short_path(outside), str(outside))
 
     def test_a_profile_with_its_own_chrome_is_called_out(self):
         from fxcss.cli import _profile_notes
@@ -4123,7 +4139,7 @@ class DevToolsOnlyPropertyTests(unittest.TestCase):
         self.assertEqual([i["name"] for i in result["devtools_only"]],
                          ["--toolbarbutton-hover-background"])
         item = result["devtools_only"][0]
-        self.assertEqual((item["file"], item["line"]), ("chrome/toolbar.css", 2))
+        self.assertEqual((Path(item["file"]), item["line"]), (Path("chrome/toolbar.css"), 2))
         self.assertEqual(item["suggestion"], "--toolbarbutton-background-color-hover")
         # Read by the theme too, which is why "read nowhere here" missed it.
         self.assertEqual(item["read_here"]["line"], 6)
@@ -4173,7 +4189,7 @@ class DevToolsOnlyPropertyTests(unittest.TestCase):
         self.assertIn("DEVTOOLS ONLY", text)
         self.assertIn("→ --toolbarbutton-background-color-hover is what this Firefox reads",
                       text)
-        self.assertIn("also read at chrome/toolbar.css:6", text)
+        self.assertIn(f"also read at {Path('chrome/toolbar.css')}:6", text)
         self.assertIn("→ --toolbarbutton-padding-inner is what this Firefox provides", text)
         self.assertIn("only DevTools declares it", text)
 

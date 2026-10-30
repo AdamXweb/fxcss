@@ -952,6 +952,10 @@ def cmd_install(args):
         if install.firefox_running(picked["path"]):
             print("  note: Firefox appears to be running — the theme will "
                   "only show after a restart.")
+        prefs = install.theme_pref_names(theme_root)
+        if prefs:
+            print(f"  user.js: the theme also sets {len(prefs)} pref(s): "
+                  f"{', '.join(prefs)}")
         if not _confirm("  Install into this profile?", interactive, args.yes):
             print("  nothing installed.")
             return 1
@@ -963,6 +967,8 @@ def cmd_install(args):
         if result["sheets"]:
             print(f"  optional sheets: "
                   f"{paint_c(_BOLD, ', '.join(result['sheets']))}")
+        for note in result.get("sheet_notes") or []:
+            print(f"  note: {note}")
         print(f"  installed {len(result['files'])} file(s) into "
               f"{picked['path'] / 'chrome'}")
         print("\n  Restart Firefox to see it. `fxcss uninstall` puts "
@@ -1475,7 +1481,11 @@ def cmd_tweaks(args):
     if not (theme / "chrome" / "userChrome.css").exists():
         print(f"error: no chrome/userChrome.css under {theme}", file=sys.stderr)
         return 2
-    available = core.find_variant_sheets(theme)
+    try:
+        available = core.find_variant_sheets(theme)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     if not available:
         print("This theme ships no optional stylesheets (looked in custom/, "
               "optional/, options/, extras/, variants/), so there is nothing "
@@ -1519,8 +1529,8 @@ def cmd_init(args):
         print(f"error: no chrome/userChrome.css under {theme} - run this from "
               f"your theme's root, or pass --theme", file=sys.stderr)
         return 2
-    slugs = sorted(core.find_variant_sheets(theme))
     try:
+        slugs = sorted(core.find_variant_sheets(theme))
         preview = scaffold.preview_settings(theme, args.variants, args.views,
                                             args.min_changed_percent, args.oldest_firefox)
     except ValueError as exc:
@@ -1841,8 +1851,11 @@ def cmd_catalogue(args):
     print(f"\n{found}/{len(result['entries'])} landmarks resolved")
     print(f"open {out / 'index.html'}")
     if args.open:
-        opener = {"darwin": "open", "win32": "start"}.get(sys.platform, "xdg-open")
-        subprocess.run([opener, str(out / "index.html")], check=False)
+        if sys.platform == "win32":
+            os.startfile(str(out / "index.html"))
+        else:
+            opener = "open" if sys.platform == "darwin" else "xdg-open"
+            subprocess.run([opener, str(out / "index.html")], check=False)
     return 0
 
 
@@ -2310,9 +2323,9 @@ def main(argv=None):
     from .fetch import FetchError
     try:
         return args.func(args)
-    except FetchError as exc:
-        # Expected problems (a missing or private repository, no network, a
-        # refused download) get a message saying what to try, not a traceback.
+    except (FetchError, core.MarionetteError) as exc:
+        # Expected fetch and browser failures get a concise diagnostic rather
+        # than a traceback; programming errors still propagate.
         print(f"\nerror: {exc}", file=sys.stderr)
         return 2
 

@@ -274,10 +274,16 @@ The install is what a theme's install script does, done carefully:
 - the complete replacement is prepared before your existing `chrome/` moves
   to a timestamped `chrome.backup-*` sibling; a failed swap restores it;
 - any `--with` optional sheets go where the theme's own `@import`s expect
-  them, or load after the base theme through an import-only wrapper;
+  them, or load after the base theme through an import-only wrapper; the
+  local files each sheet refers to (nested `@import`s, images, fonts) come
+  along to the same relative place, so it looks as it did in `fxcss try`.
+  Files outside the theme, or where the theme already installed a different
+  file, are not copied, and the install says so;
 - `toolkit.legacyUserProfileCustomizations.stylesheets` is enabled in
   `user.js` — inside a clearly marked block, so it can be removed cleanly —
-  together with any `configuration/user.js` the theme ships;
+  together with any `configuration/user.js` the theme ships, whose pref names
+  are listed before you confirm. Everything outside the block is kept byte
+  for byte;
 - a manifest (`chrome/fxcss-install.json`) records every file written, its
   sha256, and where the theme came from — which repo, which ref, and whether
   that ref was a release or a branch.
@@ -757,8 +763,11 @@ window around it, which is why themes break it without noticing — a dark theme
 whose dialog body renders white shows up here and nowhere else.
 
 The captures land **flat** in `--out`, one file per view (`shots/before/light-01-window.png`);
-`--url` captures go to `<out>/live/`. This is the directory to publish from if
-you want plain screenshots — `fxcss compare` writes a different shape, below.
+`--url` captures go to `<out>/live/`, named after the URL without its scheme,
+`www.`, query or fragment; URLs that differ only in those parts are numbered in
+the order given (`example-com`, `example-com-2`) rather than overwriting each
+other. This is the directory to publish from if you want plain screenshots —
+`fxcss compare` writes a different shape, below.
 
 ```bash
 fxcss shot --out shots --variants all
@@ -768,6 +777,10 @@ fxcss shot --out shots --variants all
 ships (`custom/`, `optional/`, `variants/`…), each loaded on its own and removed
 again — so `tabs-swapclose` or `compact-tabs` are checked by CI without a
 separate install. Name specific ones (`--variants a,b`) or take them all.
+Names are the filename lower-cased with punctuation folded to `-`. Two sheets
+with the same name in different folders are told apart by folder
+(`custom-tabs`, `optional-tabs`); two in one folder that differ only in case
+or punctuation are reported as an error, since nothing distinguishes them.
 
 #### Browser states it captures
 
@@ -887,6 +900,10 @@ cannot quietly shrink the comparison. Unselected views are left out of
 as a small change: `summary.json` lists it under `below_threshold` with its
 percentage, but no comparison image is drawn and it does not count towards
 `changed_views` or `any_change`. A change of exactly the threshold is pictured.
+Changed pixels are counted in the captures' own pixels, not in the scaled-down
+pictures, so a one-pixel border still counts at a high device pixel ratio.
+Small per-channel color differences and isolated antialiasing shifts between
+unchanged surrounding colors are ignored as rendering noise.
 
 #### Distinct changes
 
@@ -1652,10 +1669,11 @@ python3 -m fxcss <command>
 
 ### Testing fxcss itself
 
-The toolkit's own CI runs unit tests on Python 3.9, 3.12 and 3.14. Profile
+The toolkit's own CI runs the unit tests on Python 3.9, 3.12 and 3.14 on
+Linux, and the whole suite again on macOS and Windows, so profile
 installation, upgrade, rollback, removal and failure recovery are checked on
-macOS, Windows and Linux, including edited files and paths with spaces and
-non-ASCII characters. Real Firefox checks cover Stable on all three platforms
+all three, including edited files and paths with spaces and non-ASCII
+characters. Real Firefox checks cover Stable on all three platforms
 and ESR on Linux, repeated capture consistency, deliberate CSS changes,
 nested imports, content stylesheets and stacked optional stylesheets.
 
@@ -1678,6 +1696,7 @@ repository workflows described above.
 Run the checks locally with:
 
 ```bash
+python3 -m pip install -e ".[images]"    # the unit tests need Pillow
 python3 -m unittest discover -s tests -v
 python3 -m tests.smoke_themes       # requires Firefox and a display
 python3 -m tests.smoke_variants     # requires Firefox and a display
@@ -1685,6 +1704,14 @@ python3 -m pip install build
 python3 -m build
 python3 scripts/package_smoke.py --dist dist  # downloads the released package and image dependencies
 ```
+
+The unit tests cover `compare`, `catalogue` and the other image commands, so
+they need Pillow: install the `[images]` extra as above rather than the bare
+package, or the image tests error instead of being skipped. If `pip install`
+refuses with `externally-managed-environment`, create a virtual environment
+first (`python3 -m venv .venv && . .venv/bin/activate`). The publisher
+workflow tests also use Node and bash when they are installed, and skip
+otherwise.
 
 ## How this was built
 

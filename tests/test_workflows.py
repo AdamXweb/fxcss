@@ -203,8 +203,8 @@ class WorkflowBehaviorTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("bash"), "the watch step needs bash")
     def test_watch_fix_pull_requests_open_with_the_support_check(self):
-        bindir, temp, repo = self.root / "bin", self.root / "runner", self.root / "repo"
-        for folder in (bindir, temp, repo / "chrome"):
+        temp, repo = self.root / "runner", self.root / "repo"
+        for folder in (temp, repo / "chrome"):
             folder.mkdir(parents=True)
         (repo / "chrome/userChrome.css").write_text("#sidebar-box {}\n")
         (repo / "fxcss-fix.patch").write_text("--- a\n+++ b\n")
@@ -220,20 +220,21 @@ class WorkflowBehaviorTests(unittest.TestCase):
             "gh": 'echo "gh $*" >> "$LOG"\n'
                   'while [ $# -gt 0 ]; do [ "$1" = --body-file ] && cp "$2" "$BODY"; shift; done',
         }
-        for name, body in tools.items():
-            (bindir / name).write_text("#!/bin/sh\n" + body + "\n")
-            (bindir / name).chmod(0o755)
-        env = dict(os.environ, PATH=str(bindir) + os.pathsep + os.environ["PATH"], LOG=str(log),
-                   SRC=str(repo), BODY=str(self.root / "body.md"), RUNNER_TEMP=str(temp),
+        # Shell functions avoid Windows PATH/executable-extension lookup and
+        # CRLF shebangs. Subshells keep a stub's exit local to that command.
+        stubs = "".join(f"{name}() (\n{body}\n)\n" for name, body in tools.items())
+        env = dict(os.environ, LOG=log.as_posix(),
+                   SRC=repo.as_posix(), BODY=(self.root / "body.md").as_posix(),
+                   RUNNER_TEMP=temp.as_posix(),
                    CHANNEL="beta", VERSION="160.0b1", FIREFOX_BIN="/ff/firefox",
                    FXCSS_OLDEST_FIREFOX="esr", GITHUB_REF_NAME="main", GH_TOKEN="x")
         text = self.workflow("firefox-watch.yml")
-        result = subprocess.run([shutil.which("bash"), "-c", script(
+        result = subprocess.run([shutil.which("bash"), "-c", stubs + script(
             text, "Open a pull request with the confident fixes")],
             cwd=repo, env=env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = log.read_text()
-        self.assertIn(f"fxcss support --base {temp}/before-fix --head . --firefox /ff/firefox "
+        self.assertIn(f"fxcss support --base {temp.as_posix()}/before-fix --head . --firefox /ff/firefox "
                       "--oldest=esr --channel beta --markdown", calls)
         self.assertTrue((temp / "before-fix/chrome/userChrome.css").is_file())
         body = (self.root / "body.md").read_text()
@@ -243,7 +244,7 @@ class WorkflowBehaviorTests(unittest.TestCase):
 
         env["FXCSS_OLDEST_FIREFOX"] = ""
         log.write_text("")
-        subprocess.run([shutil.which("bash"), "-c", script(
+        subprocess.run([shutil.which("bash"), "-c", stubs + script(
             text, "Open a pull request with the confident fixes")],
             cwd=repo, env=env, capture_output=True, text=True, check=True)
         self.assertNotIn("fxcss support", log.read_text())
@@ -327,6 +328,8 @@ class WorkflowBehaviorTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("no pixel difference", result.stdout)
 
+    @unittest.skipUnless(shutil.which("bash") and shutil.which("git"),
+                         "the CI scope step needs bash and Git")
     def test_readme_changes_skip_expensive_ci_for_pushes_and_pull_requests(self):
         ci = (Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text()
         body = script(ci, "Identify README-only changes")
@@ -365,9 +368,11 @@ class WorkflowBehaviorTests(unittest.TestCase):
             env = dict(os.environ, EVENT_NAME=event, PR_BASE=before,
                        PR_HEAD=head, PUSH_BASE=before, PUSH_HEAD=head,
                        RUNNER_TEMP=str(self.root), GITHUB_OUTPUT=str(output))
-            result = subprocess.run(["bash", "-c", body], cwd=repo,
+            # An unqualified executable can resolve to the Windows WSL
+            # launcher before PATH; use the Bash found for the other tests.
+            result = subprocess.run([shutil.which("bash"), "-c", body], cwd=repo,
                                     env=env, capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
             return output.read_text().strip()
 
         self.assertEqual(scope("pull_request", base, site), "full=false")
@@ -376,13 +381,81 @@ class WorkflowBehaviorTests(unittest.TestCase):
         self.assertEqual(scope("push", site, toolkit), "full=true")
         self.assertEqual(scope("workflow_call", base, site), "full=true")
 
+    @unittest.skipUnless(shutil.which("bash"), "showcase capture needs bash")
+    def test_showcase_urls_are_data_and_remain_separate_arguments(self):
+        text = self.workflow("showcase.yml")
+        self.assertIn("INPUT_URLS: ${{ github.event.inputs.urls }}", step(text, "Capture"))
+        body = script(text, "Capture")
+        self.assertNotIn("${{", body)
+        canary = self.root / "pwned"
+        output = self.root / "capture-args"
+        prefix = 'fxcss() { printf "%s\\n" "$@" > "$CAPTURE_ARGS"; }\n'
+        for urls in ("", "https://example.com/a?x=1&y=2 https://example.com/[ab]*",
+                     f"$(touch {canary}) `touch {canary}` --help"):
+            with self.subTest(urls=urls):
+                env = dict(os.environ, INPUT_URLS=urls, DEFAULT_URLS="https://default.example/",
+                           CAPTURE_ARGS=str(output))
+                subprocess.run([shutil.which("bash"), "-c", prefix + body],
+                               cwd=self.root, env=env, capture_output=True, text=True, check=True)
+                expected = ["shot", "--out", "showcase", "--only-live"]
+                expected += ["--url=" + url for url in (urls or env["DEFAULT_URLS"]).split()]
+                self.assertEqual(output.read_text().splitlines(), expected)
+                self.assertFalse(canary.exists())
+
+    def test_publisher_scripts_take_the_run_id_from_the_environment(self):
+        # The manual run ID is typed by a person. Interpolating it into a
+        # shell script with ${{ inputs.run_id }} would execute whatever they
+        # typed; the step reads it from env and the shell only ever quotes it.
+        text = self.workflow("pr-preview-publish.yml")
+        resolve = step(text, "Resolve source run")
+        self.assertIn("DISPATCH_RUN_ID: ${{ inputs.run_id }}", resolve)
+        self.assertIn("WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}", resolve)
+        self.assertNotIn("${{", script(text, "Resolve source run"))
+        # And no other shell step in the publisher splices an expression in.
+        for name in re.findall(r"^      - name: (.+)$", text, re.M):
+            block = step(text, name)
+            if re.search(r"^\s+run: \|\n", block, re.M):
+                with self.subTest(step=name):
+                    self.assertNotIn("${{", script(text, name))
+
+    @unittest.skipUnless(shutil.which("bash"), "resolving the run needs bash")
+    def test_manual_run_ids_are_numbers_or_nothing_is_downloaded(self):
+        body = script(self.workflow("pr-preview-publish.yml"), "Resolve source run")
+        output = self.root / "github-output"
+        canary = self.root / "pwned"
+
+        def resolve(event, dispatch="", run=""):
+            output.write_text("")
+            env = dict(os.environ, EVENT_NAME=event, DISPATCH_RUN_ID=dispatch,
+                       WORKFLOW_RUN_ID=run, GITHUB_OUTPUT=str(output))
+            result = subprocess.run([shutil.which("bash"), "-c", body], cwd=self.root,
+                                    env=env, capture_output=True, text=True)
+            return result.returncode, output.read_text().strip(), result.stdout + result.stderr
+
+        self.assertEqual(resolve("workflow_dispatch", dispatch="123456789")[:2],
+                         (0, "run_id=123456789"))
+        self.assertEqual(resolve("workflow_run", dispatch="999", run="42")[:2],
+                         (0, "run_id=42"))
+
+        hostile = f"1; touch {canary}", f"$(touch {canary})", f"`touch {canary}`",
+        for value in hostile + ("", " 12", "12 ", "12\n13", "-1", "1e3", "abc"):
+            with self.subTest(run_id=value):
+                code, out, log = resolve("workflow_dispatch", dispatch=value)
+                self.assertNotEqual(code, 0, log)
+                self.assertEqual(out, "")
+                self.assertIn("run_id must be the numeric ID", log)
+                if value.strip():
+                    # The log carries no copy of the value: a workflow-command
+                    # line typed into the input must not reach the annotations.
+                    self.assertNotIn(value.strip(), log)
+                self.assertFalse(canary.exists(), "the run ID reached the shell")
+        # A workflow_run event never consults the manual input.
+        code, out, _ = resolve("workflow_run", dispatch=hostile[0], run="7")
+        self.assertEqual((code, out), (0, "run_id=7"))
+        self.assertFalse(canary.exists())
+
     @unittest.skipUnless(shutil.which("bash"), "publishing requires bash")
     def test_publishing_keeps_crops_and_full_images(self):
-        bindir = self.root / "bin"
-        bindir.mkdir()
-        fake_git = bindir / "git"
-        fake_git.write_text("#!/bin/sh\nexit 0\n")
-        fake_git.chmod(0o755)
         for with_crops in (True, False):
             with self.subTest(with_crops=with_crops):
                 work = self.root / str(with_crops)
@@ -391,9 +464,8 @@ class WorkflowBehaviorTests(unittest.TestCase):
                 (work / "shots/light-01-window.png").write_bytes(b"full capture")
                 if with_crops:
                     (work / "crops/compact-diff.png").write_bytes(b"option crop")
-                env = dict(os.environ, PATH=str(bindir) + os.pathsep + os.environ["PATH"],
-                           GITHUB_SHA="local-test")
-                result = subprocess.run([shutil.which("bash"), "-c", script(
+                env = dict(os.environ, GITHUB_SHA="local-test")
+                result = subprocess.run([shutil.which("bash"), "-c", "git() { :; }\n" + script(
                     self.workflow("readme-previews.yml"), "Publish to previews branch")],
                     cwd=work, env=env, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)

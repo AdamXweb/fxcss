@@ -42,6 +42,8 @@ MANIFEST_NAME = "fxcss-install.json"
 # 1: {theme, installed, backup, user_js_created, sheets, files}
 # 2: adds `schema`, `fxcss`, `source` (the theme_id string taken apart so an
 #    upgrade can act on it), `origin_backup`, `digests` and `user_js_block`.
+#    Later additions are optional keys older readers ignore: `sheet_notes`
+#    (optional-sheet references that could not be installed).
 MANIFEST_SCHEMA = 2
 
 BLOCK_BEGIN = "/* >>> fxcss install >>> */"
@@ -50,7 +52,22 @@ BLOCK_END = "/* <<< fxcss install <<< */"
 STYLESHEET_PREF = (
     'user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);')
 
-IMPORT_RE = re.compile(r'@import\s+(?:url\(\s*)?["\']([^"\')]+)["\']')
+# One pass over a stylesheet: comments and strings are consumed whole, so an
+# @import or url() inside either is never mistaken for a live reference, and
+# a "/*" inside a string never starts a comment.
+CSS_TOKEN_RE = re.compile(r"""
+    /\*.*?(?:\*/|\Z)
+  | @import\s+(?:url\(\s*)?(?P<q1>["'])(?P<imp>(?:\\.|(?!(?P=q1))[^\\\n])*)(?P=q1)
+  | @import\s+url\(\s*(?P<bimp>[^"'()\s]+)\s*\)
+  | (?<![\w-])url\(\s*(?P<q2>["'])(?P<url>(?:\\.|(?!(?P=q2))[^\\\n])*)(?P=q2)\s*\)
+  | (?<![\w-])url\(\s*(?P<burl>[^"'()\s]+)\s*\)
+  | (?P<q3>["'])(?:\\.|(?!(?P=q3))[^\\\n])*(?:(?P=q3)|(?=\n)|\Z)
+""", re.S | re.I | re.X)
+
+# How much a selected optional sheet may pull in alongside itself. Generous
+# for icon sets, small enough that a theme cannot fill a profile with files.
+MAX_SHEET_DEPENDENCIES = 256
+MAX_SHEET_DEPENDENCY_BYTES = 32 * 1024 * 1024
 
 
 # --- finding profiles -------------------------------------------------------
@@ -301,23 +318,55 @@ def firefox_running(profile):
 
 # --- user.js ----------------------------------------------------------------
 
+# user.js belongs to the person, not to fxcss, and is not guaranteed to be
+# UTF-8 or to use \n line endings. It is read and written as bytes, decoded
+# with surrogateescape so every byte outside the fxcss block survives exactly.
+
+def read_prefs(path):
+    """user.js as text that encodes back to the very same bytes."""
+    return Path(path).read_bytes().decode("utf-8", "surrogateescape")
+
+
+def write_prefs(path, text):
+    Path(path).write_bytes(text.encode("utf-8", "surrogateescape"))
+
+
+def _lines(text):
+    """Lines split on \n alone, keeping it: the only terminator fxcss writes."""
+    return re.findall(r"[^\n]*\n|[^\n]+\Z", text)
+
+
 def strip_user_js_block(text):
     """Remove every well-formed fxcss block, touching nothing else.
+
+    `user_js_with_block` joins the block on with exactly one "\n": a blank
+    line after text that already ended in one, otherwise the terminator the
+    last line lacked. Taking that one character back too is what makes
+    install-then-uninstall leave user.js byte-for-byte as it was. (The lacked
+    terminator stays when the person has since added lines after the block.)
 
     A BEGIN marker without its END is left completely alone: deleting to the
     end of the file could take a line the user wrote, and a duplicated pref is
     harmless where a lost one is not.
     """
     out = []
-    lines = text.splitlines(keepends=True)
+    lines = _lines(text)
     i = 0
     while i < len(lines):
         if lines[i].strip() == BLOCK_BEGIN:
             for j in range(i + 1, len(lines)):
                 if lines[j].strip() == BLOCK_END:
-                    # Also swallow one blank line the block was set off with.
-                    if out and out[-1].strip() == "":
+                    # Older Windows installs wrote the separator and markers
+                    # with CRLF. Match the marker's ending so a new LF block
+                    # after a user's lone CR still preserves that CR.
+                    separator = "\r\n" if lines[i].endswith("\r\n") else "\n"
+                    if out and out[-1] == separator:
                         out.pop()
+                    elif (separator == "\n" and out and out[-1].endswith("\n")
+                          and j + 1 == len(lines)):
+                        # Only at the end: with lines after the block, joining
+                        # two lines could let a // comment swallow a pref.
+                        out[-1] = out[-1][:-1]
                     i = j + 1
                     break
             else:
@@ -329,14 +378,31 @@ def strip_user_js_block(text):
     return "".join(out)
 
 
+_MARKER_LINE = "/* (an fxcss install marker from the theme was removed here) */"
+
+
+def sanitize_block_body(body):
+    """`body` with no line that `strip_user_js_block` would read as a marker.
+
+    A theme's configuration/user.js is untrusted. A marker line in it would
+    end the block early -- leaving the theme's later prefs behind on
+    uninstall, and stacking another copy on every reinstall -- or open a
+    block that never closes. Only whole marker lines are replaced; a marker
+    line holds no pref, so every pref the theme meant to set is kept.
+    """
+    return "".join(
+        line.replace(line.strip(), _MARKER_LINE)
+        if line.strip() in (BLOCK_BEGIN, BLOCK_END) else line
+        for line in _lines(body))
+
+
 def user_js_with_block(existing, body):
     """user.js text with exactly one fxcss block holding `body` at the end."""
     base = strip_user_js_block(existing)
-    if base and not base.endswith("\n"):
-        base += "\n"
-    if base.strip():
-        base += "\n"
-    return base + BLOCK_BEGIN + "\n" + body.rstrip("\n") + "\n" + BLOCK_END + "\n"
+    if base:
+        base += "\n"  # undone exactly by strip_user_js_block
+    body = sanitize_block_body(body).rstrip("\n")
+    return base + BLOCK_BEGIN + "\n" + body + "\n" + BLOCK_END + "\n"
 
 
 def user_js_body(theme_root):
@@ -347,10 +413,153 @@ def user_js_body(theme_root):
     if shipped.is_file():
         body += "\n\n" + shipped.read_text(encoding="utf-8",
                                            errors="replace").rstrip("\n")
-    return body
+    # Sanitised here too, so the manifest records the block as written.
+    return sanitize_block_body(body)
+
+
+PREF_NAME_RE = re.compile(
+    r"""\b(?:user_pref|pref|sticky_pref|lockPref)\(\s*(["'])(.+?)\1""")
+
+
+def theme_pref_names(theme_root):
+    """Names of the prefs a theme's configuration/user.js sets, in order.
+
+    Shown before install so nobody has their preferences changed by a theme
+    without being told which ones. Best effort -- the block is installed as
+    shipped either way.
+    """
+    shipped = Path(theme_root) / "configuration" / "user.js"
+    if not shipped.is_file():
+        return []
+    code = _strip_js_comments(shipped.read_text(encoding="utf-8",
+                                                errors="replace"))
+    names = []
+    for match in PREF_NAME_RE.finditer(code):
+        name = _printable(match.group(2))
+        if name not in names:
+            names.append(name)
+    return names
+
+
+def _printable(text):
+    """Theme-supplied text safe to print: escapes shown, never replayed."""
+    return text if text.isprintable() else ascii(text)[1:-1]
+
+
+def _strip_js_comments(text):
+    """JavaScript text with comments removed and strings left as they were."""
+    return re.sub(r"""(/\*.*?(?:\*/|\Z)|//[^\n]*)|("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*')""",
+                  lambda m: m.group(2) or " ", text, flags=re.S)
 
 
 # --- optional sheets --------------------------------------------------------
+
+def css_references(text):
+    """(kind, target) for each live @import ("import") and url() ("url").
+
+    Commented-out references are skipped and strings are respected, but CSS
+    escapes inside a target are not decoded.
+    """
+    for match in CSS_TOKEN_RE.finditer(text):
+        for kind, group in (("import", "imp"), ("import", "bimp"),
+                            ("url", "url"), ("url", "burl")):
+            if match.group(group) is not None:
+                yield kind, match.group(group)
+                break
+
+
+def _local_reference(target):
+    """The relative file path a url()/@import names, or None.
+
+    Anything absolute -- a scheme (chrome://, data:, file://, https:), a
+    leading slash, a drive letter -- or a bare #fragment resolves the same
+    wherever the sheet sits, so only relative paths need carrying along.
+    """
+    from urllib.parse import unquote
+
+    target = target.strip()
+    if not target or target.startswith(("#", "/", "\\")) \
+            or re.match(r"^[A-Za-z][\w+.-]*:", target):
+        return None
+    return unquote(re.split(r"[?#]", target, maxsplit=1)[0]) or None
+
+
+def _inside(path, root):
+    try:
+        Path(path).relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def _copy_sheet_dependencies(sheet, dest, chrome, source_root, budget):
+    """Bring the local files `sheet` refers to along to `dest`.
+
+    `fxcss try` loads an optional sheet where it was unpacked, so its
+    relative url()s and nested @imports resolve against the theme. Installed,
+    the sheet sits at `dest` instead; each file it reaches is copied to the
+    same relative place from there, recursively through nested sheets, so the
+    installed sheet sees what the preview saw.
+
+    Bounded and confined: only regular files inside `source_root` are read,
+    only paths inside the staged chrome/ are written, a file the theme itself
+    installed there is never overwritten, and `budget` caps how much one
+    install can copy. A reference to a missing file is skipped silently --
+    Firefox ignores it in the preview too. Everything else that cannot be
+    carried along is returned as a note for the caller to show.
+    """
+    notes = []
+    queue = [(Path(sheet), Path(dest))]
+    seen = {(Path(sheet).resolve(), Path(dest))}
+    while queue:
+        origin_sheet, placed_sheet = queue.pop(0)
+        text = origin_sheet.read_text(encoding="utf-8", errors="replace")
+        for kind, target in css_references(text):
+            relative = _local_reference(target)
+            if relative is None:
+                continue
+            origin = Path(os.path.normpath(origin_sheet.parent / relative))
+            placed = Path(os.path.normpath(placed_sheet.parent / relative))
+            if not origin.exists():
+                continue
+            resolved = origin.resolve()
+            label = _printable(f"{origin_sheet.name}: {target.strip()}")
+            if not _inside(resolved, source_root):
+                notes.append(f"{label} (outside the theme, not copied)")
+                continue
+            if not resolved.is_file() or (resolved, placed) in seen:
+                continue
+            if not _inside(placed, chrome) or placed == chrome / MANIFEST_NAME:
+                notes.append(f"{label} (would land outside chrome/, not copied)")
+                continue
+            seen.add((resolved, placed))
+            if placed.exists():
+                if not placed.is_file() or \
+                        placed.read_bytes() != resolved.read_bytes():
+                    notes.append(
+                        f"{label} (the theme's own chrome/"
+                        f"{placed.relative_to(chrome).as_posix()} kept)")
+                elif kind == "import" or placed.suffix.lower() == ".css":
+                    queue.append((origin, placed))
+                continue
+            budget["files"] -= 1
+            budget["bytes"] -= resolved.stat().st_size
+            if budget["files"] < 0 or budget["bytes"] < 0:
+                raise RuntimeError(
+                    f"optional sheet {Path(sheet).name} refers to more local "
+                    f"files than fxcss will copy ({MAX_SHEET_DEPENDENCIES} "
+                    f"files, {MAX_SHEET_DEPENDENCY_BYTES // (1024 * 1024)} MB)")
+            try:
+                placed.parent.mkdir(parents=True, exist_ok=True)
+            except (FileExistsError, NotADirectoryError):
+                notes.append(f"{label} (a file of the theme's is in the way, "
+                             "not copied)")
+                continue
+            shutil.copy2(resolved, placed)
+            if kind == "import" or placed.suffix.lower() == ".css":
+                queue.append((origin, placed))
+    return notes
+
 
 def variant_destination(chrome_dir, filename):
     """Where an optional sheet belongs inside an installed chrome/ tree.
@@ -368,8 +577,10 @@ def variant_destination(chrome_dir, filename):
     needle = filename.lower()
     for css in sorted(chrome_dir.rglob("*.css")):
         text = css.read_text(encoding="utf-8", errors="replace")
-        for match in IMPORT_RE.finditer(text):
-            target = match.group(1).strip()
+        for kind, target in css_references(text):
+            target = target.strip()
+            if kind != "import" or not target:
+                continue
             if not (target.lower().endswith("/" + needle)
                     or target.lower() == needle):
                 continue
@@ -575,8 +786,24 @@ def adopt_theme(profile, theme_id, source, match, stamp=None):
     return manifest
 
 
-def _prepare_chrome(theme_root, chrome, sheets):
-    """Build a complete replacement in staging, without touching live files."""
+def _sheet_source_root(theme_root, sheet):
+    """The directory a sheet's dependencies may be read from.
+
+    Optional sheets live beside the theme's chrome/, in the repository it was
+    unpacked from, so that is their common ancestor. A sheet with nothing in
+    common with the theme but the filesystem root gets only its own folder.
+    """
+    sheet_dir = Path(sheet).resolve().parent
+    common = Path(os.path.commonpath([Path(theme_root).resolve(), sheet_dir]))
+    return sheet_dir if common == Path(common.anchor) else common
+
+
+def _prepare_chrome(theme_root, chrome, sheets, notes=None):
+    """Build a complete replacement in staging, without touching live files.
+
+    Notes about optional-sheet references that could not be carried along
+    are appended to `notes`.
+    """
     from urllib.parse import quote
     from .core import layer_stylesheets
 
@@ -590,6 +817,8 @@ def _prepare_chrome(theme_root, chrome, sheets):
         placeholder.write_text("/* placeholder created by fxcss */\n",
                                encoding="utf-8")
     installed_sheets, extra_imports = [], []
+    budget = {"files": MAX_SHEET_DEPENDENCIES,
+              "bytes": MAX_SHEET_DEPENDENCY_BYTES}
     for sheet in sheets:
         sheet = Path(sheet)
         dest = variant_destination(chrome, sheet.name)
@@ -600,6 +829,10 @@ def _prepare_chrome(theme_root, chrome, sheets):
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(sheet, dest)
         installed_sheets.append(sheet.stem)
+        found = _copy_sheet_dependencies(
+            sheet, dest, chrome, _sheet_source_root(theme_root, sheet), budget)
+        if notes is not None:
+            notes.extend(found)
     layer_stylesheets(chrome / "userChrome.css", extra_imports)
     return installed_sheets
 
@@ -634,16 +867,16 @@ def install_theme(theme_root, profile, theme_id, sheets=(), stamp=None,
         with tempfile.TemporaryDirectory(prefix=".fxcss-install-", dir=profile) as td:
             staging = Path(td)
             chrome = staging / "chrome"
-            installed_sheets = _prepare_chrome(theme_root, chrome, sheets)
+            sheet_notes = []
+            installed_sheets = _prepare_chrome(theme_root, chrome, sheets,
+                                               sheet_notes)
             created = not user_js.exists()
-            existing = "" if created else user_js.read_text(
-                encoding="utf-8", errors="replace")
+            existing = "" if created else read_prefs(user_js)
             block = user_js_body(theme_root)
             staged_prefs = staging / "user.js"
             if not created:
                 shutil.copy2(user_js, staged_prefs)
-            staged_prefs.write_text(user_js_with_block(existing, block),
-                                    encoding="utf-8")
+            write_prefs(staged_prefs, user_js_with_block(existing, block))
             # Whether fxcss created user.js is part of the original state,
             # not something an upgrade should reset just because it exists.
             if origin_backup is not _UNSET and previous:
@@ -662,6 +895,8 @@ def install_theme(theme_root, profile, theme_id, sheets=(), stamp=None,
                 "user_js_created": created,
                 "user_js_block": block,
                 "sheets": installed_sheets,
+                # References in those sheets that could not be installed.
+                "sheet_notes": sheet_notes,
                 "files": files,
                 "digests": {name: digest for name, digest in
                             ((name, _digest(staging / name)) for name in files)
@@ -853,7 +1088,7 @@ def _stage_prefs(work, user_js, text):
     staged = work / "user.js"
     if user_js.is_file():
         shutil.copy2(user_js, staged)
-    staged.write_text(text, encoding="utf-8")
+    write_prefs(staged, text)
     return staged
 
 
@@ -861,7 +1096,7 @@ def _clean_prefs(work, profile, manifest):
     user_js = profile / "user.js"
     if not user_js.is_file():
         return None
-    text = user_js.read_text(encoding="utf-8", errors="replace")
+    text = read_prefs(user_js)
     stripped = strip_user_js_block(text)
     if stripped == text:
         return None
@@ -928,8 +1163,7 @@ def rollback_to(profile, backup, stamp=None):
                 summary["user_js"] = "removed"
         elif isinstance(block, str):
             user_js = profile / "user.js"
-            existing = user_js.read_text(encoding="utf-8", errors="replace") \
-                if user_js.is_file() else ""
+            existing = read_prefs(user_js) if user_js.is_file() else ""
             prefs = _stage_prefs(work, user_js, user_js_with_block(existing, block))
             summary["user_js"] = "restored"
         else:

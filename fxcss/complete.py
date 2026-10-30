@@ -83,7 +83,8 @@ def sheet_names(words, cwd):
         if not directory or not Path(directory).is_dir():
             return []
         return sorted(find_variant_sheets(Path(directory)))
-    except OSError:
+    except (OSError, ValueError):
+        # Two sheets whose names fold to one slug: nothing sensible to offer.
         return []
 
 
