@@ -65,7 +65,7 @@ build: _installed
     npm run build
     @echo "▸ Built. Config at {{wrangler_config}}"
 
-# Install Chromium once with `npx playwright install chromium`.
+# Install browsers once with `npx playwright install chromium firefox`.
 [doc("Run browser interaction checks against the built Worker")]
 browser: _built
     npm run test:browser

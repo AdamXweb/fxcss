@@ -78,7 +78,7 @@ function DocsNavigation({
           <Input
             id={searchId}
             ref={searchField}
-            placeholder="Command, option or guide"
+            placeholder="Search docs…"
             value={query}
             onFocus={loadSearch}
             onChange={(e) => { setQuery(e.target.value); loadSearch(); }}

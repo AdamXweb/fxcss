@@ -106,8 +106,10 @@ test('client-side documentation navigation announces the new page title', async 
 test('code copying writes the actual example to the clipboard', async ({
   page,
   context,
+  browserName,
 }) => {
-  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  if (browserName === 'chromium')
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await page.goto('/docs/watch');
   const block = page.locator('.doc-code').first();
   const code = await block.locator('code').innerText();
@@ -122,7 +124,16 @@ test('code copying writes the actual example to the clipboard', async ({
     'aria-label',
     'Copied code example 1',
   );
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(code);
+  if (browserName === 'chromium') {
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(code);
+  } else {
+    // Firefox does not expose clipboard permissions to Playwright. Paste
+    // through a user gesture to verify the real clipboard without a mock.
+    const search = page.getByRole('textbox', { name: 'Search documentation' });
+    await search.focus();
+    await search.press('ControlOrMeta+V');
+    await expect(search).toHaveValue(code.replace(/[\r\n]/g, ''));
+  }
 });
 
 test('mobile Escape clears search, then closes the menu, then exits retro mode', async ({

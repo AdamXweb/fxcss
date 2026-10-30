@@ -105,7 +105,7 @@ jobs:
         run: scripts/check-built-site.sh
       - name: Install the browser test runtime
         if: steps.content.outputs.publish == 'yes'
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium firefox
       - name: Check browser interactions
         if: steps.content.outputs.publish == 'yes'
         run: npm run test:browser
