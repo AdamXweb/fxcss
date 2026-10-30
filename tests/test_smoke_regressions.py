@@ -130,8 +130,14 @@ class FixtureNavigationTimeoutTests(unittest.TestCase):
         import contextlib, io
         stderr = io.StringIO()
         error = core.FixtureNavigationStall("fixture page did not load", ATTACHED)
-        with patch.object(cli, "cmd_doctor", side_effect=error), contextlib.redirect_stderr(stderr):
-            self.assertEqual(cli.main(["doctor"]), 2)
+        # Resolve a real fixture rather than discovering themes in the checkout,
+        # where a package build adds a second copy of the starter template.
+        with tempfile.TemporaryDirectory(prefix="fxcss-doctor-") as td:
+            theme = write_themes(Path(td))[0]
+            with patch.object(cli, "cmd_doctor", side_effect=error) as doctor, \
+                    contextlib.redirect_stderr(stderr):
+                self.assertEqual(cli.main(["doctor", "--theme", str(theme)]), 2)
+            doctor.assert_called_once()
         self.assertIn("error: fixture page did not load", stderr.getvalue())
         self.assertNotIn("Traceback", stderr.getvalue())
 
