@@ -3,7 +3,7 @@
 # Download and inspect: curl -fsSLo install-fxcss.sh https://fxcss.com/install.sh
 # Run: bash install-fxcss.sh
 # Piped use: curl -fsSL https://fxcss.com/install.sh | bash
-# All installation work is inside main(), after the script has been parsed.
+# All installation work is inside fxcss_setup(), after the script has been parsed.
 
 fxcss_setup() (
   set -euo pipefail

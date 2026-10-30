@@ -16,6 +16,7 @@ test('documentation rebuilds from a standalone hosting checkout', async (t) => {
   t.after(() => fs.rm(checkout, { recursive: true, force: true }));
   for (const relative of [
     'scripts/build-content.mjs',
+    'scripts/doc-text.mjs',
     'content/source',
     'public/evidence/manifest.json',
     'public/assets/icon.png',
@@ -32,7 +33,8 @@ test('documentation rebuilds from a standalone hosting checkout', async (t) => {
   await exec(process.execPath, ['scripts/build-content.mjs'], {
     cwd: checkout,
   });
-  for (const relative of ['content/docs.json', 'content/evidence.json']) {
+  const searchIndex = JSON.parse(await fs.readFile(path.join(checkout, 'content/search-index.json')));
+  for (const relative of ['content/docs.json', 'content/evidence.json', 'content/search-index.json', `public${searchIndex.url}`]) {
     assert.deepEqual(
       JSON.parse(await fs.readFile(path.join(checkout, relative))),
       JSON.parse(await fs.readFile(path.join(site, relative))),

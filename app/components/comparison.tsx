@@ -54,14 +54,13 @@ export function ComparisonDemo({
   eyebrow?: string;
 }) {
   const [example, setExample] = useState<ComparisonExample>('accent');
-  // Fetch the other example's captures shortly after load, so switching is instant.
-  useEffect(() => {
-    const id = window.setTimeout(() => {
-      for (const shown of Object.values(EXAMPLES))
-        for (const src of [shown.after, shown.difference])
-          new window.Image().src = src;
-    }, 1000);
-    return () => window.clearTimeout(id);
+  const prefetched = useRef(false);
+  const prefetchExamples = useCallback(() => {
+    if (prefetched.current) return;
+    prefetched.current = true;
+    for (const shown of Object.values(EXAMPLES))
+      for (const src of [shown.after, shown.difference])
+        new window.Image().src = src;
   }, []);
   return (
     <>
@@ -83,7 +82,7 @@ export function ComparisonDemo({
       </div>
       {/* One comparison for both examples: switching swaps the captures and keeps
           the chosen view, zoom and slider position. */}
-      <Comparison example={example} />
+      <Comparison example={example} onVisible={prefetchExamples} />
       <div className="demo-caption">
         <p aria-live="polite">{EXAMPLES[example].caption}</p>
         <Link href="/docs/compare">
@@ -95,8 +94,10 @@ export function ComparisonDemo({
 }
 export function Comparison({
   example = 'accent',
+  onVisible,
 }: {
   example?: ComparisonExample;
+  onVisible?: () => void;
 }) {
   const shown = EXAMPLES[example];
   const percentage = shown.comparison.percent.toFixed(2);
@@ -128,7 +129,10 @@ export function Comparison({
     preference.addEventListener('change', updatePreference);
     document.addEventListener('visibilitychange', updateVisibility);
     const observer = new IntersectionObserver(
-      ([entry]) => setVisible(entry.isIntersecting),
+      ([entry]) => {
+        setVisible(entry.isIntersecting);
+        if (entry.isIntersecting) onVisible?.();
+      },
       {
         threshold: 0.15,
       },
@@ -139,7 +143,7 @@ export function Comparison({
       preference.removeEventListener('change', updatePreference);
       document.removeEventListener('visibilitychange', updateVisibility);
     };
-  }, []);
+  }, [onVisible]);
 
   useEffect(() => {
     if (
@@ -276,7 +280,7 @@ export function Comparison({
                 height={evidence.dimensions.height}
                 alt={shown.afterAlt}
                 draggable={false}
-                preload
+                loading="lazy"
               />
             </div>
             <div className="before-layer">
@@ -288,7 +292,7 @@ export function Comparison({
                   height={evidence.dimensions.height}
                   alt={shown.beforeAlt}
                   draggable={false}
-                  preload
+                  loading="lazy"
                 />
               </div>
             </div>

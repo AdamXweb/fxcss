@@ -6,7 +6,7 @@ The source and production build are prepared for `https://fxcss.com`. They inclu
 
 The site runs as a Cloudflare Worker named `fxcss-website`. `vite.config.ts` holds its configuration (the name, the compatibility date and Workers Logs), and the `deploy` script in `package.json` attaches the `fxcss.com` and `www.fxcss.com` custom domains. Only those domains answer: the config sets `workers_dev` and `preview_urls` to false, so there is no `workers.dev` or preview URL outside the zone's WAF, HSTS and Access, and a dashboard-only switch would be undone by the next deploy. `public/.assetsignore` lists what wrangler must never upload as a static file (Finder's `.DS_Store`, `.env*` files, the wrangler config, repository metadata); the build prepends it to `dist/client/.assetsignore`, which wrangler reads. Never list `.well-known/` there: `security.txt` stays public. It has no database, storage or secrets. `npm run build` writes the Worker (`dist/server/index.js`), its static files (`dist/client/`) and the generated `dist/server/wrangler.json`, and `npm run deploy` publishes them. Don't edit the generated file; change `vite.config.ts` and rebuild.
 
-The domain's public nameservers were `dorthy.ns.cloudflare.com` and `scott.ns.cloudflare.com` when checked on 2026-09-05, so the zone is on Cloudflare. No apex A record was returned. Nothing has been deployed yet.
+The application configuration is the source of truth for the Worker and its custom domains. Verify the current deployment and DNS with the checks below; a repository checkout does not establish their live state.
 
 ## Launch sequence
 
@@ -70,3 +70,9 @@ The installer asks for a starting point, confirms its installation plan, bootstr
 On macOS, missing pipx is installed through an existing Homebrew installation. Otherwise setup uses Python 3.10+ and venv to bootstrap a persistent pipx-managed pipx installation. It cleans up only its own temporary bootstrap directory. Missing Python or venv produces recovery instructions; the installer does not install an operating-system package manager, run as root, or bypass Python's system-package protections.
 
 `npm run test:installer` tests those paths with isolated command stubs, including a real terminal-backed `cat install.sh | bash` flow. No tests install packages or modify the host's shell configuration. Windows users receive the documented PowerShell/pipx instructions.
+
+## Caching policy
+
+HTML deliberately sends `private, no-store`: every render has a fresh CSP script nonce, which must agree with the response policy. Keep that policy when changing page delivery. A hash-based policy would require separate validation of framework-generated inline scripts; it is not needed to cache static files.
+
+`public/_headers` gives content-hashed `/_next/static/*` chunks and `/search/*` indexes one year of immutable caching. Unversioned images, media, evidence and catalogue files get a one-hour browser cache. The installer still revalidates on every request. `scripts/check-site.mjs` checks these headers against the built Worker; verify them again at the live edge after deployment because zone rules can override them.

@@ -15,6 +15,8 @@ const routes = [...sitemapRoutes, '/important'];
 let assetCount = 0;
 let namedControls = 0;
 const checkedAssets = new Set();
+const internalLinks = new Set();
+const checkedPages = new Set();
 // Sent with every page, redirect and static file.
 const securityHeaders = {
   'strict-transport-security': 'max-age=31536000; includeSubDomains',
@@ -65,8 +67,13 @@ const sessionKeys = new Set();
 for (const route of routes) {
   const response = await fetch(new URL(route, base));
   assert.equal(response.status, 200, route);
+  checkedPages.add(route);
   assertSecurityHeaders(response, route);
   const html = await response.text();
+  for (const [, href] of html.matchAll(/<a\b[^>]*\bhref="(\/[^"]*)"/g)) {
+    const url = new URL(href.replaceAll('&amp;', '&'), base);
+    if (url.origin === new URL(base).origin) internalLinks.add(url.pathname + url.search);
+  }
   assertShareCard(html, route);
   // The homepage's release pill reads the documented version at build time.
   if (route === '/')
@@ -138,6 +145,8 @@ for (const route of routes) {
     const result = await fetch(new URL(asset, base));
     assert.equal(result.status, 200, asset);
     assertSecurityHeaders(result, asset);
+    if (asset.startsWith('/_next/static/'))
+      assert.equal(result.headers.get('cache-control'), 'public, max-age=31536000, immutable', `${asset}: hashed asset cache`);
     if (/\.(png|gif)$/.test(asset))
       assert.ok(
         result.headers.get('content-type')?.startsWith('image/'),
@@ -167,6 +176,22 @@ for (const route of routes) {
     assetCount++;
   }
 }
+// Crawl server-rendered links as well as the generated docs. Conditional client
+// links (such as the game's victory screen) are covered by Playwright.
+for (const href of internalLinks) {
+  if (checkedPages.has(href) || checkedAssets.has(href)) continue;
+  const response = await fetch(new URL(href, base));
+  assert.equal(response.status, 200, `${href}: internal link target`);
+  await response.body?.cancel();
+}
+const searchIndex = JSON.parse(await fs.readFile(new URL('../content/search-index.json', import.meta.url)));
+const searchResponse = await fetch(new URL(searchIndex.url, base));
+assert.equal(searchResponse.status, 200, 'search index');
+assertSecurityHeaders(searchResponse, 'search index');
+assert.equal(searchResponse.headers.get('cache-control'), 'public, max-age=31536000, immutable');
+assert.deepEqual(await searchResponse.json(), data.pages.map(({ slug, title, description, chapter, group, search }) =>
+  ({ slug, title, description, chapter, group, search }),
+));
 // The docs search is named by a visible label and reports results in a status
 // region that is always present.
 const docsPage = await (await fetch(new URL('/docs', base))).text();
@@ -187,6 +212,7 @@ assert.match(docsPage, /<output class="search-count"><\/output>/);
 const card = await fetch(new URL('/assets/og-card.png', base));
 assert.equal(card.status, 200, 'share card');
 assert.equal(card.headers.get('content-type'), 'image/png', 'share card type');
+assert.equal(card.headers.get('cache-control'), 'public, max-age=3600', 'unversioned asset cache');
 const cardBytes = Buffer.from(await card.arrayBuffer());
 assert.deepEqual(
   [cardBytes.readUInt32BE(16), cardBytes.readUInt32BE(20)],

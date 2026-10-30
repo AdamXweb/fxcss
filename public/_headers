@@ -15,4 +15,22 @@
 # The catalogue is a static page that fxcss generated. It needs only its own
 # inline script and styles and its own images.
 /catalogue/*
+  Cache-Control: public, max-age=3600
   Content-Security-Policy: default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+
+# These filenames change whenever their content changes.
+/_next/static/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/search/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Unversioned media gets only a short browser cache.
+/assets/*
+  Cache-Control: public, max-age=3600
+
+/media/*
+  Cache-Control: public, max-age=3600
+
+/evidence/*
+  Cache-Control: public, max-age=3600

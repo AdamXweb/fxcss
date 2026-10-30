@@ -51,12 +51,37 @@ export function searchDocs(
       ...passage,
       lower: passage.text.toLocaleLowerCase(),
     }));
-    const best = passages.find((passage) => passage.lower.includes(phrase));
+    const phrasePassage = passages.find((passage) =>
+      passage.lower.includes(phrase),
+    );
     const titleMatches = title.includes(phrase);
     const descriptionMatches = description.includes(phrase);
-    if (!titleMatches && !descriptionMatches && !best) continue;
-    const score =
-      (titleMatches ? 80 : 0) + (descriptionMatches ? 15 : 0) + (best ? 40 : 0);
+    const phraseMatches =
+      titleMatches || descriptionMatches || Boolean(phrasePassage);
+    const pageText = [
+      title,
+      description,
+      ...passages.map((passage) => passage.lower),
+    ].join(' ');
+    if (!phraseMatches && !terms.every((term) => pageText.includes(term)))
+      continue;
+    // Exact phrases rank first. Otherwise link to the passage containing the
+    // most query terms, even when the words occur in a different order.
+    const rankedPassages = passages
+      .map((passage) => ({
+        ...passage,
+        matches: terms.filter((term) => passage.lower.includes(term)).length,
+      }))
+      .sort((a, b) => b.matches - a.matches);
+    const best =
+      phrasePassage || rankedPassages.find((passage) => passage.matches > 0);
+    const score = phraseMatches
+      ? 100 +
+        (titleMatches ? 80 : 0) +
+        (descriptionMatches ? 15 : 0) +
+        (phrasePassage ? 40 : 0)
+      : (terms.filter((term) => title.includes(term)).length / terms.length) *
+        20;
     const useDescription = !best;
     const excerptSource = useDescription ? page.description : best.text;
     results.push({
