@@ -33,11 +33,11 @@ export default async function DocumentationPage({ params }: { params: Promise<{ 
   return (
     <>
       <main id="main" className="guide-article">
-        <div className="breadcrumbs">
+        <nav className="breadcrumbs" aria-label="Breadcrumb">
           <Link href="/docs">Documentation</Link>
-          <span>/</span>
+          <span aria-hidden="true">/</span>
           {page.group === "command" ? "Command reference" : "Guides"}
-        </div>
+        </nav>
         <span className="eyebrow">
           {page.group === "command" ? "COMMAND REFERENCE" : "THE FIELD GUIDE"}
         </span>
@@ -59,7 +59,7 @@ export default async function DocumentationPage({ params }: { params: Promise<{ 
         {slug === "catalogue" && (
           <a
             className="button primary"
-            href="/catalogue/index.html"
+            href="/catalogue/"
             target="_blank"
             rel="noreferrer"
           >
@@ -76,17 +76,13 @@ export default async function DocumentationPage({ params }: { params: Promise<{ 
           )}
         </div>
       </main>
-      <aside className="guide-toc" aria-label="On this page">
-        <span>ON THIS PAGE</span>
-        {page.headings.length ? (
-          page.headings.map((h) => (
+      <aside className="guide-toc" aria-label={page.headings.length ? "On this page and help" : "Documentation help"}>
+        {page.headings.length > 0 && <span>ON THIS PAGE</span>}
+        {page.headings.map((h) => (
             <a href={`#${h.id}`} key={h.id}>
               {h.text}
             </a>
-          ))
-        ) : (
-          <a href="#main">{page.title}</a>
-        )}
+          ))}
         <div>
           <strong>Need a hand?</strong>
           <p>

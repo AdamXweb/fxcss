@@ -6,7 +6,6 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type KeyboardEvent,
   type PointerEvent,
 } from 'react';
 import Image from 'next/image';
@@ -190,36 +189,18 @@ export function Comparison({
   }
   function startDrag(event: PointerEvent<HTMLDivElement>) {
     if (!event.isPrimary || event.button !== 0) return;
+    // Keep the range focused instead of letting the drag surface take focus.
+    event.preventDefault();
     setAutoplay(false);
-    event.currentTarget.focus({ preventScroll: true });
+    figure.current
+      ?.querySelector<HTMLInputElement>('.compare-control input[type="range"]')
+      ?.focus({ preventScroll: true });
     event.currentTarget.setPointerCapture(event.pointerId);
     positionFromPointer(event);
   }
   function endDrag(event: PointerEvent<HTMLDivElement>) {
     if (event.currentTarget.hasPointerCapture(event.pointerId))
       event.currentTarget.releasePointerCapture(event.pointerId);
-  }
-  function handleKey(event: KeyboardEvent<HTMLDivElement>) {
-    const step = event.shiftKey ? 10 : 1;
-    const changes: Record<string, number> = {
-      ArrowLeft: -step,
-      ArrowDown: -step,
-      ArrowRight: step,
-      ArrowUp: step,
-      PageDown: -10,
-      PageUp: 10,
-    };
-    if (event.key !== 'Home' && event.key !== 'End' && !(event.key in changes))
-      return;
-    event.preventDefault();
-    setAutoplay(false);
-    updatePosition(
-      event.key === 'Home'
-        ? 0
-        : event.key === 'End'
-          ? 100
-          : Math.round(currentPosition.current) + changes[event.key],
-    );
   }
   return (
     <figure className="comparison-figure" ref={figure}>
@@ -241,27 +222,16 @@ export function Comparison({
             <TabsTrigger value="diff">Changed pixels</TabsTrigger>
           </TabsList>
         </div>
-        <TabsContent value="compare">
+        <TabsContent value="compare" tabIndex={-1}>
           <div className="compare-labels">
             <span>Before · {shown.change.before}</span>
             <span>After · {shown.change.after}</span>
           </div>
-          {/* The image surface captures dragging across its full area and supplies slider keyboard semantics. */}
-          {/* eslint-disable jsx-a11y/prefer-tag-over-role */}
+          {/* Pointer dragging and the range below share one value. Keep the
+              images outside the slider role so their descriptions remain available. */}
           <div
             className="compare-image"
             style={{ '--split': `${position[0]}%` } as CSSProperties}
-            role="slider"
-            tabIndex={0}
-            aria-label="Image comparison"
-            aria-describedby={hintId}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={position[0]}
-            aria-valuetext={`${Math.round(position[0])}% before`}
-            aria-orientation="horizontal"
-            onFocus={() => setAutoplay(false)}
-            onKeyDown={handleKey}
             onPointerEnter={() => setHovered(true)}
             onPointerLeave={() => setHovered(false)}
             onPointerDown={startDrag}
@@ -300,9 +270,8 @@ export function Comparison({
               <span>‹ ›</span>
             </span>
           </div>
-          {/* eslint-enable jsx-a11y/prefer-tag-over-role */}
           <div className="compare-interaction">
-            <span id={hintId}>Drag the image to compare</span>
+            <span id={hintId}>Drag the image or use the slider to reveal the before capture</span>
             {!reducedMotion && (
               <Button
                 variant="ghost"
@@ -327,9 +296,11 @@ export function Comparison({
             onPointerLeave={() => setHovered(false)}
             onPointerDownCapture={() => setAutoplay(false)}
           >
-            <span id={controlId}>Reveal before</span>
+            <span id={controlId}>Image comparison</span>
             <Slider
               aria-labelledby={controlId}
+              aria-describedby={hintId}
+              format={{ style: 'unit', unit: 'percent' }}
               value={position}
               onValueChange={(value) => {
                 setAutoplay(false);
@@ -375,7 +346,7 @@ export function Comparison({
             aria-pressed={zoomed}
           >
             {zoomed ? <ZoomOut size={15} /> : <ZoomIn size={15} />}{' '}
-            {zoomed ? 'Full toolbar' : 'Zoom into the tab'}
+            Zoom into the tab
           </Button>
           <span>
             <strong>{percentage}%</strong> of the full capture changed

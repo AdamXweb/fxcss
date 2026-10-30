@@ -127,8 +127,11 @@ function DocsNavigation({
             ? `${matches.length} matching ${matches.length === 1 ? 'page' : 'pages'}`
             : 'No matching pages. Try a command or a shorter phrase.'}
       </output>
-      {searchStatus === 'error' && <button onClick={loadSearch}>Retry search</button>}
-      {searching ? (
+      {searchStatus === 'error' && <button onClick={() => {
+        loadSearch();
+        searchField.current?.focus();
+      }}>Retry search</button>}
+      {searching && searchStatus !== 'error' ? (
         <div className="docs-search-results">
           {secret && <div className="search-secret">
             {secret === 'coffee' ? <><strong>☕ Secret brew unlocked.</strong><button onClick={() => revealSecret('coffee')}>Brew another #c0ffee</button></> : secret === 'retro' && retroDestination ? <><strong>◷ Destination: {retroDestinations[retroDestination].label}, {retroDestinations[retroDestination].year}.</strong><button onClick={() => revealSecret('retro', retroDestination)}>Start the time machine</button><span>Switch desktops or return to the present above.</span></> : <><strong>A challenger appears.</strong><Link href="/important" onClick={onNavigate}>Enter the specificity boss battle ↗</Link></>}
@@ -154,7 +157,7 @@ function DocsNavigation({
         <div className="command-navigation">
           {groups.map((group) => (
             <section className="nav-group" key={group}>
-              <h2>{group}</h2>
+              <p className="nav-group-label">{group}</p>
               {pages
                 .filter((p) => p.chapter === group)
                 .map((p) => (
@@ -236,7 +239,7 @@ export function DocsFrame({
   };
   return (
     <div className="guide-layout" data-slot="sidebar-wrapper">
-      <aside className="guide-sidebar" data-slot="sidebar">
+      <aside className="guide-sidebar" data-slot="sidebar" aria-label="Documentation navigation">
         <div className="desktop-docs-nav">
           <DocsNavigation {...navigation} />
         </div>

@@ -80,9 +80,27 @@ test('search recovers from a failed index download', async ({ page }) => {
   await expect(
     page.getByRole('status').filter({ hasText: 'Search could not load' }),
   ).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Documentation', exact: true })
+    .getByRole('link', { name: 'watch', exact: true })).toBeVisible();
   fail = false;
-  await page.getByRole('button', { name: 'Retry search' }).click();
+  const retry = page.getByRole('button', { name: 'Retry search' });
+  await retry.focus();
+  await retry.press('Enter');
   await expect(page.locator('.docs-search-result').first()).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Search documentation' })).toBeFocused();
+});
+
+test('client-side documentation navigation announces the new page title', async ({ page }) => {
+  await page.goto('/docs');
+  const announcement = page.getByRole('status', { name: 'Page navigation' });
+  await expect(announcement).toBeEmpty();
+  const navigation = page.getByRole('navigation', { name: 'Documentation', exact: true });
+  await navigation.getByRole('link', { name: 'watch', exact: true }).press('Enter');
+  await expect(page).toHaveURL(/\/docs\/watch$/);
+  await expect(announcement).toHaveText('fxcss watch · fxcss');
+  await navigation.getByRole('link', { name: 'compare', exact: true }).press('Enter');
+  await expect(page).toHaveURL(/\/docs\/compare$/);
+  await expect(announcement).toHaveText('fxcss compare · fxcss');
 });
 
 test('code copying writes the actual example to the clipboard', async ({
