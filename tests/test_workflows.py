@@ -68,16 +68,39 @@ class WorkflowBehaviorTests(unittest.TestCase):
     def workflow(self, name):
         return (self.theme / ".github/workflows" / name).read_text()
 
-    def test_supported_options_and_preferences_trigger_both_preview_workflows(self):
+    def test_all_dependencies_trigger_both_preview_workflows(self):
         paths = [f"{name}/{name}-option.css" for name in VARIANT_DIRS]
-        paths += ["chrome/parts/toolbar.css", "configuration/user.js"]
+        paths += ["chrome/parts/toolbar.css", "configuration/user.js",
+                  "shared/palette.css", "lib/deep/import.css", "theme.svg",
+                  "art/background.png", "fonts/ui.woff2", "unusual directory/icon.svg",
+                  "README.md"]
         for name in ("pr-preview.yml", "readme-previews.yml"):
             text = self.workflow(name)
-            patterns = re.findall(r"^      - '([^']+)'$", text, re.M)
-            self.assertNotIn("__FXCSS_", text)
+            triggers = text.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
+            self.assertNotRegex(triggers, r"(?m)^\s+paths(?:-ignore)?:")
+            self.assertIn("all repository changes", text)
+            self.assertNotIn("__FXCSS_THEME_PATHS__", text)
+            # No path filter means a single changed dependency triggers a run,
+            # even if none of the conventional theme folders changed.
+            patterns = re.findall(r"^      - '([^']+)'$", triggers, re.M)
             for path in paths:
                 with self.subTest(workflow=name, path=path):
-                    self.assertTrue(any(fnmatch.fnmatch(path, pattern) for pattern in patterns))
+                    self.assertTrue(not patterns or any(
+                        fnmatch.fnmatch(path, pattern) for pattern in patterns))
+            if name == "pr-preview.yml":
+                self.assertIn("types: [opened, synchronize, reopened]", triggers)
+                self.assertIn("permissions:\n  contents: read", text)
+                self.assertNotIn("pull_request_target:", triggers)
+            else:
+                self.assertIn("branches: [master, main]", triggers)
+                self.assertIn("workflow_dispatch:", triggers)
+
+    def test_preview_docs_explain_dependency_trigger_policy(self):
+        readme = (Path(__file__).resolve().parents[1] / "README.md").read_text()
+        self.assertIn("without path filters", readme)
+        self.assertIn("dependencies can live anywhere", readme)
+        self.assertNotIn("Review the filters if you keep theme assets elsewhere", readme)
+        self.assertNotIn("Matching theme changes", readme)
 
     def test_every_generated_workflow_has_its_placeholders_filled(self):
         for path in (self.theme / ".github/workflows").iterdir():
@@ -316,17 +339,12 @@ class WorkflowBehaviorTests(unittest.TestCase):
             {"format": 1, "status": "checked", "current": "158", "oldest": 153}))
 
     def test_sensitivity_check_requires_pixels_not_just_a_missing_view(self):
-        ci = (Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text()
-        body = script(ci, "Detects a real change")
-        code = body.split("python - <<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
-        output = self.root / "out/changed"
-        output.mkdir(parents=True)
-        (output / "summary.json").write_text(json.dumps({
-            "any_change": True, "changed_views": [], "views": [], "only_in_base": ["variant-old"]}))
-        result = subprocess.run([sys.executable, "-c", code], cwd=self.root,
-                                capture_output=True, text=True)
-        self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertIn("no pixel difference", result.stdout)
+        from tests.smoke_capture_states import real_change_report
+        passed, lines = real_change_report({
+            "any_change": True, "changed_views": [], "views": [],
+            "only_in_base": ["variant-old"]})
+        self.assertFalse(passed)
+        self.assertIn("no pixel difference", "\n".join(lines))
 
     @unittest.skipUnless(shutil.which("bash") and shutil.which("git"),
                          "the CI scope step needs bash and Git")

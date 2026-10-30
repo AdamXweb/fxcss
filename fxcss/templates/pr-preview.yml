@@ -15,12 +15,11 @@ name: PR preview
 # now comes from a pinned release rather than from the pull request, a pull
 # request cannot change how it behaves either.
 
+# Run for all repository changes: imported CSS, images and fonts can live
+# anywhere in the repository. Folder filters can miss dependency-only edits.
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    paths:
-__FXCSS_THEME_PATHS__
-      - '.github/workflows/pr-preview.yml'
 
 permissions:
   contents: read

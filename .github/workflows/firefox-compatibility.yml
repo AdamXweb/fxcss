@@ -18,7 +18,7 @@ jobs:
   channels:
     name: Firefox ${{ matrix.channel }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -78,9 +78,31 @@ jobs:
             --out "$GITHUB_WORKSPACE/out" --baseline "$RUNNER_TEMP/baseline" --update-baseline
           fxcss check --theme fxcss/templates/starter --firefox "$FIREFOX_BIN" \
             --out "$GITHUB_WORKSPACE/out" --baseline "$RUNNER_TEMP/baseline" --max-changed-percent 0
+      # The same repeatability and sensitivity checks pull-request CI runs on
+      # Stable and ESR, so a Beta or Nightly change to state capture shows here.
+      - name: Project check and three captures
+        run: python -m tests.smoke_capture_states capture
+      - name: Determinism — the same theme must render identically
+        run: python -m tests.smoke_capture_states determinism --platform "Linux-$CHANNEL"
+        env:
+          CHANNEL: ${{ matrix.channel }}
+      - name: Detects a real change
+        run: python -m tests.smoke_capture_states real-change --platform "Linux-$CHANNEL"
+        env:
+          CHANNEL: ${{ matrix.channel }}
+      - name: State and surface views render their own states
+        run: python -m tests.smoke_capture_states states --platform "Linux-$CHANNEL"
+        env:
+          CHANNEL: ${{ matrix.channel }}
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: firefox-${{ matrix.channel }}
           path: out/
+          retention-days: 14
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: firefox-${{ matrix.channel }}-shots
+          path: shots/
           retention-days: 14

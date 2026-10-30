@@ -26,7 +26,6 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from . import __version__, capture, core
-from .fetch import VARIANT_DIRS
 
 PREVIEW_DEFAULTS = {"variants": "all", "views": "", "min_changed_percent": "0",
                     "oldest_firefox": "esr"}
@@ -142,9 +141,6 @@ def render_template(text, version, variant_alt, repo_url, preview=None):
     # Quote scalar defaults separately from the folded DEFAULT_URLS block.
     text = text.replace("'__FXCSS_REPO_URL__'", f"'{_yaml_quoted(repo_url)}'")
     text = text.replace("__FXCSS_REPO_URL__", repo_url)
-    paths = ["chrome", "configuration", *VARIANT_DIRS]
-    text = text.replace("__FXCSS_THEME_PATHS__", "\n".join(
-        f"      - '{folder}/**'" for folder in paths))
     return text
 
 

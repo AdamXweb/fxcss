@@ -44,6 +44,32 @@ class BrowserStartupError(MarionetteError):
     """Firefox opened its chrome window without an initial page document."""
 
 
+class FixtureNavigationStall(MarionetteError):
+    """A local fixture page did not load before Marionette's navigation deadline.
+
+    Marionette reports only that its deadline passed. `state` records what the
+    tab looked like at that moment -- its remote type, content process, current
+    document and loading flags -- so a CI log alone can say whether the tab
+    never received a content process or a page was merely slow. None when that
+    state could not be collected.
+    """
+
+    def __init__(self, message, state=None):
+        super().__init__(message)
+        self.state = state
+
+    @property
+    def unattached(self):
+        """Did the stalled tab never get a content process behind it?
+
+        Only this case is the known Windows startup condition, where a browser
+        accepts commands but its child processes never come up. A tab with a
+        content process that did not finish loading is a different failure.
+        """
+        return (isinstance(self.state, dict) and "process" in self.state
+                and self.state["process"] is None)
+
+
 def free_port():
     """Pick an unused port for this session's Marionette listener.
 
@@ -452,13 +478,17 @@ def _is_startup_race(exc):
     tabbrowser -- seen intermittently on Windows CI runners as `TypeError:
     can't access property "maybeCancelContentJSExecution",
     this._browser.frameLoader.remoteTab is null`. A newly created tab can also
-    retain a discarded content context even after re-selection. Fixture setup
-    may replace its temporary tabs for these failures; unrelated errors still
-    surface unchanged.
+    retain a discarded content context even after re-selection, or sit at its
+    navigation deadline without a content process ever attaching (a
+    windows-latest run timed out loading a local fixture page seconds after a
+    fresh start). Fixture setup may replace its temporary tabs for these
+    failures; unrelated errors, including a timeout on a tab that does have a
+    content process, still surface unchanged.
     """
     message = str(exc)
     return ("remoteTab is null" in message or "frameLoader is null" in message
-            or _is_discarded_navigation(exc))
+            or _is_discarded_navigation(exc)
+            or (isinstance(exc, FixtureNavigationStall) and exc.unattached))
 
 
 def _is_discarded_navigation(exc):
@@ -466,6 +496,12 @@ def _is_discarded_navigation(exc):
     return (message.startswith("WebDriver:Navigate failed:")
             and "'error': 'no such window'" in message
             and "Browsing context has been discarded" in message)
+
+
+def _is_navigation_timeout(exc):
+    message = str(exc)
+    return (message.startswith("WebDriver:Navigate failed:")
+            and "'error': 'timeout'" in message)
 
 
 # Seconds to wait before each retry of the startup race, one entry per retry.
@@ -684,6 +720,8 @@ class Session:
                 self.m.command("WebDriver:Navigate", {"url": url})
                 return
             except MarionetteError as exc:
+                if _is_navigation_timeout(exc):
+                    raise self._fixture_navigation_stall(url, exc) from exc
                 if attempt == 2 or not _is_discarded_navigation(exc):
                     raise
                 print("  note: new tab context changed; refreshing it before navigation",
@@ -691,6 +729,23 @@ class Session:
             finally:
                 self.m.set_context("chrome")
             time.sleep(0.5)
+
+    def _fixture_navigation_stall(self, url, exc):
+        # Marionette's timeout says nothing about why a local page never
+        # loaded. Record the tab's state while it is still selected, so the
+        # failure is diagnosable from a log, and so setup_window's retry can
+        # tell a tab without a content process from a page that was slow.
+        self.m.set_context("chrome")
+        try:
+            state = self.m.script(FIXTURE_TAB_STATE)
+        except MarionetteError as state_exc:
+            state = None
+            detail = f"tab state unavailable: {state_exc}"
+        else:
+            detail = f"tab state: {state}"
+        return FixtureNavigationStall(
+            f"fixture page {url} did not load before the navigation deadline "
+            f"({exc}); {detail}", state)
 
     def _wait_for_fixture_pages(self, timeout=30):
         # A loading page can paint the same blank frame twice, so _shot's
@@ -797,6 +852,28 @@ const done = arguments[arguments.length - 1];
 INITIAL_TABS = """
 const win = Services.wm.getMostRecentWindow("navigator:browser");
 return Array.from(win.gBrowser.tabs, tab => tab.linkedPanel);
+"""
+
+# The selected tab at the moment a fixture navigation timed out. `process` is
+# the content process behind the tab, null when none ever attached.
+FIXTURE_TAB_STATE = """
+const win = Services.wm.getMostRecentWindow("navigator:browser");
+const gb = win.gBrowser;
+const tab = gb.selectedTab;
+const browser = tab.linkedBrowser;
+const context = browser.browsingContext;
+return {
+  url: browser.currentURI.spec,
+  remoteType: browser.remoteType,
+  process: browser.frameLoader?.remoteTab?.osPid ?? null,
+  document: context?.currentWindowGlobal?.documentURI?.spec ?? null,
+  discarded: context?.isDiscarded ?? null,
+  loading: browser.webProgress.isLoadingDocument,
+  busy: tab.hasAttribute("busy"),
+  tabs: gb.tabs.length,
+  contentProcesses: typeof ChromeUtils.getAllDOMProcesses === "function"
+    ? ChromeUtils.getAllDOMProcesses().length - 1 : null
+};
 """
 
 FINALIZE_FIXTURE_LABELS = """
@@ -2363,7 +2440,9 @@ def find_variant_sheets(theme: Path):
     folder (`custom-tabs` and `optional-tabs`) -- a stable name, since it only
     depends on the two files themselves. Sheets in one folder that differ only
     in case or punctuation have nothing to tell them apart, and are an error
-    that names both files.
+    that names both files. Adding optional/tabs.css beside custom/tabs.css
+    renames the existing `tabs` slug to `custom-tabs`; update explicit variant
+    selections and review and refresh baselines for the renamed captures.
     """
     from .fetch import VARIANT_DIRS
     by_slug = {}
