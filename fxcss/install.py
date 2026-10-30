@@ -356,7 +356,7 @@ def strip_user_js_block(text):
         if lines[i].strip() == BLOCK_BEGIN:
             for j in range(i + 1, len(lines)):
                 if lines[j].strip() == BLOCK_END:
-                    if out and out[-1] in ("\n", "\r\n"):
+                    if out and out[-1] == "\n":
                         out.pop()
                     elif out and out[-1].endswith("\n") and j + 1 == len(lines):
                         # Only at the end: with lines after the block, joining
@@ -509,7 +509,7 @@ def _copy_sheet_dependencies(sheet, dest, chrome, source_root, budget):
     while queue:
         origin_sheet, placed_sheet = queue.pop(0)
         text = origin_sheet.read_text(encoding="utf-8", errors="replace")
-        for _kind, target in css_references(text):
+        for kind, target in css_references(text):
             relative = _local_reference(target)
             if relative is None:
                 continue
@@ -534,6 +534,8 @@ def _copy_sheet_dependencies(sheet, dest, chrome, source_root, budget):
                     notes.append(
                         f"{label} (the theme's own chrome/"
                         f"{placed.relative_to(chrome).as_posix()} kept)")
+                elif kind == "import" or placed.suffix.lower() == ".css":
+                    queue.append((origin, placed))
                 continue
             budget["files"] -= 1
             budget["bytes"] -= resolved.stat().st_size
@@ -549,7 +551,7 @@ def _copy_sheet_dependencies(sheet, dest, chrome, source_root, budget):
                              "not copied)")
                 continue
             shutil.copy2(resolved, placed)
-            if placed.suffix.lower() == ".css":
+            if kind == "import" or placed.suffix.lower() == ".css":
                 queue.append((origin, placed))
     return notes
 

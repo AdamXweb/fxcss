@@ -18,6 +18,7 @@ ODD_PREFS = [
     b"\xef\xbb\xbfuser_pref(\"bom\", true);\n\n\n",
     b"// old mac\ruser_pref(\"cr\", 1);\r",
     b"   ",
+    b"\r",
     b"\n\n",
     b"",
     b'user_pref("plain", 1);\n',
@@ -325,6 +326,23 @@ class SheetDependencyTests(unittest.TestCase):
         install.install_theme(self.theme, self.profile, "o/n@v1",
                               sheets=[self.sheet])
         self.assertIn("custom/parts/nested.css", self.installed())
+
+    def test_existing_identical_css_still_brings_its_dependencies(self):
+        parts = self.theme / "chrome" / "custom" / "parts"
+        parts.mkdir(parents=True)
+        (parts / "nested.css").write_bytes(
+            (self.theme / "custom" / "parts" / "nested.css").read_bytes())
+        install.install_theme(self.theme, self.profile, "o/n@v1", sheets=[self.sheet])
+        self.assert_same_resolution(self.sheet, self.profile / "chrome/custom/loose-sheet.css",
+                                    self.profile / "chrome")
+
+    def test_extensionless_imports_bring_their_dependencies(self):
+        self.sheet.write_text('@import "parts/rules";')
+        (self.sheet.parent / "parts/rules").write_text(
+            '#a { background: url(../icons/close.svg); }')
+        install.install_theme(self.theme, self.profile, "o/n@v1", sheets=[self.sheet])
+        self.assertIn("custom/parts/rules", self.installed())
+        self.assertIn("custom/icons/close.svg", self.installed())
 
 
 if __name__ == "__main__":
