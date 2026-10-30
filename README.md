@@ -274,10 +274,16 @@ The install is what a theme's install script does, done carefully:
 - the complete replacement is prepared before your existing `chrome/` moves
   to a timestamped `chrome.backup-*` sibling; a failed swap restores it;
 - any `--with` optional sheets go where the theme's own `@import`s expect
-  them, or load after the base theme through an import-only wrapper;
+  them, or load after the base theme through an import-only wrapper; the
+  local files each sheet refers to (nested `@import`s, images, fonts) come
+  along to the same relative place, so it looks as it did in `fxcss try`.
+  Files outside the theme, or where the theme already installed a different
+  file, are not copied, and the install says so;
 - `toolkit.legacyUserProfileCustomizations.stylesheets` is enabled in
   `user.js` — inside a clearly marked block, so it can be removed cleanly —
-  together with any `configuration/user.js` the theme ships;
+  together with any `configuration/user.js` the theme ships, whose pref names
+  are listed before you confirm. Everything outside the block is kept byte
+  for byte;
 - a manifest (`chrome/fxcss-install.json`) records every file written, its
   sha256, and where the theme came from — which repo, which ref, and whether
   that ref was a release or a branch.

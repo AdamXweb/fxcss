@@ -2235,19 +2235,23 @@ class InstallFailureTests(unittest.TestCase):
     def test_prefs_and_manifest_write_failures_leave_the_original_untouched(self):
         from unittest.mock import patch
         from fxcss import install
-        write_text = Path.write_text
+        write_text, write_bytes = Path.write_text, Path.write_bytes
         for filename in ("user.js", install.MANIFEST_NAME):
             with self.subTest(filename=filename), tempfile.TemporaryDirectory() as td:
                 root = Path(td)
                 theme, profile = _make_theme(root), _make_profile(root)
                 before = self.snapshot(profile)
 
-                def fail_write(path, *args, **kwargs):
-                    if path.name == filename:
-                        raise OSError("simulated write failure")
-                    return write_text(path, *args, **kwargs)
+                def failing(original):
+                    def fail_write(path, *args, **kwargs):
+                        if path.name == filename:
+                            raise OSError("simulated write failure")
+                        return original(path, *args, **kwargs)
+                    return fail_write
 
-                with patch.object(Path, "write_text", fail_write):
+                # user.js is written as bytes, so its exact contents survive.
+                with patch.object(Path, "write_text", failing(write_text)), \
+                        patch.object(Path, "write_bytes", failing(write_bytes)):
                     with self.assertRaisesRegex(RuntimeError, "simulated write failure"):
                         install.install_theme(theme, profile, "o/n@v2")
                 self.assertEqual(self.snapshot(profile), before)

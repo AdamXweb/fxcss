@@ -952,6 +952,10 @@ def cmd_install(args):
         if install.firefox_running(picked["path"]):
             print("  note: Firefox appears to be running — the theme will "
                   "only show after a restart.")
+        prefs = install.theme_pref_names(theme_root)
+        if prefs:
+            print(f"  user.js: the theme also sets {len(prefs)} pref(s): "
+                  f"{', '.join(prefs)}")
         if not _confirm("  Install into this profile?", interactive, args.yes):
             print("  nothing installed.")
             return 1
@@ -963,6 +967,8 @@ def cmd_install(args):
         if result["sheets"]:
             print(f"  optional sheets: "
                   f"{paint_c(_BOLD, ', '.join(result['sheets']))}")
+        for note in result.get("sheet_notes") or []:
+            print(f"  note: {note}")
         print(f"  installed {len(result['files'])} file(s) into "
               f"{picked['path'] / 'chrome'}")
         print("\n  Restart Firefox to see it. `fxcss uninstall` puts "
