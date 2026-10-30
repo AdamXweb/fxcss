@@ -202,10 +202,13 @@ def build(session, theme: Path, outdir: Path, variants, flags):
     entries = []
     captures = {}
     for slug, sheets in sorted(variants.items()):
+        # Underscores cannot occur in variant slugs. Keep the option's label
+        # while reserving base.png for the unmodified theme.
+        capture_name = "_variant-base" if slug == "base" else slug
         for sheet in sheets:
             session.m.script(core.LOAD_VARIANT_SHEET, [sheet.resolve().as_uri()])
         time.sleep(1.5)
-        after = _capture(session, outdir, slug)
+        after = _capture(session, outdir, capture_name)
         session.m.script(core.UNLOAD_VARIANT_SHEETS)
         time.sleep(0.8)
 
@@ -215,9 +218,10 @@ def build(session, theme: Path, outdir: Path, variants, flags):
         if changed:
             _before_after(base, after, mask, outdir / f"{slug}-diff.png")
             entry["image"] = f"{slug}-diff.png"
-            _shrink(after, FULL_WIDTH).save(outdir / f"{slug}.png", optimize=True)
+            entry["full_image"] = f"{capture_name}.png"
+            _shrink(after, FULL_WIDTH).save(outdir / entry["full_image"], optimize=True)
         else:
-            (outdir / f"{slug}.png").unlink()
+            (outdir / f"{capture_name}.png").unlink()
         entries.append(entry)
         captures[slug] = after
         state = f"{pct:.2f}% of the chrome" if changed else "nothing on this Firefox"
@@ -300,7 +304,8 @@ def render_markdown(theme: Path, entries, flags, firefox_version):
         if entry["image"]:
             lines.append(f"![before and after of {title}]({entry['image']})")
             lines.append("")
-            lines.append(f"Full window: [{slug}.png]({slug}.png)")
+            full_image = entry.get("full_image", f"{slug}.png")
+            lines.append(f"Full window: [{slug}.png]({full_image})")
             lines.append("")
         if entry.get("same_as"):
             others = " + ".join(part for part in slug.split("+")
@@ -326,7 +331,10 @@ def render_markdown(theme: Path, entries, flags, firefox_version):
             "| flag | effect |",
             "| --- | --- |",
         ]
-        lines += [f"| `{f['flag']}` | {f['text']} |" for f in flags]
+        for flag in flags:
+            name = flag["flag"].replace("|", r"\|")
+            text = flag["text"].replace("|", r"\|")
+            lines.append(f"| `{name}` | {text} |")
         lines.append("")
     return "\n".join(lines)
 

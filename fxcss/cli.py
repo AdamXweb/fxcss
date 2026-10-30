@@ -1847,8 +1847,11 @@ def cmd_catalogue(args):
     print(f"\n{found}/{len(result['entries'])} landmarks resolved")
     print(f"open {out / 'index.html'}")
     if args.open:
-        opener = {"darwin": "open", "win32": "start"}.get(sys.platform, "xdg-open")
-        subprocess.run([opener, str(out / "index.html")], check=False)
+        if sys.platform == "win32":
+            os.startfile(str(out / "index.html"))
+        else:
+            opener = "open" if sys.platform == "darwin" else "xdg-open"
+            subprocess.run([opener, str(out / "index.html")], check=False)
     return 0
 
 

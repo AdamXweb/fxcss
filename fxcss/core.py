@@ -2402,12 +2402,17 @@ CHANNEL_ALIASES = {"dev": "developer", "developer-edition": "developer",
 def _label_for(name):
     """Which build a file or app name looks like, or None."""
     n = name.lower()
-    for label in CHANNEL_ORDER[1:]:
+    # A channel word alone (for example T3 Code (Beta)) is not evidence of
+    # Firefox. Bound fork names too: "Citizen" is not Zen.
+    for fork in CHANNEL_ORDER[5:]:
+        if re.search(r"(?<![a-z0-9])" + fork + r"(?![a-z0-9])", n):
+            return fork
+    if not re.search(r"(?<![a-z0-9])firefox(?:esr)?(?![a-z0-9])", n):
+        return None
+    for label in CHANNEL_ORDER[1:5]:
         if label in n:
             return label
-    if "firefox" in n or n in ("zen browser",):
-        return "stable"
-    return None
+    return "stable"
 
 
 def _mac_binary(app: Path):
@@ -2418,9 +2423,7 @@ def _mac_binary(app: Path):
         candidate = macos_dir / name
         if candidate.is_file():
             return candidate
-    executables = [p for p in macos_dir.iterdir()
-                   if p.is_file() and os.access(p, os.X_OK)]
-    return executables[0] if len(executables) == 1 else None
+    return None
 
 
 def discover_firefoxes(extra_roots=None):
