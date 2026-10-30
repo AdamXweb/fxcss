@@ -107,6 +107,24 @@ class TweaksRegressions(unittest.TestCase):
                                    [{"flag": "-a|-b", "text": "Choose A | B"}], "test")
         self.assertIn(r"| `-a\|-b` | Choose A \| B |", md)
 
+    def test_option_named_like_a_diff_cannot_remove_another_options_panel(self):
+        with tempfile.TemporaryDirectory() as td:
+            theme = Path(td)
+            out = theme / "out"
+            session = Mock()
+            session.info.return_value = {"version": "test"}
+            colors = iter(("white", "black", "white"))
+
+            def shot(m, directory, name):
+                Image.new("RGB", (400, 200), next(colors)).save(directory / f"{name}.png")
+
+            with patch.object(core, "_shot", side_effect=shot), patch.object(tweaks.time, "sleep"):
+                entries = tweaks.build(session, theme, out,
+                                       {"x": [theme / "x.css"], "x-diff": [theme / "x-diff.css"]}, [])
+            self.assertEqual(entries[0]["image"], "x-diff.png")
+            self.assertTrue((out / "x-diff.png").is_file())
+            self.assertIsNone(entries[1]["image"])
+
 
 class CatalogueOpeningRegressions(unittest.TestCase):
     def test_platform_openers(self):

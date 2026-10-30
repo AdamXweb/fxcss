@@ -201,10 +201,11 @@ def build(session, theme: Path, outdir: Path, variants, flags):
 
     entries = []
     captures = {}
+    reserved_names = {"base", *(f"{slug}-diff" for slug in variants)}
     for slug, sheets in sorted(variants.items()):
         # Underscores cannot occur in variant slugs. Keep the option's label
-        # while reserving base.png for the unmodified theme.
-        capture_name = "_variant-base" if slug == "base" else slug
+        # while reserving the baseline and each before/after panel's name.
+        capture_name = f"_variant-{slug}" if slug in reserved_names else slug
         for sheet in sheets:
             session.m.script(core.LOAD_VARIANT_SHEET, [sheet.resolve().as_uri()])
         time.sleep(1.5)
