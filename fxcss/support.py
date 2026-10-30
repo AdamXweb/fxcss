@@ -60,8 +60,11 @@ class Unavailable(Exception):
     """The check could not run. The message is safe to show in a report."""
 
 
-class OutOfDownloads(Exception):
-    """The download budget ran out before a boundary was pinned down."""
+class OutOfDownloads(Unavailable):
+    """The budget ran out: a partial boundary, or an unavailable check."""
+
+    def __init__(self, version):
+        super().__init__(f"the download budget ran out at Firefox {version}")
 
 
 def major(version):
@@ -437,12 +440,15 @@ def analyse(found, series, builds):
 def run_check(base, head, firefox, oldest="esr", cache=None, max_downloads=MAX_DOWNLOADS,
               download=None, releases=None):
     """The support report comparing base with head, as a JSON-ready dict."""
+    try:
+        oldest = parse_oldest(oldest)
+    except ValueError as exc:
+        raise Unavailable(str(exc)) from exc
     version = build_version(firefox) if firefox else None
     current = major(version)
     if not current:
         raise Unavailable(f"could not read the version of {firefox}")
     info = (releases or release_info)()
-    oldest = parse_oldest(oldest)
     if oldest == "esr":
         if not info or "esr" not in info:
             raise Unavailable("could not look up the current ESR at product-details.mozilla.org")
@@ -458,6 +464,8 @@ def run_check(base, head, firefox, oldest="esr", cache=None, max_downloads=MAX_D
     elif floor < current and found:
         try:
             linux = builds.get(version)
+        except OutOfDownloads:
+            raise  # Exhaustion is not evidence that this build is absent.
         except Unavailable:
             linux = None
         if linux is None:
@@ -472,10 +480,7 @@ def run_check(base, head, firefox, oldest="esr", cache=None, max_downloads=MAX_D
               "dropped": [], "added": [], "breaks_below": None, "new_only_from": None,
               "exact": True}
     if floor < current and found:
-        try:
-            report["dropped"], report["added"] = analyse(found, series, builds)
-        except OutOfDownloads as exc:
-            raise Unavailable(f"the download budget ran out at Firefox {exc}") from exc
+        report["dropped"], report["added"] = analyse(found, series, builds)
     elif floor < current:
         builds.get(series[0][1])  # still proves the oldest build is reachable
     for key, bucket in (("breaks_below", "dropped"), ("new_only_from", "added")):

@@ -64,26 +64,30 @@ def https_repo_url(remote):
     if not remote:
         return None
     remote = remote.strip()
-    if remote.startswith("ssh://"):
-        try:
-            url = urlsplit(remote)
-            host = url.hostname
-        except ValueError:
-            return None
-        path = url.path.rstrip("/").removesuffix(".git").lstrip("/")
-        if not host or not path or url.query or url.fragment:
-            return None
-        # SSH usernames and ports belong to the transport, not the web URL.
-        if ":" in host:
-            host = f"[{host}]"
-        return f"https://{host}/{path}"
-    match = re.match(r"^git@([^:]+):(.+?)(?:\.git)?$", remote)
+    if re.search(r"[\s\x00-\x1f\x7f]", remote):
+        return None
+    # Turn the scp spelling into a URL before parsing it as an SSH transport.
+    match = re.fullmatch(r"git@([^:]+):(.+)", remote)
     if match:
-        return f"https://{match.group(1)}/{match.group(2)}"
-    match = re.match(r"^(https?://[^ ]+?)(?:\.git)?/?$", remote)
-    if match:
-        return match.group(1)
-    return None
+        remote = f"ssh://git@{match.group(1)}/{match.group(2)}"
+    try:
+        url = urlsplit(remote)
+        host, port = url.hostname, url.port
+    except ValueError:
+        return None
+    path = url.path.rstrip("/").removesuffix(".git").lstrip("/")
+    if url.scheme not in ("https", "http", "ssh") or not host or not path:
+        return None
+    if url.scheme == "ssh" and (url.query or url.fragment):
+        return None
+    if ":" in host:
+        host = f"[{host}]"
+    # Rebuild the authority from public components only. HTTP ports can be
+    # web ports; SSH usernames and ports belong solely to the transport.
+    scheme = "https" if url.scheme == "ssh" else url.scheme
+    if port is not None and url.scheme != "ssh":
+        host += f":{port}"
+    return f"{scheme}://{host}/{path}"
 
 
 def detect_repo_url(theme: Path):
@@ -134,7 +138,10 @@ def render_template(text, version, variant_alt, repo_url, preview=None):
     text = text.replace("__FXCSS_VARIANT_ALT__", variant_alt)
     text = text.replace("__FXCSS_VIEW_TABLE__", view_table())
     text = text.replace("__FXCSS_CATEGORIES__", json.dumps(list(capture.CATEGORIES)))
-    text = text.replace("__FXCSS_REPO_URL__", repo_url or "https://example.com")
+    repo_url = repo_url or "https://example.com"
+    # Quote scalar defaults separately from the folded DEFAULT_URLS block.
+    text = text.replace("'__FXCSS_REPO_URL__'", f"'{_yaml_quoted(repo_url)}'")
+    text = text.replace("__FXCSS_REPO_URL__", repo_url)
     paths = ["chrome", "configuration", *VARIANT_DIRS]
     text = text.replace("__FXCSS_THEME_PATHS__", "\n".join(
         f"      - '{folder}/**'" for folder in paths))
