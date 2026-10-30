@@ -2310,9 +2310,9 @@ def main(argv=None):
     from .fetch import FetchError
     try:
         return args.func(args)
-    except FetchError as exc:
-        # Expected problems (a missing or private repository, no network, a
-        # refused download) get a message saying what to try, not a traceback.
+    except (FetchError, core.MarionetteError) as exc:
+        # Expected fetch and browser failures get a concise diagnostic rather
+        # than a traceback; programming errors still propagate.
         print(f"\nerror: {exc}", file=sys.stderr)
         return 2
 

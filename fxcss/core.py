@@ -66,27 +66,77 @@ class Marionette:
         self._msgid = 0
         self._buf = b""
 
-    def connect(self, timeout=120):
-        deadline = time.time() + timeout
-        last = None
-        while time.time() < deadline:
-            try:
-                self.sock = socket.create_connection((self.host, self.port), timeout=30)
-                self.sock.settimeout(180)
-                break
-            except OSError as exc:
-                last = exc
-                time.sleep(0.5)
-        else:
-            raise MarionetteError(f"could not connect to Marionette in {timeout}s: {last}")
+    def connect(self, timeout=120, *, process=None):
+        """Connect, optionally watching a Firefox process owned by the caller.
 
-        handshake = self._recv()
-        if "marionetteProtocol" not in handshake:
-            raise MarionetteError(f"unexpected Marionette handshake: {handshake}")
-        self.command("WebDriver:NewSession", {"capabilities": {}})
+        Remote clients have no process to watch and keep their usual socket
+        timeouts. Owned launches also poll while waiting for the handshake or
+        NewSession response, since the listener can open before Firefox exits.
+        """
+        deadline = time.monotonic() + timeout
+        self._startup_process = process
+        self._startup_deadline = deadline
+        last = None
+        try:
+            while time.monotonic() < deadline:
+                self._check_startup_process()
+                try:
+                    self.sock = socket.create_connection(
+                        (self.host, self.port), timeout=0.5 if process is not None else 30)
+                    self.sock.settimeout(0.5 if process is not None else 180)
+                    break
+                except OSError as exc:
+                    last = exc
+                    self._check_startup_process()
+                    time.sleep(0.5)
+            else:
+                self._check_startup_process()
+                raise MarionetteError(
+                    f"could not connect to Marionette at {self.host}:{self.port} "
+                    f"in {timeout}s: {last}; check that Firefox is running "
+                    "with Marionette enabled and the host/port are reachable")
+
+            self._check_startup_process()
+            handshake = self._recv()
+            if "marionetteProtocol" not in handshake:
+                raise MarionetteError(f"unexpected Marionette handshake: {handshake}")
+            self.command("WebDriver:NewSession", {"capabilities": {}})
+            self._check_startup_process()
+            self.sock.settimeout(180)
+        except BaseException as exc:
+            if self.sock is not None:
+                self.sock.close()
+                self.sock = None
+            self._buf = b""
+            if isinstance(exc, (OSError, MarionetteError)):
+                self._check_startup_process()
+                raise MarionetteError(
+                    f"Marionette connection at {self.host}:{self.port} failed: {exc}") from exc
+            raise
+        finally:
+            self._startup_process = None
+
+    def _check_startup_process(self):
+        process = getattr(self, "_startup_process", None)
+        if process is not None:
+            code = process.poll()
+            if code is not None:
+                raise MarionetteError(
+                    f"Firefox exited with status {code} before Marionette was ready "
+                    f"at {self.host}:{self.port}")
 
     def _read_more(self):
-        chunk = self.sock.recv(1 << 16)
+        while True:
+            self._check_startup_process()
+            if (getattr(self, "_startup_process", None) is not None
+                    and time.monotonic() >= self._startup_deadline):
+                raise MarionetteError("timed out waiting for Marionette startup response")
+            try:
+                chunk = self.sock.recv(1 << 16)
+                break
+            except socket.timeout:
+                if getattr(self, "_startup_process", None) is None:
+                    raise
         if not chunk:
             raise MarionetteError("Marionette connection closed unexpectedly")
         self._buf += chunk
@@ -495,10 +545,21 @@ class Session:
             # firefox.exe is a launcher on Windows. Keep it alive until its
             # browser exits so cleanup cannot race the browser's shutdown.
             cmd.append("-wait-for-browser")
-        self.proc = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL,
-                                     stderr=subprocess.DEVNULL)
+        try:
+            self.proc = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL,
+                                         stderr=subprocess.DEVNULL)
+        except OSError as exc:
+            raise MarionetteError(
+                f"could not launch Firefox {self.firefox!r}: {exc}; "
+                "check --firefox points to an executable Firefox binary") from exc
         self.m = Marionette(port=self.port)
-        self.m.connect()
+        try:
+            self.m.connect(process=self.proc)
+        except MarionetteError as exc:
+            raise MarionetteError(
+                f"could not start Firefox {self.firefox!r}: {exc}. "
+                "Try running that binary directly to inspect its startup output, "
+                "or select another build with --firefox") from exc
         self.m.set_context("chrome")
         self.m.script(RESIZE, [WINDOW_WIDTH, WINDOW_HEIGHT])
         self.apply_harness_css()
@@ -511,9 +572,20 @@ class Session:
     def _stop_browser(self):
         m, self.m = self.m, None
         proc, self.proc = self.proc, None
+        # No established connection means Quit cannot stop the owned process.
+        # Kill it immediately rather than waiting another 45s after a failed
+        # connection. Never apply this to a caller's remote Firefox.
+        disconnected = m is None or m.sock is None
         if m:
             m.quit()
         if proc:
+            if disconnected and proc.poll() is None:
+                if sys.platform == "win32":
+                    subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                   check=False)
+                else:
+                    proc.kill()
             try:
                 proc.wait(timeout=45)
             except subprocess.TimeoutExpired:
