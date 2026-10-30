@@ -1416,8 +1416,8 @@ return {
 # fire-and-forget inside this one script, which returns immediately and
 # writes its result to a file for Python to poll -- no Marionette command is
 # sent while the dialog exists. Sleeps are nsITimer because the parent window
-# is in a modal state, which suspends its own setTimeout callbacks. drawWindow
-# sees the dialog because it is in-document top-layer DOM, not an OS popup.
+# is in a modal state, which suspends its own setTimeout callbacks. A browser
+# snapshot includes this in-document top-layer dialog; it is not an OS popup.
 DIALOG_VIEW = """
 const outPath = arguments[0];
 const win = Services.wm.getMostRecentWindow("navigator:browser");
@@ -1462,21 +1462,29 @@ const sleep = ms => new Promise(resolve => {
 
   const scale = win.devicePixelRatio;
   const width = win.innerWidth, height = win.innerHeight;
-  const draw = () => {
+  const draw = async () => {
     const canvas = win.document.createElementNS(
       "http://www.w3.org/1999/xhtml", "canvas");
     canvas.width = width * scale;
     canvas.height = height * scale;
     const ctx = canvas.getContext("2d");
-    ctx.scale(scale, scale);
-    ctx.drawWindow(win, 0, 0, width, height, "#ffffff");
+    // Match Marionette's screenshot path. The legacy drawWindow repaint can
+    // rasterize text differently from the regular browser snapshots. The
+    // snapshot already has device-pixel dimensions, so do not scale it again.
+    const snapshot = await win.browsingContext.currentWindowGlobal.drawSnapshot(
+      new win.DOMRect(0, 0, width, height), scale, "#ffffff");
+    try {
+      ctx.drawImage(snapshot, 0, 0);
+    } finally {
+      snapshot.close();
+    }
     return canvas.toDataURL("image/png");
   };
   // The same contract _shot enforces: two consecutive identical captures.
-  let previous = draw(), shot = previous;
+  let previous = await draw(), shot = previous;
   for (let i = 0; i < 8; i++) {
     await sleep(500);
-    shot = draw();
+    shot = await draw();
     if (shot === previous) { break; }
     previous = shot;
   }
