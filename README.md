@@ -893,6 +893,8 @@ cannot quietly shrink the comparison. Unselected views are left out of
 as a small change: `summary.json` lists it under `below_threshold` with its
 percentage, but no comparison image is drawn and it does not count towards
 `changed_views` or `any_change`. A change of exactly the threshold is pictured.
+Changed pixels are counted in the captures' own pixels, not in the scaled-down
+pictures, so a one-pixel border still counts at a high device pixel ratio.
 
 #### Distinct changes
 

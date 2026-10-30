@@ -65,13 +65,30 @@ def load_font(size):
         return ImageFont.load_default()
 
 
+def panel_size(size, width=PANEL_WIDTH):
+    """The size an image of `size` is drawn at: the comment width, never larger."""
+    if size[0] <= width:
+        return size
+    return (width, max(1, round(size[1] * width / size[0])))
+
+
 def normalise(im, width=PANEL_WIDTH):
     """Scale down to the comment width; never enlarge a cropped surface."""
     im = im.convert("RGB")
-    if im.width <= width:
-        return im
-    height = round(im.height * width / im.width)
-    return im.resize((width, height), Image.LANCZOS)
+    size = panel_size(im.size, width)
+    return im if size == im.size else im.resize(size, Image.LANCZOS)
+
+
+def shrink_mask(mask, size):
+    """Scale a change mask down without losing changes thinner than a panel pixel.
+
+    Resampling the images first would blend a 1px border into its neighbours
+    until it falls under NOISE_THRESHOLD; any changed pixel under a panel
+    pixel marks that panel pixel instead.
+    """
+    if mask.size == size:
+        return mask
+    return mask.resize(size, Image.BOX).point(lambda v: 255 if v else 0)
 
 
 def diff_stats(base, head):
@@ -138,7 +155,10 @@ def _pad(images):
 
 
 def compare_view(name, base_path, head_path, outdir, min_percent=0.0, _keep=None):
-    base, head = _pad([normalise(Image.open(base_path)), normalise(Image.open(head_path))])
+    # Measured at capture resolution: scaled to the panel width first, a thin
+    # border blends under the noise threshold, and two captures of different
+    # widths would each scale differently and differ everywhere.
+    base, head = _pad([Image.open(base_path).convert("RGB"), Image.open(head_path).convert("RGB")])
 
     changed, total, mask = diff_stats(base, head)
     pct = 100.0 * changed / total if total else 0.0
@@ -157,6 +177,11 @@ def compare_view(name, base_path, head_path, outdir, min_percent=0.0, _keep=None
     if changed == 0 or pct < min_percent:
         return result
 
+    # Both sides share one scale, so the panels and the mask line up.
+    size = panel_size(base.size)
+    if size != base.size:
+        base, head = base.resize(size, Image.LANCZOS), head.resize(size, Image.LANCZOS)
+        mask = shrink_mask(mask, size)
     comparison = stack(
         [
             (("BEFORE  ·  baseline", (90, 96, 104)), base),
@@ -347,11 +372,12 @@ def render_change(base_path, head_path, frame, box, views, outdir, number, moved
     x0, y0, x1, y1 = _change_box(box, frame)
     crop = (round(x0 * scale), round(y0 * scale), round(x1 * scale), round(y1 * scale))
     before, after = base.crop(crop), head.crop(crop)
+    _, _, mask = diff_stats(before, after)
     width = min(before.width, (x1 - x0) * 2, PANEL_WIDTH)
     if before.width > width:
         size = (width, max(1, round(before.height * width / before.width)))
         before, after = before.resize(size, Image.LANCZOS), after.resize(size, Image.LANCZOS)
-    _, _, mask = diff_stats(before, after)
+        mask = shrink_mask(mask, size)
     label = f"{len(views)} view{'s' * (len(views) != 1)}"
     if moved:
         label = f"{moved}  ·  {label}"
