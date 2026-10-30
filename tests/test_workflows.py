@@ -376,6 +376,27 @@ class WorkflowBehaviorTests(unittest.TestCase):
         self.assertEqual(scope("push", site, toolkit), "full=true")
         self.assertEqual(scope("workflow_call", base, site), "full=true")
 
+    @unittest.skipUnless(shutil.which("bash"), "showcase capture needs bash")
+    def test_showcase_urls_are_data_and_remain_separate_arguments(self):
+        text = self.workflow("showcase.yml")
+        self.assertIn("INPUT_URLS: ${{ github.event.inputs.urls }}", step(text, "Capture"))
+        body = script(text, "Capture")
+        self.assertNotIn("${{", body)
+        canary = self.root / "pwned"
+        output = self.root / "capture-args"
+        prefix = 'fxcss() { printf "%s\\n" "$@" > "$CAPTURE_ARGS"; }\n'
+        for urls in ("", "https://example.com/a?x=1&y=2 https://example.com/[ab]*",
+                     f"$(touch {canary}) `touch {canary}` --help"):
+            with self.subTest(urls=urls):
+                env = dict(os.environ, INPUT_URLS=urls, DEFAULT_URLS="https://default.example/",
+                           CAPTURE_ARGS=str(output))
+                subprocess.run([shutil.which("bash"), "-c", prefix + body],
+                               cwd=self.root, env=env, capture_output=True, text=True, check=True)
+                expected = ["shot", "--out", "showcase", "--only-live"]
+                expected += ["--url=" + url for url in (urls or env["DEFAULT_URLS"]).split()]
+                self.assertEqual(output.read_text().splitlines(), expected)
+                self.assertFalse(canary.exists())
+
     def test_publisher_scripts_take_the_run_id_from_the_environment(self):
         # The manual run ID is typed by a person. Interpolating it into a
         # shell script with ${{ inputs.run_id }} would execute whatever they

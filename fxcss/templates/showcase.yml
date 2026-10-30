@@ -54,14 +54,18 @@ jobs:
           echo "FIREFOX_BIN=$RUNNER_TEMP/Firefox.app/Contents/MacOS/firefox" >> "$GITHUB_ENV"
 
       - name: Capture
+        shell: bash
+        env:
+          INPUT_URLS: ${{ github.event.inputs.urls }}
         run: |
           set -euo pipefail
-          urls="${{ github.event.inputs.urls }}"
+          urls="$INPUT_URLS"
           [ -n "$urls" ] || urls="${DEFAULT_URLS}"
-          args=""
-          for u in $urls; do args="$args --url $u"; done
-          # shellcheck disable=SC2086
-          fxcss shot --out showcase --only-live $args
+          # Split the space-separated list without expanding URL glob characters.
+          set -f
+          args=()
+          for u in $urls; do args+=("--url=$u"); done
+          fxcss shot --out showcase --only-live "${args[@]}"
 
       - uses: actions/upload-artifact@v7
         with:
