@@ -193,12 +193,13 @@ html[data-retro] :is(.showcase, .field-guide) { background: var(--retro-surface)
 html[data-retro] .site-header { top: var(--time-machine-height, 90px); flex-wrap: wrap; gap: 10px; background: var(--retro-titlebar); color: var(--retro-title-ink); margin: 0; max-width: none; padding-block: 8px 14px; }
 html[data-retro] .site-header nav a { color: var(--retro-title-ink); }
 html[data-retro] .site-header nav a[aria-current], html[data-retro] .site-header nav a:hover { color: var(--retro-title-ink); text-decoration: underline; text-underline-offset: 4px; }
-html[data-retro] .desktop-docs-nav { top: calc(var(--time-machine-height, 90px) + var(--retro-header-height, 120px)); max-height: calc(100dvh - var(--time-machine-height, 90px) - var(--retro-header-height, 120px)); }
+html[data-retro] :is(.desktop-docs-nav, .guide-toc) { top: calc(var(--time-machine-height, 90px) + var(--retro-header-height, 120px)); max-height: calc(100dvh - var(--time-machine-height, 90px) - var(--retro-header-height, 120px)); }
 html[data-retro] .site-header .brand-dot { color: inherit; }
 html[data-retro] .site-header .github-link { border: 2px outset #ddd; border-radius: 0; }
 html[data-retro] :is(.showcase-hero, .journeys, .features, .showcase-demo, .install-band, .battle-intro) { background: var(--retro-surface); color: #111; }
 html[data-retro] :is(h1, h2, h3) { font-family: Georgia, 'Times New Roman', serif; }
-html[data-retro] :is(.showcase-hero h1 > span, .battle-intro h1 > span, .hero-description, .requirements, .section-heading > p, .feature-card p, .battle-intro > p) { color: var(--retro-ink); }
+/* Solid palette ink reaches at least 6.4:1 on each destination's surface. */
+html[data-retro] :is(.showcase-hero h1 > span, .battle-intro h1 > span, .hero-description, .requirements, .section-heading > p, .feature-card p, .battle-intro > p, .eyebrow, .evidence-caption span, .evidence-caption a, .demo-caption p, .demo-caption a, .compare-labels) { color: var(--retro-ink); }
 html[data-retro] :is(.button, .feature-card, .journey-grid > article, .battle-shell, .search-secret, .battle-rule, .guide-search, .comparison, .appearance-preview) { border: 2px outset #eee; border-radius: 0; box-shadow: none; }
 html[data-retro] :is(.button.primary, .button.primary:hover) { background: var(--retro-button); color: #111; border: 2px outset #fff; }
 html[data-retro] :is(.button:active, .battle-rule:active) { border-style: inset; }
@@ -265,7 +266,8 @@ html[data-retro='mac'] :is(.feature-card, .journey-grid > article, .battle-shell
 html[data-retro='linux'] {
   --retro-desktop: #48576c; --retro-surface: #d6d4cc; --retro-panel: #eeede8;
   --retro-card: #e4e2da; --retro-button: #dedcd4; --retro-selection: #becadd;
-  --retro-titlebar: linear-gradient(90deg, #354961, #74869c);
+  /* White title and navigation text has 6.36:1 contrast on this steel blue. */
+  --retro-titlebar: #4b617c;
   --retro-title-ink: #fff; --retro-accent: #334f75; --retro-ink: #34475c;
   --retro-font: 'DejaVu Sans', 'Liberation Sans', Arial, sans-serif;
 }
@@ -305,6 +307,13 @@ html[data-retro='linux'] .time-machine-destinations button[aria-pressed='true'] 
 @media (min-width: 641px) and (max-width: 1050px) {
   .time-machine-bar { grid-template-columns: 1fr auto; }
   .time-machine-heading { grid-column: 1 / -1; }
+}
+/* At high zoom or on a phone, let the desktop chrome scroll away with the
+   document so it cannot cover the content or newly focused controls. */
+@media (max-height: 600px), (max-width: 640px) {
+  html[data-retro] { scroll-padding-top: 16px; }
+  html[data-retro] :is(.time-machine-panel, .site-header) { position: static; top: auto; }
+  html[data-retro] :is(.desktop-docs-nav, .guide-toc) { top: 0; max-height: calc(100dvh - 16px); }
 }
 @media (hover: none) {
   html[data-retro='mac'] .retro-window-button:not(:disabled) svg { opacity: 1; }

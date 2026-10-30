@@ -129,15 +129,38 @@ test('the separately cached search index matches the generated pages and its has
   ));
 });
 
-test('descriptions use prose, omit Markdown tables, and keep whole words', () => {
+test('descriptions prefer prose, use readable list/table fallbacks, and keep whole words', () => {
   assert.equal(describeMarkdown('# Heading\n\n| Name | Value |\n| --- | --- |\n| theme | blue |\n\nUse **fxcss** & save [your theme](https://example.com).', 'Fallback'), 'Use fxcss & save your theme.');
-  assert.equal(describeMarkdown('- One\n- Two', 'Fallback'), 'Fallback');
+  assert.equal(describeMarkdown('- **Python** 3.9+\n- Firefox', 'Fallback'), 'Python 3.9+; Firefox');
+  assert.equal(describeMarkdown('| Command | Purpose |\n| --- | --- |\n| `watch` | Edit CSS live |', 'Fallback'), 'watch: Edit CSS live');
+  assert.equal(describeMarkdown('![Preview](preview.png)', 'Fallback'), 'Fallback');
+  assert.equal(describeMarkdown('The steps are:\n\n```sh\nfxcss watch\n```\n\nEdit CSS live in Firefox.', 'Fallback'), 'Edit CSS live in Firefox.');
+  assert.equal(describeMarkdown('Check two things:\n\n- **Selectors:** audit your theme.\n- Screenshots.', 'Fallback'), 'Check two things: Selectors: audit your theme.');
+  const introduction = 'Install fxcss with pipx, which gives it its own environment and puts the command on your PATH';
+  assert.equal(describeMarkdown(`${introduction}:\n\n\`\`\`sh\npipx install fxcss\n\`\`\``, 'Fallback'), `${introduction}.`);
   const prose = 'A useful description with complete words. '.repeat(8).trim();
   const result = describeMarkdown(prose, 'Fallback');
   assert.ok(result.length <= 160);
   assert.ok(result.endsWith('…'));
   assert.ok(prose.startsWith(result.slice(0, -1)));
   assert.match(prose.slice(result.length - 1), /^[ .]/);
+});
+
+test('reference and example-led pages have useful generated descriptions', () => {
+  const description = (slug) => docs.pages.find((page) => page.slug === slug).description;
+  assert.match(description('requirements'), /Python 3\.9\+.*Firefox.*Pillow/);
+  assert.match(description('commands'), /fxcss commands.*themes.*compatibility checks/);
+  assert.match(description('rollback'), /chrome\.backup-\*.*installation record/);
+  assert.match(description('pull-request-previews'), /Render: capture the base and proposed theme revisions/);
+  assert.match(description('watching-firefox-for-breakage'), /Theme selectors: run an audit/);
+  assert.match(description('using-it-in-ci'), /theme revisions.*Firefox.*display/);
+  assert.match(description('installation'), /Install it with pipx/);
+  assert.match(description('completions'), /Tab-completes subcommands/);
+  for (const page of docs.pages) {
+    assert.notEqual(page.description, page.title, page.slug);
+    assert.ok(page.description.length <= 160, `${page.slug}: description length`);
+    assert.doesNotMatch(page.description, /:$|\||<[^>]+>|\]\(|```/, `${page.slug}: unfinished or marked-up description`);
+  }
 });
 
 test('screenshot assets match the recorded evidence without pixel edits', () => {

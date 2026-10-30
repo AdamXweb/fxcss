@@ -110,6 +110,12 @@ function linkHref(href) {
   return href;
 }
 const docs = [];
+// These reference pages start with a list/table rather than introductory
+// prose. Keep their summaries specific to the recorded source content.
+const descriptionOverrides = {
+  requirements: 'Run fxcss with Python 3.9+ and Firefox on macOS, Windows or Linux. Add Pillow for image commands with the fxcss[images] extra.',
+  commands: 'Find fxcss commands for trying and installing Firefox themes, live CSS editing, screenshots, compatibility checks, and troubleshooting.',
+};
 for (const page of pages) {
   const codes = [];
   const headings = [];
@@ -226,7 +232,7 @@ for (const page of pages) {
       }),
     },
   });
-  const description = describeMarkdown(markdown, page.title);
+  const description = descriptionOverrides[page.slug] ?? describeMarkdown(markdown, page.title);
   docs.push({
     slug: page.slug,
     title: page.title,

@@ -1,6 +1,12 @@
-<!doctype html><meta charset=utf-8>
-<meta name=viewport content='width=device-width,initial-scale=1'>
-<title>Themeable UI directory</title>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,follow">
+<title>Firefox themeable UI catalogue · fxcss</title>
+<meta name="description" content="Captured Firefox interface elements, their computed styles, and the theme rules that affect them.">
+<link rel="canonical" href="https://fxcss.com/catalogue/">
 <style>
 :root { color-scheme: light dark; --bg:#fff; --fg:#1c1c1e; --muted:#6b6b70;
         --line:#e3e3e6; --card:#fafafa; --accent:#315bef; }
@@ -21,7 +27,7 @@ img { max-width: 100%; border-radius: 8px; border: 1px solid var(--line); displa
 .tabs { display:flex; gap:8px; margin: 0 0 12px; }
 .tabs button { font: inherit; padding: 6px 14px; border-radius: 999px; cursor: pointer;
    border: 1px solid var(--line); background: var(--card); color: var(--fg); }
-.tabs button[aria-pressed=true] { background: var(--accent); color:#fff; border-color:transparent; }
+.tabs button[aria-pressed=true] { background: var(--accent); color:var(--bg); border-color:transparent; }
 .card { border:1px solid var(--line); border-radius:12px; padding:16px 18px;
         margin-bottom:14px; background:var(--card); }
 .card h3 { margin:0 0 2px; font-size:17px; }
@@ -38,10 +44,13 @@ table { border-collapse:collapse; width:100%; margin-top:8px; font-size:13px; }
 td { border-top:1px solid var(--line); padding:5px 8px; vertical-align:top; }
 td.loc { white-space:nowrap; font: 12px ui-monospace,Menlo,monospace; color:var(--accent); }
 td.src { font: 12px ui-monospace,Menlo,monospace; color:var(--muted); }
-.missing { opacity:.55; }
+.missing { border-style:dashed; }
 .badge { font-size:11px; border:1px solid var(--line); border-radius:5px;
          padding:1px 6px; color:var(--muted); margin-left:8px; }
-</style><div class=wrap>
+</style>
+</head>
+<body>
+<main class="wrap">
 <h1>Themeable UI directory</h1>
 <p class=lede>Measured live in Firefox 155.0.1 on Darwin. Each entry shows what the part looks like, the styles in effect, and which files in this repo style it.</p>
 <div class=tabs><button data-set=light onclick="showMode('light')">Light</button><button data-set=dark onclick="showMode('dark')">Dark</button></div>
@@ -418,7 +427,8 @@ td.src { font: 12px ui-monospace,Menlo,monospace; color:var(--muted); }
 </div>
 <details><summary>no rules in this repo target it</summary><p>Styled by Firefox defaults only.</p></details>
 </div>
-</div><script>
+</main>
+<script>
 function showMode(m) {
   document.querySelectorAll('[data-mode]').forEach(function (el) {
     el.hidden = el.dataset.mode !== m;
@@ -429,3 +439,5 @@ function showMode(m) {
 }
 document.addEventListener('DOMContentLoaded', function () { showMode('light'); });
 </script>
+</body>
+</html>

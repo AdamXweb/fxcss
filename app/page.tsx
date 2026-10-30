@@ -125,10 +125,11 @@ export default function Home() {
               poster="/media/fxcss-film-poster.jpg"
               width={1920}
               height={1080}
+              aria-describedby="film-description"
             >
               <source src="/media/fxcss-film.mp4" type="video/mp4" />
             </video>
-            <details className="film-transcript">
+            <details className="film-transcript" id="film-description">
               <summary>Read the film’s text description</summary>
               <div>
                 <p>The silent film opens with Firefox windows in different colours: “Thousands of themes. All made with CSS.” It introduces the challenges of building a theme: identifying browser parts and seeing each change.</p>
@@ -136,6 +137,7 @@ export default function Home() {
                   <li><strong>Build:</strong> Run <code>fxcss pick</code> to point at a browser part and get its CSS. Edit the theme’s CSS and save; the browser preview updates.</li>
                   <li><strong>Maintain:</strong> A Firefox update changes the browser’s appearance. Capture and compare screenshots, then preview changes on every pull request.</li>
                   <li><strong>Try:</strong> Preview WhiteSur with <code>fxcss try AdamXweb/WhiteSurFirefoxThemeMacOS</code>. Choose optional stylesheets for colours, tabs, window controls and a compact tab bar. Preview a GitHub repository, URL or local theme folder, then install the theme you like.</li>
+                  <li><strong>Platforms:</strong> Three browser windows show the toolkit on macOS, Windows and Linux. The film lists Firefox Stable, Beta, Nightly and ESR, plus LibreWolf, Floorp, Waterfox and Zen.</li>
                   <li><strong>Get started:</strong> The toolkit groups 22 commands into trying, building, testing, maintaining, sharing and setup. Start with <code>fxcss try owner/theme</code> to try a theme, <code>fxcss new my-theme</code> to build one, or <code>fxcss init</code> to add pull-request previews and CI checks. The film closes on the fxcss logo.</li>
                 </ol>
               </div>

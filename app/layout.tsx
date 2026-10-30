@@ -4,6 +4,7 @@ import { CSPProvider } from "@base-ui/react/csp-provider";
 import { OutboundClickTracking } from "./components/outbound-click-tracking";
 import { EasterEggs } from "./components/easter-eggs";
 import { SleepyFavicon } from "./components/sleepy-favicon";
+import { RouteAnnouncer } from "./components/route-announcer";
 import { SITE_ORIGIN } from "../lib/site";
 import { shareCard } from "../lib/share-card";
 import "./globals.css";
@@ -37,6 +38,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <CSPProvider nonce={nonce}>
           <EasterEggs>
             <SleepyFavicon />
+            <RouteAnnouncer />
             {children}
           </EasterEggs>
         </CSPProvider>

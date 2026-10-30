@@ -1,5 +1,15 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { SiteHeader, Footer } from "./components/site-chrome";
+import { shareCard } from "../lib/share-card";
+
+const description = "This page could not be found. Browse the fxcss documentation for Firefox theme commands, guides, and troubleshooting.";
+export const metadata: Metadata = {
+  title: "Page not found",
+  description,
+  ...shareCard({ title: "Page not found · fxcss", description }),
+};
+
 export default function NotFound() {
   return (
     <>

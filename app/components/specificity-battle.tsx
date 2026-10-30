@@ -56,7 +56,7 @@ export function SpecificityBattle() {
         <span><Swords size={17} /> CASCADE ARENA</span>
         <span>{complete ? 'All rounds complete' : `Round ${roundIndex + 1} of ${battleRounds.length}`}</span>
       </div>
-      <div className="battle-progress" aria-label={`${complete ? battleRounds.length : roundIndex} of ${battleRounds.length} rounds completed`}>
+      <div className="battle-progress" aria-hidden="true">
         {battleRounds.map((item, index) => <span key={item.title} className={index < answers.length ? 'done' : index === roundIndex && !complete ? 'current' : ''} />)}
       </div>
       {complete ? (
@@ -79,7 +79,7 @@ export function SpecificityBattle() {
           </div>
           <p className="battle-prompt">Both declarations match this button. Which colour will the browser use?</p>
           <pre className="battle-markup"><code>{round.markup}</code></pre>
-          <div className="battle-preview" aria-label={answered ? `Browser result: ${round.rules[winner].colorName}` : 'Browser result hidden until you answer'}>
+          <div className="battle-preview">
             {answered ? <CascadePreview round={round} /> : <span className="battle-preview-tab">Firefox <span aria-hidden="true">?</span></span>}
             <span>{answered ? `The browser chose ${round.rules[winner].colorName}.` : 'Make your prediction to reveal the result.'}</span>
           </div>
@@ -105,7 +105,7 @@ export function SpecificityBattle() {
             {answered ? <button className="button primary" onClick={advance}>{roundIndex === battleRounds.length - 1 ? 'Claim victory' : 'Next battle'} <ArrowRight size={16} /></button> : <button className="battle-hint-button" onClick={() => setHint(!hint)} aria-expanded={hint} aria-controls="battle-hint"><Lightbulb size={16} />{hint ? 'Hide hint' : 'A little help?'}</button>}
             <span>{score} correct so far</span>
           </div>
-          {!answered && hint && <p className="battle-hint" id="battle-hint">{round.hint}</p>}
+          {!answered && <p className="battle-hint" id="battle-hint" hidden={!hint}>{round.hint}</p>}
         </div>
       )}
       <div className="battle-footnote">

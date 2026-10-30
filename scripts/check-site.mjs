@@ -62,6 +62,34 @@ function assertShareCard(html, label) {
     `${label}: twitter:card`,
   );
 }
+function assertHeadMetadata(html, label, expected = {}) {
+  const head = html.match(/<head\b[^>]*>([\s\S]*?)<\/head>/)?.[1];
+  assert.ok(head, `${label}: document head`);
+  const title = [...head.matchAll(/<title>([^<]+)<\/title>/g)];
+  const description = [...head.matchAll(/<meta\b[^>]*\bname="description"[^>]*>/g)];
+  assert.equal(title.length, 1, `${label}: one title in head`);
+  assert.equal(description.length, 1, `${label}: one description in head`);
+  assert.equal([...html.matchAll(/<title>/g)].length, 1, `${label}: no duplicate or streamed body title`);
+  assert.equal([...html.matchAll(/<meta\b[^>]*\bname="description"/g)].length, 1, `${label}: no duplicate or streamed body description`);
+  if (expected.title) assert.equal(text(title[0][1]), expected.title, `${label}: title`);
+  const descriptionText = text(description[0][0].match(/\bcontent="([^"]*)"/)?.[1] ?? '');
+  assert.ok(descriptionText, `${label}: nonempty description`);
+  if (expected.description) assert.equal(descriptionText, expected.description, `${label}: description`);
+  if (expected.canonical) {
+    const canonicals = [...head.matchAll(/<link\b[^>]*\brel="canonical"[^>]*>/g)];
+    assert.equal(canonicals.length, 1, `${label}: one canonical in head`);
+    const canonicalUrl = canonicals[0][0].match(/\bhref="([^"]*)"/)?.[1];
+    assert.ok(canonicalUrl, `${label}: canonical href`);
+    assert.equal(new URL(canonicalUrl).href, new URL(expected.canonical).href, `${label}: canonical URL`);
+    assert.equal([...html.matchAll(/<link\b[^>]*\brel="canonical"/g)].length, 1, `${label}: no duplicate or streamed body canonical`);
+    const openGraphUrl = head.match(/<meta\b[^>]*\bproperty="og:url"[^>]*>/)?.[0];
+    const openGraphContent = openGraphUrl?.match(/\bcontent="([^"]*)"/)?.[1];
+    assert.ok(openGraphContent, `${label}: og:url in head`);
+    assert.equal(new URL(openGraphContent).href, new URL(expected.canonical).href, `${label}: og:url`);
+  }
+  assertShareCard(head, `${label} head`);
+  return head;
+}
 // Browser storage keys that client code passes to sessionStorage. /open must name each one.
 const sessionKeys = new Set();
 for (const route of routes) {
@@ -74,7 +102,11 @@ for (const route of routes) {
     const url = new URL(href.replaceAll('&amp;', '&'), base);
     if (url.origin === new URL(base).origin) internalLinks.add(url.pathname + url.search);
   }
-  assertShareCard(html, route);
+  const doc = data.pages.find((page) => route === `/docs/${page.slug}`);
+  assertHeadMetadata(html, route, {
+    canonical: `https://fxcss.com${route}`,
+    ...(doc ? { title: `${doc.title} · fxcss`, description: doc.description } : {}),
+  });
   // The homepage's release pill reads the documented version at build time.
   if (route === '/')
     assert.ok(
@@ -96,16 +128,7 @@ for (const route of routes) {
     );
     namedControls++;
   }
-  assert.match(html, /<title>[^<]+<\/title>/, route);
   assert.match(html, /<main\b/, route);
-  const canonical = [...html.matchAll(/<link\b[^>]*>/g)]
-    .find(([tag]) => tag.includes('rel="canonical"'))?.[0]
-    .match(/href="([^"]+)"/)?.[1];
-  assert.equal(
-    new URL(canonical).href,
-    `https://fxcss.com${route}`,
-    `${route}: canonical URL`,
-  );
   assert.doesNotMatch(
     html,
     /DESIGN STUDIES|Local preview|Your site is taking shape/,
@@ -176,6 +199,25 @@ for (const route of routes) {
     assetCount++;
   }
 }
+// Check the actual HTML response for crawlers with different default streaming
+// treatment. Metadata must be usable without executing the page's JavaScript.
+for (const userAgent of [
+  'Googlebot/2.1 (+http://www.google.com/bot.html)',
+  'GPTBot/1.0 (+https://openai.com/gptbot)',
+  'Twitterbot/1.0',
+]) {
+  for (const slug of ['watch', 'commands']) {
+    const route = `/docs/${slug}`;
+    const response = await fetch(new URL(route, base), { headers: { 'User-Agent': userAgent } });
+    assert.equal(response.status, 200, `${route}: ${userAgent}`);
+    const doc = data.pages.find((page) => page.slug === slug);
+    assertHeadMetadata(await response.text(), `${route}: ${userAgent}`, {
+      title: `${doc.title} · fxcss`,
+      description: doc.description,
+      canonical: `https://fxcss.com${route}`,
+    });
+  }
+}
 // Crawl server-rendered links as well as the generated docs. Conditional client
 // links (such as the game's victory screen) are covered by Playwright.
 for (const href of internalLinks) {
@@ -241,7 +283,11 @@ for (const route of [
   const response = await fetch(new URL(route, base));
   assert.equal(response.status, 404, route);
   assertSecurityHeaders(response, route);
-  assertShareCard(await response.text(), route);
+  const head = assertHeadMetadata(await response.text(), route, {
+    title: 'Page not found · fxcss',
+    description: 'This page could not be found. Browse the fxcss documentation for Firefox theme commands, guides, and troubleshooting.',
+  });
+  assert.match(head, /<meta\b[^>]*name="robots"[^>]*content="[^"]*noindex/, `${route}: noindex`);
 }
 // Finder and tool metadata never reaches the site: wrangler skips what
 // dist/client/.assetsignore lists, so these fall through to the not-found page.
@@ -291,5 +337,5 @@ assert.equal([...xml.matchAll(/<loc>/g)].length, sitemapRoutes.length);
 for (const route of sitemapRoutes)
   assert.ok(xml.includes(`<loc>https://fxcss.com${route}</loc>`), route);
 console.log(
-  `Passed: ${routes.length} pages, ${assetCount} assets, installer, canonical URLs, sitemap, redirects, security headers on pages and static files, the share card, ${namedControls} labelled controls named by their visible text, the search label and status, and ${sessionKeys.size} browser storage keys listed on /open.`,
+  `Passed: ${routes.length} pages, ${assetCount} assets, installer, metadata in document heads for browsers and crawlers, canonical URLs, sitemap, redirects, security headers on pages and static files, the share card, ${namedControls} labelled controls named by their visible text, the search label and status, and ${sessionKeys.size} browser storage keys listed on /open.`,
 );

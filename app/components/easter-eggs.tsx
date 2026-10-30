@@ -42,15 +42,15 @@ export function EasterEggs({ children }: { children: ReactNode }) {
   const destination = retro ? retroDestinations[retro] : null;
   const minimise = useCallback(() => {
     setMinimised(true);
-    requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('[data-retro-restore]')?.focus({ preventScroll: true }));
+    requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('[data-retro-restore]')?.focus());
   }, []);
   const restore = useCallback(() => {
     setMinimised(false);
-    requestAnimationFrame(() => timeBar.current?.querySelector<HTMLButtonElement>('[aria-pressed="true"]')?.focus({ preventScroll: true }));
+    requestAnimationFrame(() => timeBar.current?.querySelector<HTMLButtonElement>('[aria-pressed="true"]')?.focus());
   }, []);
   const close = useCallback(() => {
     setRetro(null);
-    requestAnimationFrame(() => document.querySelector<HTMLAnchorElement>('.site-header .brand')?.focus({ preventScroll: true }));
+    requestAnimationFrame(() => document.querySelector<HTMLAnchorElement>('.site-header .brand')?.focus());
   }, [setRetro]);
   const brewCoffee = useCallback(() => {
     setCoffee((count) => count + 1);

@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
+from prepare_catalogue import prepare_catalogue
 
 # The site is the `website` branch; fxcss and its starter theme are on `main`.
 # Pass a checkout of main: `python3 scripts/capture-evidence.py ../fxcss`
@@ -100,10 +101,9 @@ def main():
         'assets': {name: hashlib.sha256((PUBLIC/name).read_bytes()).hexdigest() for name in ['before.png','after.png','dark.png','difference.png','comparison.png','before.css','after.css','toolbar-after.png','toolbar-difference.png','toolbar-comparison.png','toolbar-after.css']},
     }
     run('catalogue', '--theme', str(baseline), '--firefox', firefox, '--out', str(SITE / 'public/catalogue'))
-    # Older toolkit versions emit tab selection state on ordinary buttons.
-    # Keep the exported website controls accessible after each recapture.
+    # Apply the website document and accessibility conventions after recapture.
     catalogue = SITE / 'public/catalogue/index.html'
-    catalogue.write_text(catalogue.read_text().replace('aria-selected', 'aria-pressed'))
+    catalogue.write_text(prepare_catalogue(catalogue.read_text(encoding='utf-8')), encoding='utf-8')
     (PUBLIC / 'manifest.json').write_text(json.dumps(meta, indent=2)+'\n')
     print(json.dumps(meta, indent=2), flush=True)
 
