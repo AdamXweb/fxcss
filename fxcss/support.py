@@ -287,7 +287,11 @@ def theme_rules(theme):
     """Every selector and declared custom property in a theme, with where it is."""
     theme = Path(theme)
     if not (theme / "chrome").is_dir():
-        raise Unavailable(f"no chrome/ folder under {theme}")
+        from . import layout
+        try:
+            theme = layout.standard_root(theme)
+        except layout.LayoutError as exc:
+            raise Unavailable(f"no chrome/ folder under {theme}: {exc}") from exc
     selectors, properties = {}, {}
     for folder in ("chrome", *VARIANT_DIRS):
         if not (theme / folder).is_dir():

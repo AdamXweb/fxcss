@@ -430,6 +430,13 @@ def build_profile(repo: Path, profile: Path, dark=False, native_menus=None,
     exact fidelity even when a rule is deleted.
     """
     profile.mkdir(parents=True, exist_ok=True)
+    if not (repo / "chrome").is_dir():
+        # A flat, content-only or packaged layout: plan it and lay it out
+        # the standard way first, so the copy below is the same for every
+        # theme. The materialised root lives in the throwaway profile.
+        from . import layout
+        repo = layout.materialize(layout.discover(repo, workdir=profile / ".fxcss-layout"),
+                                  profile / ".fxcss-layout")
     shutil.copytree(repo / "chrome", profile / "chrome", dirs_exist_ok=True)
     _ensure_custom_chrome(repo / "chrome", profile / "chrome")
     if empty_user_chrome:
@@ -2452,15 +2459,16 @@ def find_variant_sheets(theme: Path):
     renames the existing `tabs` slug to `custom-tabs`; update explicit variant
     selections and review and refresh baselines for the renamed captures.
     """
-    from .fetch import VARIANT_DIRS
+    from . import inventory
     by_slug = {}
-    for folder in VARIANT_DIRS:
-        directory = theme / folder
-        if directory.is_dir():
-            for css in sorted(directory.glob("*.css")):
-                slug = re.sub(r"[^a-z0-9-]+", "-", css.stem.lower()).strip("-")
-                if slug:
-                    by_slug.setdefault(slug, []).append((folder, css))
+    # The same option inventory install and upgrade use: option folders
+    # beside chrome/ and inside it, minus sheets an entry already imports.
+    for option in inventory.options(theme):
+        css = option["path"]
+        folder = f"chrome-{option['folder']}" if option["inside_chrome"] else option["folder"]
+        slug = re.sub(r"[^a-z0-9-]+", "-", css.stem.lower()).strip("-")
+        if slug:
+            by_slug.setdefault(slug, []).append((folder, css))
 
     def clash(name, first, second):
         first, second = (p.relative_to(theme).as_posix() for p in (first, second))

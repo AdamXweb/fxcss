@@ -204,21 +204,25 @@ class VariantFixtureTests(unittest.TestCase):
             self.assertIn(f'width="{size[0]}" height="{size[1]}"', text)
 
     def test_install_carries_the_nested_sheet_and_image_beside_the_copied_sheet(self):
+        from urllib.parse import quote
+
         profile = self.root / "installed"
         profile.mkdir()
         install.install_theme(self.theme, profile, "smoke", sheets=[self.first, self.last])
         chrome = profile / "chrome"
-        self.assertEqual((chrome / "custom" / "parts" / "option extra.css").read_bytes(),
+        first_copy, = chrome.rglob(self.first.name)
+        last_copy, = chrome.rglob(self.last.name)
+        self.assertEqual((first_copy.parent / "parts" / "option extra.css").read_bytes(),
                          (self.theme / "custom" / "parts" / "option extra.css").read_bytes())
-        self.assertEqual((chrome / "custom" / "assets" / "option.svg").read_bytes(),
+        self.assertEqual((first_copy.parent / "assets" / "option.svg").read_bytes(),
                          (self.theme / "custom" / "assets" / "option.svg").read_bytes())
-        self.assertTrue((chrome / "custom" / "blue option.css").is_file())
-        self.assertTrue((chrome / "custom" / "last.css").is_file())
+        self.assertEqual(first_copy.read_bytes(), self.first.read_bytes())
+        self.assertEqual(last_copy.read_bytes(), self.last.read_bytes())
         entry = (chrome / "userChrome.css").read_text(encoding="utf-8")
         self.assertEqual([line for line in entry.splitlines() if line.startswith("@import")], [
             '@import "fxcss-base-userChrome.css";',
-            '@import "custom/blue%20option.css";',
-            '@import "custom/last.css";',
+            f'@import "{quote(first_copy.relative_to(chrome).as_posix())}";',
+            f'@import "{quote(last_copy.relative_to(chrome).as_posix())}";',
         ])
 
     def test_try_layers_the_sheets_in_place_without_copying_their_files(self):

@@ -125,7 +125,37 @@ def _yaml_quoted(value):
     return value.replace("'", "''")
 
 
-def render_template(text, version, variant_alt, repo_url, preview=None):
+def _theme_commands(text, theme_dir):
+    """Point every fxcss command in a template at a nested theme folder.
+
+    Workflows check the repository out as `head`, `base` or `.`; a theme
+    that lives at `<repo>/<theme_dir>` needs each of those followed by the
+    folder. Done by targeted substitution rather than a template variable so
+    the templates stay readable YAML when the theme is at the root.
+    """
+    if not theme_dir:
+        return text
+    if any(ord(c) < 32 for c in theme_dir) or "${{" in theme_dir:
+        raise ValueError("theme path cannot contain control characters or Actions expressions")
+    def quote(value):
+        return "'" + value.replace("'", "'\\''") + "'"
+    def target(match):
+        option, checkout = match.group(1), match.group(2)
+        path = theme_dir if checkout == "." else f"{checkout}/{theme_dir}"
+        return f"--{option} {quote(path)}"
+    text = re.sub(r"--(theme|head|base) (head|base|\.)(?=\s|$)", target, text)
+    text = text.replace('--base "$before"', '--base "$before"/' + quote(theme_dir))
+    text = text.replace("fxcss audit --no-colour", f"fxcss audit --theme {quote(theme_dir)} --no-colour")
+    text = text.replace("fxcss shot --out", f"fxcss shot --theme {quote(theme_dir)} --out")
+    # Shell quoting alone does not protect a YAML plain scalar containing
+    # ": ". Give inline commands their own block before inserting such paths.
+    text = re.sub(r"(?m)^([ \t]*)run: (fxcss[^\n]*)$",
+                  lambda m: f"{m[1]}run: |\n{m[1]}  {m[2]}", text)
+    return text
+
+
+def render_template(text, version, variant_alt, repo_url, preview=None, theme_dir="",
+                    toolkit_ref=None):
     preview = {**PREVIEW_DEFAULTS, **(preview or {})}
     text = text.replace("__FXCSS_PREVIEW_VARIANTS__", _yaml_quoted(preview["variants"]))
     text = text.replace("__FXCSS_PREVIEW_VIEWS__", _yaml_quoted(preview["views"]))
@@ -141,25 +171,67 @@ def render_template(text, version, variant_alt, repo_url, preview=None):
     # Quote scalar defaults separately from the folded DEFAULT_URLS block.
     text = text.replace("'__FXCSS_REPO_URL__'", f"'{_yaml_quoted(repo_url)}'")
     text = text.replace("__FXCSS_REPO_URL__", repo_url)
-    return text
+    if toolkit_ref:
+        if not re.fullmatch(r"[0-9a-fA-F]{40}", toolkit_ref):
+            raise ValueError("--toolkit-ref must be a full 40-character commit SHA")
+        text = text.replace('fxcss[images]==${{ env.FXCSS_VERSION }}',
+                            f"fxcss[images] @ git+https://github.com/AdamXweb/fxcss.git@{toolkit_ref.lower()}")
+    return _theme_commands(text, theme_dir)
 
 
 def _template(name):
     return (resources.files("fxcss") / "templates" / name).read_text(encoding="utf-8")
 
 
-def write_workflows(theme: Path, variant_slugs, watch=False, showcase=False,
-                    previews=False, force=False, version=None, preview=None):
-    """Write the chosen workflows into <theme>/.github/workflows.
+def repository_root(theme: Path):
+    """The git top level `theme` sits in, or `theme` itself outside git.
 
-    Returns (written, skipped) lists of paths relative to the theme. Existing
-    files are never overwritten unless force is set -- a repo's workflows may
-    carry local edits, and clobbering them silently would be worse than making
-    someone pass --force.
+    Workflows only run from `.github/workflows` at the repository root, so
+    a theme kept in a subfolder (NewFox/profile, firefox/) must have its
+    workflows written there and pointed back at the folder.
+    """
+    try:
+        raw = subprocess.run(
+            ["git", "-C", str(theme), "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return Path(theme)
+    top = raw.stdout.strip()
+    if raw.returncode != 0 or not top:
+        return Path(theme)
+    top = Path(top)
+    try:
+        Path(theme).resolve().relative_to(top.resolve())
+    except ValueError:
+        return Path(theme)
+    return top
+
+
+def write_workflows(theme: Path, variant_slugs, watch=False, showcase=False,
+                    previews=False, force=False, version=None, preview=None,
+                    repo_root=None, toolkit_ref=None):
+    """Write the chosen workflows into <repo_root>/.github/workflows.
+
+    `repo_root` defaults to the theme itself; when the theme is a folder
+    inside the repository, the workflows go to the repository root and every
+    fxcss command in them is pointed at the folder. Preview triggers cover all
+    repository changes, including dependencies outside the theme folder.
+
+    Returns (written, skipped) lists of paths relative to `repo_root`.
+    Existing files are never overwritten unless force is set -- a repo's
+    workflows may carry local edits, and clobbering them silently would be
+    worse than making someone pass --force.
     """
     version = version or __version__
     alt = variant_alternation(variant_slugs)
     repo_url = detect_repo_url(theme)
+    theme = Path(theme)
+    repo_root = Path(repo_root) if repo_root else theme
+    try:
+        theme_dir = theme.resolve().relative_to(repo_root.resolve()).as_posix()
+    except ValueError:
+        theme_dir = ""
+    theme_dir = "" if theme_dir == "." else theme_dir
 
     wanted = list(PREVIEW_FILES)
     if watch:
@@ -169,17 +241,18 @@ def write_workflows(theme: Path, variant_slugs, watch=False, showcase=False,
     if previews:
         wanted.append(PREVIEWS_FILE)
 
-    outdir = theme / ".github" / "workflows"
+    outdir = repo_root / ".github" / "workflows"
     outdir.mkdir(parents=True, exist_ok=True)
 
     written, skipped = [], []
     for name in wanted:
         target = outdir / name
-        rel = target.relative_to(theme)
+        rel = target.relative_to(repo_root)
         if target.exists() and not force:
             skipped.append(rel)
             continue
-        target.write_text(render_template(_template(name), version, alt, repo_url, preview),
+        target.write_text(render_template(_template(name), version, alt, repo_url, preview,
+                                          theme_dir=theme_dir, toolkit_ref=toolkit_ref),
                           encoding="utf-8")
         written.append(rel)
     return written, skipped
