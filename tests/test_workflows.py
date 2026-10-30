@@ -376,6 +376,58 @@ class WorkflowBehaviorTests(unittest.TestCase):
         self.assertEqual(scope("push", site, toolkit), "full=true")
         self.assertEqual(scope("workflow_call", base, site), "full=true")
 
+    def test_publisher_scripts_take_the_run_id_from_the_environment(self):
+        # The manual run ID is typed by a person. Interpolating it into a
+        # shell script with ${{ inputs.run_id }} would execute whatever they
+        # typed; the step reads it from env and the shell only ever quotes it.
+        text = self.workflow("pr-preview-publish.yml")
+        resolve = step(text, "Resolve source run")
+        self.assertIn("DISPATCH_RUN_ID: ${{ inputs.run_id }}", resolve)
+        self.assertIn("WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}", resolve)
+        self.assertNotIn("${{", script(text, "Resolve source run"))
+        # And no other shell step in the publisher splices an expression in.
+        for name in re.findall(r"^      - name: (.+)$", text, re.M):
+            block = step(text, name)
+            if re.search(r"^\s+run: \|\n", block, re.M):
+                with self.subTest(step=name):
+                    self.assertNotIn("${{", script(text, name))
+
+    @unittest.skipUnless(shutil.which("bash"), "resolving the run needs bash")
+    def test_manual_run_ids_are_numbers_or_nothing_is_downloaded(self):
+        body = script(self.workflow("pr-preview-publish.yml"), "Resolve source run")
+        output = self.root / "github-output"
+        canary = self.root / "pwned"
+
+        def resolve(event, dispatch="", run=""):
+            output.write_text("")
+            env = dict(os.environ, EVENT_NAME=event, DISPATCH_RUN_ID=dispatch,
+                       WORKFLOW_RUN_ID=run, GITHUB_OUTPUT=str(output))
+            result = subprocess.run([shutil.which("bash"), "-c", body], cwd=self.root,
+                                    env=env, capture_output=True, text=True)
+            return result.returncode, output.read_text().strip(), result.stdout + result.stderr
+
+        self.assertEqual(resolve("workflow_dispatch", dispatch="123456789")[:2],
+                         (0, "run_id=123456789"))
+        self.assertEqual(resolve("workflow_run", dispatch="999", run="42")[:2],
+                         (0, "run_id=42"))
+
+        hostile = f"1; touch {canary}", f"$(touch {canary})", f"`touch {canary}`",
+        for value in hostile + ("", " 12", "12 ", "12\n13", "-1", "1e3", "abc"):
+            with self.subTest(run_id=value):
+                code, out, log = resolve("workflow_dispatch", dispatch=value)
+                self.assertNotEqual(code, 0, log)
+                self.assertEqual(out, "")
+                self.assertIn("run_id must be the numeric ID", log)
+                if value.strip():
+                    # The log carries no copy of the value: a workflow-command
+                    # line typed into the input must not reach the annotations.
+                    self.assertNotIn(value.strip(), log)
+                self.assertFalse(canary.exists(), "the run ID reached the shell")
+        # A workflow_run event never consults the manual input.
+        code, out, _ = resolve("workflow_run", dispatch=hostile[0], run="7")
+        self.assertEqual((code, out), (0, "run_id=7"))
+        self.assertFalse(canary.exists())
+
     @unittest.skipUnless(shutil.which("bash"), "publishing requires bash")
     def test_publishing_keeps_crops_and_full_images(self):
         bindir = self.root / "bin"

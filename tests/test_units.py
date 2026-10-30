@@ -3018,6 +3018,12 @@ class BlobShaTests(unittest.TestCase):
         """Checked against git itself rather than a copied constant.
 
         Skipped where git is missing; the CI images all have it.
+
+        blob_sha hashes the bytes as they are, which is what git stores
+        when no filter applies. `--no-filters` asks git for that same
+        reading, so a developer's `core.autocrlf=input` (which would
+        quietly hash the CRLF file as LF) cannot turn this into a test of
+        their git configuration.
         """
         import shutil as sh
         import subprocess
@@ -3031,9 +3037,13 @@ class BlobShaTests(unittest.TestCase):
                                ("crlf.css", b".a {\r\n  color: red;\r\n}\r\n")):
                 path = Path(td) / name
                 path.write_bytes(data)
-                want = subprocess.run(["git", "hash-object", str(path)],
-                                      capture_output=True, text=True).stdout
-                self.assertEqual(blob_sha(data), want.strip(), name)
+                for autocrlf in ("false", "input", "true"):
+                    want = subprocess.run(
+                        ["git", "-c", f"core.autocrlf={autocrlf}", "hash-object",
+                         "--no-filters", str(path)],
+                        capture_output=True, text=True, check=True).stdout
+                    self.assertEqual(blob_sha(data), want.strip(),
+                                     f"{name} with core.autocrlf={autocrlf}")
 
     def test_crlf_files_offer_an_lf_reading_and_others_do_not(self):
         from fxcss.adopt import blob_sha, file_blob_sha

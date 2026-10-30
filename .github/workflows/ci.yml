@@ -1,9 +1,10 @@
 name: CI
 
-# Smoke-tests the toolkit against the starter and representative layouts on
-# macOS, Windows and Linux. The determinism check is the important one: rendering the
-# same unchanged theme twice must produce identical screenshots, or `compare`
-# would report noise as a change on every pull request.
+# Runs the unit tests on every supported Python and on macOS, Windows and
+# Linux, then smoke-tests the toolkit against the starter and representative
+# layouts on all three. The determinism check is the important one: rendering
+# the same unchanged theme twice must produce identical screenshots, or
+# `compare` would report noise as a change on every pull request.
 
 on:
   push:
@@ -67,28 +68,7 @@ jobs:
           echo "Run full CI: $full"
 
   units:
-    name: Unit tests (py${{ matrix.python }})
-    needs: changes
-    if: needs.changes.outputs.full == 'true'
-    # Python 3.9 is unavailable on Ubuntu 26.04; preserve the supported floor.
-    runs-on: ${{ matrix.python == '3.9' && 'ubuntu-24.04' || 'ubuntu-latest' }}
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        # 3.9 is the floor pyproject claims; the import test makes this job
-        # prove every module at least loads there.
-        python: ['3.9', '3.12', '3.14']
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: ${{ matrix.python }}
-      - run: python -m pip install --disable-pip-version-check ".[images]"
-      - run: python -m unittest discover -s tests -v
-
-  profiles:
-    name: Profile recovery (${{ matrix.os }})
+    name: Unit tests (${{ matrix.label }})
     needs: changes
     if: needs.changes.outputs.full == 'true'
     runs-on: ${{ matrix.os }}
@@ -96,14 +76,26 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Linux covers every supported Python: 3.9 is the floor pyproject
+        # claims (the import test makes that job prove every module at least
+        # loads there) and 3.14 the newest release. macOS and Windows run the
+        # whole suite once each, on the Python the Firefox jobs use, so path,
+        # line-ending and process differences -- profile installation and
+        # rollback above all -- are caught here and not by a theme author.
+        include:
+          # Python 3.9 is unavailable on Ubuntu 26.04; preserve the supported floor.
+          - { os: ubuntu-24.04, python: '3.9', label: py3.9 }
+          - { os: ubuntu-latest, python: '3.12', label: py3.12 }
+          - { os: ubuntu-latest, python: '3.14', label: py3.14 }
+          - { os: macos-latest, python: '3.12', label: 'macOS, py3.12' }
+          - { os: windows-latest, python: '3.12', label: 'Windows, py3.12' }
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: '3.12'
-      - run: python -m pip install .
-      - run: python -m unittest tests.test_profile_safety tests.test_units.InstallThemeTests tests.test_units.UninstallThemeTests tests.test_units.RollbackTests tests.test_units.OriginBackupTests -v
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install --disable-pip-version-check ".[images]"
+      - run: python -m unittest discover -s tests -v
 
   build-package:
     needs: changes

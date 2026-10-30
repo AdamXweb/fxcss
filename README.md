@@ -1652,10 +1652,11 @@ python3 -m fxcss <command>
 
 ### Testing fxcss itself
 
-The toolkit's own CI runs unit tests on Python 3.9, 3.12 and 3.14. Profile
+The toolkit's own CI runs the unit tests on Python 3.9, 3.12 and 3.14 on
+Linux, and the whole suite again on macOS and Windows, so profile
 installation, upgrade, rollback, removal and failure recovery are checked on
-macOS, Windows and Linux, including edited files and paths with spaces and
-non-ASCII characters. Real Firefox checks cover Stable on all three platforms
+all three, including edited files and paths with spaces and non-ASCII
+characters. Real Firefox checks cover Stable on all three platforms
 and ESR on Linux, repeated capture consistency, deliberate CSS changes,
 nested imports, content stylesheets and stacked optional stylesheets.
 
@@ -1678,6 +1679,7 @@ repository workflows described above.
 Run the checks locally with:
 
 ```bash
+python3 -m pip install -e ".[images]"    # the unit tests need Pillow
 python3 -m unittest discover -s tests -v
 python3 -m tests.smoke_themes       # requires Firefox and a display
 python3 -m tests.smoke_variants     # requires Firefox and a display
@@ -1685,6 +1687,14 @@ python3 -m pip install build
 python3 -m build
 python3 scripts/package_smoke.py --dist dist  # downloads the released package and image dependencies
 ```
+
+The unit tests cover `compare`, `catalogue` and the other image commands, so
+they need Pillow: install the `[images]` extra as above rather than the bare
+package, or the image tests error instead of being skipped. If `pip install`
+refuses with `externally-managed-environment`, create a virtual environment
+first (`python3 -m venv .venv && . .venv/bin/activate`). The publisher
+workflow tests also use Node and bash when they are installed, and skip
+otherwise.
 
 ## How this was built
 
