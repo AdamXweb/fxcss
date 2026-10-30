@@ -408,7 +408,7 @@ def build_profile(repo: Path, profile: Path, dark=False, native_menus=None,
     _ensure_custom_chrome(repo / "chrome", profile / "chrome")
     if empty_user_chrome:
         (profile / "chrome" / "userChrome.css").write_text(
-            '@import "customChrome.css";\n', encoding="utf-8")
+            '/* Theme styles are loaded explicitly by the caller. */\n', encoding="utf-8")
 
     prefs = ""
     repo_userjs = repo / "configuration" / "user.js"

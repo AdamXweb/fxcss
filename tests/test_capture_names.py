@@ -58,7 +58,7 @@ class CustomChromeTests(unittest.TestCase):
         core.build_profile(theme, profile)
         self.assertEqual((profile / "chrome" / "customChrome.css").read_text(encoding="utf-8"),
                          core.CUSTOM_CHROME_PLACEHOLDER)
-        # Watch mode's blank entry sheet also needs the import to resolve.
+        # Watch mode also prepares the file for explicitly loaded theme sheets.
         core.build_profile(theme, self.root / "watch", empty_user_chrome=True)
         self.assertTrue((self.root / "watch" / "chrome" / "customChrome.css").is_file())
 
@@ -73,6 +73,21 @@ class CustomChromeTests(unittest.TestCase):
         self.assertTrue(uri.endswith("live-1/userChrome.css"))
         self.assertEqual((live / "customChrome.css").read_text(encoding="utf-8"),
                          "#theme-provided { color: red }\n")
+
+    def test_empty_profile_does_not_load_theme_overrides_before_watch_reload(self):
+        theme = _theme(self.root, "#theme-provided { color: red }\n")
+        profile = self.root / "profile"
+        core.build_profile(theme, profile, empty_user_chrome=True)
+        entry = (profile / "chrome/userChrome.css").read_text(encoding="utf-8")
+        self.assertNotIn("@import", entry)
+        self.assertNotIn("#theme-provided", entry)
+        session = _session(theme, profile)
+        with patch.object(core.Session, "apply_harness_css"):
+            session.reload_theme()
+            (theme / "chrome/customChrome.css").write_text("", encoding="utf-8")
+            session.reload_theme()
+        self.assertEqual((profile / "chrome/live-2/customChrome.css").read_text(encoding="utf-8"), "")
+        self.assertEqual((profile / "chrome/userChrome.css").read_text(encoding="utf-8"), entry)
 
     def test_reload_theme_creates_the_placeholder_when_unshipped(self):
         theme = _theme(self.root)
