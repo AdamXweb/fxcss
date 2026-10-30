@@ -782,6 +782,13 @@ with the same name in different folders are told apart by folder
 (`custom-tabs`, `optional-tabs`); two in one folder that differ only in case
 or punctuation are reported as an error, since nothing distinguishes them.
 
+Adding `optional/tabs.css` alongside an existing `custom/tabs.css` renames
+the existing `tabs` variant to `custom-tabs` and names the new one
+`optional-tabs`. Update explicit `--variants` selections and `--views`
+filters accordingly. Existing baselines retain `variant-tabs`, so checks
+report that view as missing until you review the renamed captures and
+refresh the baseline with `--update-baseline`.
+
 #### Browser states it captures
 
 `fxcss shot` renders a standard set of views, so a change is judged against the
@@ -1233,14 +1240,16 @@ Updating fxcss locally does not update workflows already in a repository.
 
 | Feature | Enable with | When it runs | What readers see |
 | --- | --- | --- | --- |
-| PR previews | `init` | Relevant pull request changes; macOS, Windows and Linux. | A comment showing before/after views and highlighted differences, including optional stylesheets. |
+| PR previews | `init` | All pull request changes; macOS, Windows and Linux. | A comment showing before/after views and highlighted differences, including optional stylesheets. |
 | Firefox watch | `init --watch` | Weekly on Mondays, or manually; Release, Beta and Nightly on macOS. | Fix PRs or issues for actionable selector findings, plus a separate issue if screenshot capture fails. |
-| README previews | `init --previews` | Matching theme changes on `main`/`master`, or manually; macOS. | Refreshed standard and variant screenshots plus cropped option comparisons on the `previews` branch. |
+| README previews | `init --previews` | All repository changes on `main`/`master`, or manually; macOS. | Refreshed standard and variant screenshots plus cropped option comparisons on the `previews` branch. |
 | Release showcase | `init --showcase` | A release is published, or manually; macOS. | Light/dark screenshots against live websites on the `showcase` branch. |
 
-The workflows download Firefox on their runners. Generated preview triggers
-cover `chrome/`, `configuration/`, `custom/`, `optional/`, `options/`, `extras/`
-and `variants/`. Review the filters if you keep theme assets elsewhere.
+The workflows download Firefox on their runners. Generated PR and README
+previews run for all repository changes, without path filters: imported CSS,
+images, fonts and other dependencies can live anywhere in a theme repository.
+This deliberately includes documentation-only edits so dependency-only changes
+outside standard folders cannot silently skip previews.
 Re-run generation and review the changes to update the pinned fxcss version
 or adopt improvements to the workflow templates. New variants are included automatically.
 
@@ -1677,6 +1686,12 @@ characters. Real Firefox checks cover Stable on all three platforms
 and ESR on Linux, repeated capture consistency, deliberate CSS changes,
 nested imports, content stylesheets and stacked optional stylesheets.
 
+A Linux/Python 3.12 job also runs the suite with the minimum supported Pillow,
+10.1.0. Capture determinism compares all three pairs from one `check` and two
+`shot` runs, prints raw changed-pixel counts, and retains original screenshots
+when a job fails. The scheduled compatibility jobs run the same real-change
+and state-specific capture assertions on Stable, ESR, Beta and Nightly.
+
 A separate compatibility workflow checks Stable, ESR, Beta and Nightly on Linux
 every Monday and Thursday, or on demand. Failed audits, incomplete captures and
 rendering differences fail the run; reports and screenshots are retained as
@@ -1711,7 +1726,10 @@ package, or the image tests error instead of being skipped. If `pip install`
 refuses with `externally-managed-environment`, create a virtual environment
 first (`python3 -m venv .venv && . .venv/bin/activate`). The publisher
 workflow tests also use Node and bash when they are installed, and skip
-otherwise.
+otherwise. Offline release orchestration tests execute the workflow scripts
+with stubbed pip, sleep and gh commands to check tag validation, the PyPI
+installability retry gate and website dispatch without network access. They
+also check that publication still requires CI and the built-distribution checks.
 
 ## How this was built
 

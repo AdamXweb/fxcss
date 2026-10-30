@@ -86,6 +86,9 @@ jobs:
           # Python 3.9 is unavailable on Ubuntu 26.04; preserve the supported floor.
           - { os: ubuntu-24.04, python: '3.9', label: py3.9 }
           - { os: ubuntu-latest, python: '3.12', label: py3.12 }
+          # The oldest Pillow the images extra accepts, so an image API newer
+          # than that floor fails here rather than for a theme author.
+          - { os: ubuntu-latest, python: '3.12', label: 'py3.12, Pillow 10.1.0', pillow: '10.1.0' }
           - { os: ubuntu-latest, python: '3.14', label: py3.14 }
           - { os: macos-latest, python: '3.12', label: 'macOS, py3.12' }
           - { os: windows-latest, python: '3.12', label: 'Windows, py3.12' }
@@ -95,6 +98,13 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: python -m pip install --disable-pip-version-check ".[images]"
+      - name: Install the minimum Pillow
+        if: matrix.pillow
+        env:
+          PILLOW: ${{ matrix.pillow }}
+        run: |
+          python -m pip install --disable-pip-version-check "pillow==$PILLOW"
+          python -c "import os, PIL; assert PIL.__version__ == os.environ['PILLOW'], PIL.__version__"
       - run: python -m unittest discover -s tests -v
 
   build-package:
@@ -230,67 +240,17 @@ jobs:
       - name: Optional stylesheets apply in install and try
         run: python -m tests.smoke_variants
 
-      # Three, not two. The flakes this has caught were intermittent, so a
-      # single pair passed often enough to be misleading.
+      # Three captures, not two, and every pair compared: the flakes this has
+      # caught were intermittent, and a run that differs from both others is
+      # told apart from a check-vs-shot difference that repeats.
       - name: Project check and three captures
-        shell: bash
-        run: |
-          fxcss check --theme fxcss/templates/starter --firefox "$FIREFOX_BIN" \
-            --out "$GITHUB_WORKSPACE/out/check"
-          python - <<'PY'
-          import json, pathlib, shutil
-          report, = pathlib.Path("out/check").glob("run-*/summary.json")
-          result = json.loads(report.read_text())
-          assert result["exit_code"] == 0, result
-          browser, = result["browsers"]
-          shutil.copytree(report.parent / browser["key"] / "shots", "shots/a")
-          PY
-          fxcss shot --theme fxcss/templates/starter --out shots/b --variants all
-          fxcss shot --theme fxcss/templates/starter --out shots/c --variants all
+        run: python -m tests.smoke_capture_states capture
 
       - name: Determinism — the same theme must render identically
-        shell: bash
-        run: |
-          set -e
-          for pair in b c; do
-            fxcss compare --base shots/a --head "shots/$pair" \
-              --out "out/determinism-$pair" --platform ${{ matrix.label }}
-          done
-          python - <<'PY'
-          import json, pathlib, sys
-          failed = False
-          for pair in ("b", "c"):
-              s = json.loads(pathlib.Path(f"out/determinism-{pair}/summary.json").read_text())
-              changed = s["changed_views"]
-              if s["any_change"]:
-                  failed = True
-                  print(f"run a vs run {pair}: rendered differently")
-                  print(f"    missing: {s['only_in_base']}; added: {s['only_in_head']}")
-                  for v in changed:
-                      print(f"    {v['view']}: {v['percent']}% of pixels")
-              else:
-                  print(f"run a vs run {pair}: all {len(s['views'])} views identical")
-          sys.exit(1 if failed else 0)
-          PY
+        run: python -m tests.smoke_capture_states determinism --platform ${{ matrix.label }}
 
       - name: Detects a real change
-        shell: bash
-        run: |
-          cp -r fxcss/templates/starter "$RUNNER_TEMP/changed-theme"
-          printf '\n#nav-bar { background-color: #ff2d55 !important; }\n' \
-            >> "$RUNNER_TEMP/changed-theme/chrome/userChrome.css"
-          fxcss shot --theme "$RUNNER_TEMP/changed-theme" --out shots/changed
-          fxcss compare --base shots/a --head shots/changed --out out/changed \
-            --platform ${{ matrix.label }}
-          python - <<'PY'
-          import json, sys, pathlib
-          s = json.loads(pathlib.Path("out/changed/summary.json").read_text())
-          if not s["changed_views"]:
-              print("An obvious CSS change produced no pixel difference — "
-                    "the comparison is not sensitive.")
-              sys.exit(1)
-          print(f"{len(s['changed_views'])} of {len(s['views'])} views changed, as expected")
-          PY
+        run: python -m tests.smoke_capture_states real-change --platform ${{ matrix.label }}
 
       # End to end and Linux-only (the code is platform-independent Python;
       # once is proof, three times is minutes): install the starter theme into
@@ -326,67 +286,10 @@ jobs:
           print(f"upgrade --compare saw the change in: {', '.join(changed)}")
           PY
 
+      # Each view targeted by a state-only rule must change; falling back to
+      # an ordinary window must not pass.
       - name: State and surface views render their own states
-        shell: bash
-        run: |
-          # Each rule targets a distinct browser state. Falling back to an
-          # ordinary window must not pass the state-specific capture checks.
-          cp -r fxcss/templates/starter "$RUNNER_TEMP/state-theme"
-          cat >> "$RUNNER_TEMP/state-theme/chrome/userChrome.css" <<'CSS'
-          /* The revamped sidebar hides #sidebar-header; its container stays visible. */
-          #sidebar-box { border: 6px solid #ff2d55 !important; }
-          #tabbrowser-tabs[orient="vertical"] { background-color: #34c759 !important; }
-          #home-button { background-color: #ff9500 !important; }
-          .tabbrowser-tab[soundplaying]:not([muted]) .tab-content { background: #e6194b !important; }
-          .tabbrowser-tab[muted] .tab-content { background: #4363d8 !important; }
-          /* Surfaces no full-window view shows: hover, the search engine
-             button and its menu, the panels. */
-          #reload-button:hover > .toolbarbutton-icon { background-color: #af52de !important; }
-          #urlbar .searchmode-switcher:hover { outline: 4px solid #ff2d55 !important; }
-          panel:has(> .searchmode-switcher-panel-list) { --panel-background: #34c759 !important; }
-          .searchmode-switcher-panel-list { background-color: #34c759 !important; }
-          #appMenu-mainView { background-color: #ff9500 !important; }
-          #unified-extensions-view { background-color: #4363d8 !important; }
-          #PanelUI-fxa { background-color: #5856d6 !important; }
-          CSS
-          cat > "$RUNNER_TEMP/state-theme/chrome/userContent.css" <<'CSS'
-          @-moz-document url-prefix("about:preferences") {
-            body { background-color: #e6194b !important; }
-          }
-          CSS
-          fxcss shot --theme "$RUNNER_TEMP/state-theme" --out shots/state
-          fxcss compare --base shots/a --head shots/state --out out/state \
-            --platform ${{ matrix.label }}
-          python - <<'PY'
-          import json, pathlib, sys
-          summary = json.loads(pathlib.Path("out/state/summary.json").read_text())
-          coverage = json.loads(pathlib.Path("shots/state/capture-coverage.json").read_text())
-          changed = {v["view"] for v in summary["changed_views"]}
-          wanted = {"extra-10-sidebar-bookmarks", "extra-11-sidebar-history",
-                    "extra-14-vertical-tabs", "extra-15-toolbar",
-                    "extra-04-audio", "extra-05-muted"}
-          wanted |= {f"{mode}-{view}" for mode in ("light", "dark")
-                     for view in ("05-toolbar-hover", "06-search-engine", "07-search-menu",
-                                  "08-app-menu", "09-extensions-panel", "10-account-panel",
-                                  "11-settings")}
-          # A Firefox without the search engine button (an older ESR) cannot
-          # show it; nothing else may be skipped.
-          skipped = {name for name, view in coverage["views"].items()
-                     if view.get("reason") == "no search engine button on this Firefox"}
-          for name in sorted(skipped & wanted):
-              print(f"{name}: skipped, no search engine button on this Firefox")
-          missing = sorted(wanted - changed - skipped)
-          if missing:
-              print("These views did not react to a rule that only they can "
-                    "render, so they are not capturing the state they claim: "
-                    + ", ".join(missing))
-              for name in missing:
-                  view = coverage["views"].get(name, {})
-                  if view.get("status") != "captured":
-                      print(f"  {name}: {view.get('status')} ({view.get('reason')})")
-              sys.exit(1)
-          print(f"all {len(wanted - skipped)} state views reacted; {len(changed)} views changed")
-          PY
+        run: python -m tests.smoke_capture_states states --platform ${{ matrix.label }}
 
       - name: catalogue
         run: fxcss catalogue --theme fxcss/templates/starter --out out/catalogue --self-contained
@@ -396,4 +299,13 @@ jobs:
         with:
           name: fxcss-${{ matrix.label }}
           path: out/
+          retention-days: 7
+
+      # The original captures, unscaled, so a single changed pixel can be
+      # inspected; out/ holds only normalised copies of the head side.
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: fxcss-${{ matrix.label }}-shots
+          path: shots/
           retention-days: 7

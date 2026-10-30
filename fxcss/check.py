@@ -8,6 +8,7 @@ import math
 import shutil
 import sys
 import tempfile
+from decimal import Decimal
 from pathlib import Path
 
 from . import capture, compare, core, __version__
@@ -120,7 +121,20 @@ def comparison_status(summary, threshold):
         # A theme cannot add a standard view; one missing from the baseline was
         # made by an older fxcss, so there is nothing to compare it with yet.
         added = [v for v in summary["only_in_head"] if not capture.is_standard_view(v)]
-        if added or any(v["percent"] > threshold for v in summary["views"]):
+        # Percent is rounded for display; even one changed pixel must exceed a
+        # zero limit. Older summaries may have only the displayed percentage.
+        # Use the configured decimal limit as a ratio so equality also survives
+        # binary float rounding (e.g. 57/10000 pixels at a 0.57% limit).
+        numerator, denominator = Decimal(str(threshold)).as_integer_ratio()
+
+        def exceeds(view):
+            if ("changed_pixels" in view and "total_pixels" in view
+                    and view["total_pixels"] > 0):
+                return (100 * view["changed_pixels"] * denominator
+                        > numerator * view["total_pixels"])
+            return view["percent"] > threshold
+
+        if added or any(exceeds(v) for v in summary["views"]):
             return 1
     return 0
 

@@ -43,6 +43,24 @@ def delayed_document():
                 worker.join(timeout=5)
 
 
+def windows_processes_alive(pids, run=subprocess.run):
+    """The subset of `pids` that tasklist still reports as running.
+
+    A session restarts Firefox when its first browser is unusable, so more
+    than one browser and launcher PID belong to it. Every one must be gone
+    once the session closes; checking only the last would hide a leak of the
+    browser that was replaced.
+    """
+    alive = []
+    for pid in pids:
+        listing = run(["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
+                      check=True, capture_output=True, text=True)
+        if any(len(row) > 1 and row[1] == str(pid)
+               for row in csv.reader(io.StringIO(listing.stdout))):
+            alive.append(pid)
+    return alive
+
+
 def main():
     theme = Path(core.__file__).parent / "templates" / "starter"
 
@@ -51,9 +69,11 @@ def main():
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             self.browser_pids = []
+            self.launcher_pids = []
 
         def _start_browser(self):
             super()._start_browser()
+            self.launcher_pids.append(self.proc.pid)
             self.browser_pids.append(self.m.script("return Services.appinfo.processID;"))
             if len(self.browser_pids) == 1:
                 self.m.script('''
@@ -179,13 +199,14 @@ def main():
         assert corrected["overflow"] is False and corrected["direction"] == "rtl", corrected
         assert narrow["overflow"] is True, narrow
         browser_pid = session.m.script("return Services.appinfo.processID;")
+        assert browser_pid == session.browser_pids[-1], (browser_pid, session.browser_pids)
+    # On Windows firefox.exe is a launcher distinct from the browser it waits
+    # for; elsewhere the two PIDs coincide.
+    recorded = sorted(set(session.browser_pids + session.launcher_pids))
     if os.name == "nt":
-        listing = subprocess.run(
-            ["tasklist", "/FI", f"PID eq {browser_pid}", "/NH", "/FO", "CSV"],
-            check=True, capture_output=True, text=True)
-        assert not any(len(row) > 1 and row[1] == str(browser_pid)
-                       for row in csv.reader(io.StringIO(listing.stdout))), (
-                           "the Firefox browser outlived its session", listing.stdout)
+        alive = windows_processes_alive(recorded)
+        assert not alive, ("Firefox processes outlived their session", alive,
+                           {"browsers": session.browser_pids, "launchers": session.launcher_pids})
     print("Startup restarted a browser missing its initial document, recovered discarded contexts, waited for a slow page, "
           "finalised RTL labels and overflow, and kept setup idempotent", flush=True)
 
