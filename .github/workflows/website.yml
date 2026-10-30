@@ -61,7 +61,7 @@ jobs:
         run: scripts/check-built-site.sh
       - name: Install the browser test runtime
         if: matrix.node == '24'
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium firefox
       - name: Check browser interactions
         if: matrix.node == '24'
         run: npm run test:browser

@@ -10,7 +10,10 @@ export default defineConfig({
     baseURL: 'http://127.0.0.1:4320',
     trace: 'retain-on-failure',
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    { name: 'firefox', use: { ...devices['Desktop Firefox'] } },
+  ],
   webServer: {
     command: 'npm start -- --ip 127.0.0.1 --port 4320 --log-level error',
     url: 'http://127.0.0.1:4320',
