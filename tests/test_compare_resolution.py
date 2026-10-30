@@ -14,6 +14,68 @@ from fxcss import compare
 GREY = (128, 128, 128)
 
 
+class AntialiasNoiseTests(unittest.TestCase):
+    @staticmethod
+    def glyph():
+        # A 5x5 crop of the first letter in the Windows CI modal prompt.
+        # Only its centre pixel varies between otherwise identical captures.
+        ink, paper = (24, 14, 48), (247, 246, 251)
+        edge, mid, pale = (72, 63, 91), (155, 151, 168), (216, 213, 222)
+        base = Image.new("RGB", (5, 5))
+        base.putdata([
+            pale, mid, (98, 92, 116), paper, paper,
+            paper, paper, ink, paper, paper,
+            paper, paper, edge, mid, paper,
+            ink, ink, ink, edge, paper,
+            paper, paper, paper, ink, pale,
+        ])
+        head = base.copy()
+        head.putpixel((2, 2), (98, 92, 116))
+        return base, head
+
+    def test_windows_dialog_coverage_noise_is_identical_in_both_directions(self):
+        base, head = self.glyph()
+        for before, after in ((base, head), (head, base)):
+            changed, total, mask = compare.diff_stats(before, after)
+            self.assertEqual((changed, total, mask.getbbox()), (0, 25, None))
+
+    def test_a_single_pixel_dot_on_a_flat_background_is_a_change(self):
+        base = Image.new("RGB", (5, 5), GREY)
+        head = base.copy()
+        head.putpixel((2, 2), (158, 158, 158))
+        self.assertEqual(compare.diff_stats(base, head)[0], 1)
+
+    def test_recoloured_or_high_contrast_edge_pixels_are_changes(self):
+        for colour in ((72, 92, 91), (200, 199, 208), (24, 14, 48)):
+            with self.subTest(colour=colour):
+                base, head = self.glyph()
+                head.putpixel((2, 2), colour)
+                self.assertEqual(compare.diff_stats(base, head)[0], 1)
+
+    def test_neighbour_changes_keep_the_edge_pixel_in_the_diff(self):
+        for delta in (1, 30):
+            with self.subTest(delta=delta):
+                base, head = self.glyph()
+                head.putpixel((1, 2), tuple(c - delta for c in base.getpixel((1, 2))))
+                changed, _, mask = compare.diff_stats(base, head)
+                self.assertEqual(changed, 1 if delta == 1 else 2)
+                self.assertEqual(mask.getpixel((2, 2)), 255)
+
+    def test_adding_a_solid_foreground_pixel_is_a_change(self):
+        base, head = self.glyph()
+        base.putpixel((2, 2), (49, 40, 70))
+        head.putpixel((2, 2), (24, 14, 48))
+        self.assertEqual(compare.diff_stats(base, head)[0], 1)
+
+    def test_small_images_and_boundary_pixels_remain_changes(self):
+        for size, point in (((1, 1), (0, 0)), ((2, 2), (1, 1)), ((5, 5), (0, 2))):
+            with self.subTest(size=size):
+                base = Image.new("RGB", size, GREY)
+                head = base.copy()
+                head.putpixel(point, (158, 158, 158))
+                self.assertEqual(compare.diff_stats(base, head)[0], 1)
+
+
 class CaptureResolutionTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -83,6 +145,18 @@ class CaptureResolutionTests(unittest.TestCase):
         size = (1280, 400)
         self.border(size, top=101, thickness=1, delta=30)
         self.assert_border_reported(self.run_compare(), size, 101, 1)
+
+    def test_isolated_dialog_noise_does_not_produce_a_change_report(self):
+        before, after = AntialiasNoiseTests.glyph()
+        for folder, patch in ((self.base, before), (self.head, after)):
+            image = Image.new("RGB", (1280, 400), GREY)
+            image.paste(patch, (480, 172))
+            image.save(folder / "light-04-dialog.png")
+        report = self.run_compare()
+        self.assertFalse(report["any_change"])
+        self.assertEqual(report["changed_views"], [])
+        self.assertEqual(report["changes"], [])
+        self.assertEqual(report["views"][0]["changed_pixels"], 0)
 
     def test_a_one_css_pixel_border_at_dpr_2_is_a_change(self):
         size = (2560, 800)

@@ -902,6 +902,8 @@ percentage, but no comparison image is drawn and it does not count towards
 `changed_views` or `any_change`. A change of exactly the threshold is pictured.
 Changed pixels are counted in the captures' own pixels, not in the scaled-down
 pictures, so a one-pixel border still counts at a high device pixel ratio.
+Small per-channel color differences and isolated antialiasing shifts between
+unchanged surrounding colors are ignored as rendering noise.
 
 #### Distinct changes
 

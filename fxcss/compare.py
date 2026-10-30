@@ -26,10 +26,10 @@ import json
 import math
 import re
 import sys
-from collections import deque
+from collections import Counter, deque
 from pathlib import Path
 
-from PIL import Image, ImageChops, ImageDraw, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 from . import capture
 from .capture import parse_view_patterns, select_views, title_for  # noqa: F401
@@ -42,6 +42,9 @@ GAP = 10
 # Per-channel difference below this is treated as noise (antialiasing, subpixel
 # text rendering) rather than a real change.
 NOISE_THRESHOLD = 24
+# A slightly larger delta is noise only at an isolated antialiased edge with
+# unchanged foreground/background neighbours, never on a line or a flat fill.
+ANTIALIAS_MAX_DELTA = 32
 HIGHLIGHT = (255, 0, 128)
 
 # Changes are found on a grid of CELL-pixel squares; two changed squares at
@@ -91,6 +94,57 @@ def shrink_mask(mask, size):
     return mask.resize(size, Image.BOX).point(lambda v: 255 if v else 0)
 
 
+def _without_isolated_antialias(base, head, channel_max, mask):
+    """Ignore small coverage changes between the same two surrounding colours.
+
+    Windows can rasterize one glyph-edge pixel differently across sessions
+    (observed delta 29). Require all eight neighbours to be byte-identical,
+    two contrasting colours repeated at least three times, and both versions
+    of the pixel to be blends of those colours. Dots, recolours and adjacent
+    changed pixels still count; the general noise threshold stays unchanged.
+    """
+    if base.mode != "RGB" or min(base.size) < 3:
+        return mask
+    candidates = channel_max.point(
+        lambda v: 255 if NOISE_THRESHOLD <= v <= ANTIALIAS_MAX_DELTA else 0)
+    if not candidates.getbbox():
+        return mask
+    # Summing only the neighbours excludes even sub-threshold changes there.
+    # Pillow leaves border pixels unchanged, which also excludes candidates
+    # without a complete neighbourhood.
+    neighbours = channel_max.filter(ImageFilter.Kernel(
+        (3, 3), (1, 1, 1, 1, 0, 1, 1, 1, 1), scale=1)).point(lambda v: 255 if v else 0)
+    candidates = ImageChops.subtract(candidates, neighbours)
+    box = candidates.getbbox()
+    if box is None:
+        return mask
+    before, after, pixels = base.load(), head.load(), mask.load()
+    width = box[2] - box[0]
+    for i, value in enumerate(candidates.crop(box).tobytes()):
+        if not value:
+            continue
+        x, y = box[0] + i % width, box[1] + i // width
+        counts = Counter(before[x + dx, y + dy] for dy in (-1, 0, 1)
+                         for dx in (-1, 0, 1) if dx or dy)
+        colours = sorted(colour for colour, count in counts.items() if count >= 3)
+        if len(colours) != 2:
+            continue
+        first, second = colours
+        span = tuple(b - a for a, b in zip(first, second))
+        axis = max(range(3), key=lambda c: abs(span[c]))
+        if abs(span[axis]) < 4 * NOISE_THRESHOLD:
+            continue
+
+        def blended(colour):
+            coverage = (colour[axis] - first[axis]) / span[axis]
+            return (0 < coverage < 1 and all(
+                abs(colour[c] - first[c] - coverage * span[c]) <= 2 for c in range(3)))
+
+        if blended(before[x, y]) and blended(after[x, y]):
+            pixels[x, y] = 0
+    return mask
+
+
 def diff_stats(base, head):
     """Return (changed_pixel_count, total, mask) ignoring sub-threshold noise.
 
@@ -105,6 +159,7 @@ def diff_stats(base, head):
     for channel in delta.split()[1:]:
         channel_max = ImageChops.lighter(channel_max, channel)
     mask = channel_max.point(lambda v: 255 if v >= NOISE_THRESHOLD else 0)
+    mask = _without_isolated_antialias(base, head, channel_max, mask)
     changed = mask.histogram()[255]
     return changed, base.width * base.height, mask
 
@@ -114,7 +169,6 @@ def render_diff_panel(base, mask):
     faded = Image.blend(base, Image.new("RGB", base.size, (255, 255, 255)), 0.72)
     overlay = Image.new("RGB", base.size, HIGHLIGHT)
     # Grow the mask slightly so single-pixel changes stay visible once scaled.
-    from PIL import ImageFilter
     grown = mask.filter(ImageFilter.MaxFilter(5))
     return Image.composite(overlay, faded, grown)
 
