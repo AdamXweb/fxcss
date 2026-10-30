@@ -73,12 +73,8 @@ jobs:
           version=$(cat content/source/version.txt)
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "main=$(git -C main-checkout rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
-          outside=$(git diff --name-only -- . ':!content' ':!public/assets/icon.png' ':!public/search')
-          if [ -n "$outside" ]; then
-            echo "::error::npm run content changed files it should not: $outside"
-            exit 1
-          fi
-          if git diff --quiet -- content public/assets/icon.png public/search; then
+          changes=$(node scripts/refresh-changes.mjs)
+          if [ "$changes" = unchanged ]; then
             echo "::notice title=Documentation already current::It matches main's README and fxcss $version."
             echo "publish=no" >> "$GITHUB_OUTPUT"
             exit 0
@@ -89,7 +85,7 @@ jobs:
             echo "publish=no" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if git diff --quiet -- content/source/version.txt; then
+          if [ "$changes" = content ]; then
             echo "message=Refresh the documentation from main" >> "$GITHUB_OUTPUT"
           else
             echo "message=Update the documentation to fxcss $version" >> "$GITHUB_OUTPUT"
