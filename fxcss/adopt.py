@@ -40,6 +40,12 @@ GIT_URL = re.compile(r"""^\s*url\s*=\s*(\S+)""", re.MULTILINE)
 GITHUB_URL = re.compile(r"github\.com[/:]([\w.-]+)/([\w.-]+)")
 
 
+# How much of a version's files must match before a repository that was only
+# *mentioned* in the theme's text is recorded as its origin. Evaluation found
+# 15 of 109 files matching a credited upstream and the wrong project recorded;
+# half is a floor, not a proof, and an explicit owner/name bypasses it.
+GUESS_MIN_SCORE = 0.5
+
 # Only text a human would have written a URL into, and not much of it: this
 # reads files from a directory fxcss did not create.
 READABLE_SUFFIXES = {".css", ".md", ".txt", ".json", ".cfg", ".ini"}

@@ -30,6 +30,7 @@ Run `fxcss <command> --help` for the options of each.
 
 import argparse
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -194,66 +195,225 @@ def _references(theme, selector):
     return css_references(theme, selector)
 
 
+
+def _acquire(args, interactive, workdir, verb):
+    """Bring what `args.repo` names to disk: a local folder as it is, or a
+    repository from a supported host at the ref the person meant.
+
+    Returns {repo_root, theme_id, source, info, why, remote} or None after
+    printing why not. A branch in a /tree/<branch> URL is honoured and
+    tracked as a branch; its folder part becomes the default --subpath.
+    """
+    from . import fetch
+
+    local = Path(args.repo).expanduser()
+    if local.is_dir():
+        repo_root = local.resolve()
+        if getattr(args, "ref", None) or getattr(args, "commit", False):
+            print("  --ref and --commit choose a hosted version; using the folder as it is.")
+        print(f"\n  {verb} {repo_root}")
+        return {"repo_root": repo_root, "theme_id": str(repo_root), "info": None,
+                "why": None, "remote": False,
+                "source": {"kind": "local", "owner": None, "name": None, "ref": None,
+                           "ref_kind": "unknown", "resolved": None, "path": str(repo_root)}}
+    if args.repo.startswith(("/", "~", ".")) or "\\" in args.repo:
+        print(f"error: no folder at {local}", file=sys.stderr)
+        return None
+    try:
+        parsed = fetch.parse_repo_spec(args.repo)
+    except fetch.RepoSpecError as exc:
+        print(f"error: {exc} Or pass the path of a theme folder.", file=sys.stderr)
+        return None
+    owner, name, host = parsed["owner"], parsed["name"], parsed["host"]
+    branch = parsed["ref"]
+    if parsed["subpath"] and not getattr(args, "subpath", None):
+        args.subpath = parsed["subpath"]
+        print(f"  folder from the URL: {parsed['subpath']}")
+
+    info = None
+    if args.ref:
+        ref, why = args.ref, f"ref {args.ref}"
+    else:
+        info = fetch.resolve(owner, name, host=host, branch=branch)
+        owner, name = info["owner"], info["name"]
+        print()
+        for line in fetch.humanise(info):
+            print("  " + line)
+        if branch:
+            tracked = info.get("tracked") or {}
+            if tracked.get("missing"):
+                print(f"\n  error: {owner}/{name} has no branch named {branch!r}; "
+                      "the URL may be stale. --ref chooses another.", file=sys.stderr)
+                return None
+            ref, why = branch, f"branch {branch}"
+        else:
+            prefer = "commit" if getattr(args, "commit", False) else "release"
+            ref, why = _choose_ref(info, prefer, interactive)
+
+    print(f"\n  fetching {why} …")
+    repo_root = fetch.download(owner, name, fetch.snapshot_ref(ref, info), workdir / "src", host=host)
+    label = f"{owner}/{name}@{ref}" if host == "github.com" else f"{host}/{owner}/{name}@{ref}"
+    return {"repo_root": repo_root, "theme_id": label, "info": info, "why": why,
+            "remote": True,
+            "source": _install_source(owner, name, ref, info, explicit=bool(args.ref),
+                                      host=host, branch=branch)}
+
+
+def _plan_source(repo_root, args, interactive, workdir, remote=False):
+    """Decide what to install from a source tree, asking only when it is a
+    real choice. Returns (plan, theme_root) or None after printing."""
+    from . import layout
+
+    subpath = getattr(args, "subpath", None)
+    entry = getattr(args, "entry", None)
+    plan = layout.discover(repo_root, subpath=subpath, entry=entry, workdir=workdir / "layout")
+    if plan["status"] == "ambiguous" and interactive and plan["editions"]:
+        candidates = ([e for e in plan["editions"] if not e["demoted"] and not e["misnamed"]]
+                      or plan["editions"])
+        print("\n  This repository holds several themes:")
+        for number, edition in enumerate(candidates, 1):
+            print(f"    {number}. {edition['label']}")
+        try:
+            raw = input(f"  Which one [1-{len(candidates)}]: ")
+        except EOFError:
+            raw = ""
+        chosen = candidates[_parse_choice(raw, len(candidates), 0)]
+        plan = layout.discover(repo_root, subpath=chosen["key"], entry=entry,
+                               workdir=workdir / "layout")
+    if plan["status"] == "ambiguous":
+        print(f"\n  {plan['reason']}", file=sys.stderr)
+        return None
+    if plan["status"] != "ok":
+        if not plan["editions"] and not plan["archives"]:
+            where = "repository" if remote else "folder"
+            print(f"\n  No userChrome.css anywhere in this {where}, so there is\n"
+                  f"  nothing for Firefox to load. Is it a userChrome theme?\n"
+                  f"  ({plan['reason']})", file=sys.stderr)
+        else:
+            print(f"\n  Nothing fxcss can install here: {plan['reason']}", file=sys.stderr)
+        return None
+    theme_root = layout.materialize(plan, workdir / "layout")
+    for line in layout.describe_plan(plan):
+        print(f"  {line}")
+    return plan, theme_root
+
+
+def _inventory_report(theme_root, facts, strict, force):
+    """Say what loads and what does not; False when `strict` forbids going on."""
+    from . import inventory
+
+    found = inventory.scan(theme_root / "chrome",
+                           option_names={o["path"].name for o in facts.get("options", [])})
+    for line in inventory.summary(found):
+        print(f"  {line}")
+    if found["entry_unresolved"]:
+        names = ", ".join(f"{e['source']} → {e['target']}" for e in found["entry_unresolved"][:4])
+        print("\n  The entry stylesheet imports file(s) this source does not contain:"
+              f"\n    {names}\n  That usually means the theme needs building — a release "
+              "package, or its\n  own installer's output — rather than a copy of its sources.",
+              file=sys.stderr)
+        if strict and not force:
+            print("  Nothing was installed. Pass --force to install it as it is.",
+                  file=sys.stderr)
+            return None
+    return found
+
+
+def _match_sheets(raw, facts):
+    """--with names (stems or relative paths) to option paths, or an error."""
+    wanted = [w.strip() for w in raw.split(",") if w.strip()]
+    options = facts.get("options", [])
+    chosen = []
+    for name in wanted:
+        exact = [o for o in options if o["id"] == name]
+        matches = exact or [o for o in options if o["stem"].lower() == name.lower()]
+        if len(matches) != 1:
+            label = "ambiguous" if matches else "unknown"
+            available = ", ".join(o["id"] for o in (matches or options)) or "none"
+            print(f"error: {label} optional sheet {name!r}; choose a relative path: "
+                  f"{available}", file=sys.stderr)
+            return None
+        if matches[0]["path"] not in chosen:
+            chosen.append(matches[0]["path"])
+    return chosen
+
+
+def _sheet_paths(chosen, facts):
+    """Legacy labels mapped to IDs; clashing stems use the full path as label."""
+    from collections import Counter
+    ids = {o["path"].resolve(): o["id"] for o in facts.get("options", [])}
+    counts = Counter(Path(sheet).stem for sheet in chosen)
+    return {(Path(sheet).stem if counts[Path(sheet).stem] == 1 else ids[Path(sheet).resolve()]):
+            ids.get(Path(sheet).resolve(), Path(sheet).name) for sheet in chosen}
+
+
+def _sheet_ids(chosen, facts):
+    return list(_sheet_paths(chosen, facts).values())
+
+
+def _choose_prefs(raw, repo_root, theme_root):
+    """--prefs values to repository-relative preference files, or an error."""
+    from . import checklist
+
+    wanted = [w.strip().replace("\\", "/") for w in (raw or "").split(",") if w.strip()]
+    if not wanted:
+        return []
+    available = {entry["path"]: entry for entry in checklist.pref_files(repo_root, theme_root)}
+    missing = [w for w in wanted if w not in available]
+    if missing:
+        print(f"error: no preference file at {', '.join(missing)}; the theme ships: "
+              f"{', '.join(sorted(available)) or 'none'}", file=sys.stderr)
+        return None
+    for path in wanted:
+        names = available[path]["names"]
+        shown = ", ".join(names[:8]) + (f", … and {len(names) - 8} more" if len(names) > 8 else "")
+        print(f"  --prefs {path}: {len(names)} pref(s) will join the fxcss block: {shown}")
+    return wanted
+
+
+def _report_checklist(repo_root, theme_root, plan, pref_files):
+    from . import checklist
+
+    items = checklist.build(repo_root, theme_root, plan, applied_pref_files=pref_files)
+    for line in checklist.render(items):
+        print(line)
+    return items
+
+
+def _layout_record(plan):
+    return {"kind": plan["kind"], "subpath": plan["subpath"], "entry": plan["entry"]}
+
+
 def cmd_try(args):
     import shutil
     import tempfile
     from . import fetch
 
     _install_signal_handlers()
-    # A folder on this computer, as `install` accepts: a theme being written,
-    # or one that is not on GitHub. It is read where it is, never modified.
-    local = Path(args.repo).expanduser()
-    if local.is_dir():
-        owner = name = None
-        if args.ref or args.commit:
-            print("  --ref and --commit choose a GitHub version; using the folder as it is.")
-    elif args.repo.startswith(("/", "~", ".")) or "\\" in args.repo:
-        print(f"error: no folder at {local}", file=sys.stderr)
-        return 2
-    else:
-        try:
-            owner, name = fetch.parse_repo(args.repo)
-        except fetch.RepoSpecError as exc:
-            print(f"error: {exc} Or pass the path of a theme folder.", file=sys.stderr)
-            return 2
-
-    if owner is None:
-        ref, why, info = None, None, None
-    elif args.ref:
-        ref, why = args.ref, f"ref {args.ref}"
-        info = None
-    else:
-        info = fetch.resolve(owner, name)
-        print()
-        for line in fetch.humanise(info):
-            print("  " + line)
-        prefer = "commit" if args.commit else "release"
-        interactive = (sys.stdin.isatty() and sys.stdout.isatty()
-                       and not os.environ.get("CI"))
-        ref, why = _choose_ref(info, prefer, interactive)
-
+    interactive = (sys.stdin.isatty() and sys.stdout.isatty()
+                   and not os.environ.get("CI"))
     workdir = Path(tempfile.mkdtemp(prefix="fxcss-try-"))
     keep = args.keep.resolve() if args.keep else None
     try:
-        if owner is None:
-            repo_root = local.resolve()
-            print(f"\n  trying {repo_root}")
-        else:
-            print(f"\n  fetching {why} …")
-            repo_root = fetch.download(owner, name, ref, workdir / "src")
-        theme_root = fetch.find_theme_root(repo_root)
-        if theme_root is None:
-            where = "folder" if owner is None else "repository"
-            print(f"\n  No userChrome.css anywhere in this {where}, so there is\n"
-                  "  nothing for Firefox to load. Is it a userChrome theme?",
-                  file=sys.stderr)
+        got = _acquire(args, interactive, workdir, verb="trying")
+        if got is None:
             return 2
+        repo_root = got["repo_root"]
+        planned = _plan_source(repo_root, args, interactive, workdir, remote=got["remote"])
+        if planned is None:
+            return 2
+        plan, theme_root = planned
 
-        facts = fetch.describe(repo_root, theme_root)
-        where = theme_root.relative_to(repo_root)
-        top = "the top of the folder" if owner is None else "the repository root"
-        print(f"  theme found at {where if str(where) != '.' else top}"
-              f"  ({facts['stylesheets']} stylesheets, {facts['bytes'] // 1024} KB)")
+        facts = fetch.describe(plan["repo_root"], theme_root, plan)
+        if plan["kind"] == "standard":
+            where = theme_root.relative_to(plan["repo_root"])
+            top = "the repository root" if got["remote"] else "the top of the folder"
+            print(f"  theme found at {where if str(where) != '.' else top}"
+                  f"  ({facts['stylesheets']} stylesheets, {facts['bytes'] // 1024} KB)")
+        else:
+            print(f"  laid out from a {plan['kind']} source"
+                  f"  ({facts['stylesheets']} stylesheets, {facts['bytes'] // 1024} KB)")
+        _inventory_report(theme_root, facts, strict=False, force=True)
 
         if facts["scripts"]:
             print(f"\n  This theme ships {', '.join(facts['scripts'])}. fxcss does not run "
@@ -267,17 +427,14 @@ def cmd_try(args):
             names = [v.stem for v in facts["variants"]]
             print(f"\n  Optional stylesheets you can layer on with --with:")
             print("    " + ", ".join(names))
+        print()
+        _report_checklist(plan["repo_root"], theme_root, plan, [])
 
         chosen = []
         if args.with_sheets:
-            wanted = {w.strip().lower() for w in args.with_sheets.split(",") if w.strip()}
-            by_name = {v.stem.lower(): v for v in facts["variants"]}
-            missing = wanted - set(by_name)
-            if missing:
-                print(f"\n  error: no optional sheet named {', '.join(sorted(missing))}",
-                      file=sys.stderr)
+            chosen = _match_sheets(args.with_sheets, facts)
+            if chosen is None:
                 return 2
-            chosen = [by_name[w] for w in sorted(wanted)]
             # A test drive is throwaway, so this says what will happen and
             # goes ahead: seeing two colour themes cancel out is a perfectly
             # good way to learn that they do.
@@ -322,7 +479,6 @@ def cmd_try(args):
             shutil.copytree(workdir / "src", keep)
             print(f"  kept the download at {keep}")
         shutil.rmtree(workdir, ignore_errors=True)
-
 
 def _short_path(path):
     """Home-relative, because the interesting part is the tail."""
@@ -455,9 +611,12 @@ def survey_profiles():
 
 def _theme_label(manifest):
     """`owner/name @ ref`, or the raw theme string when that is all there is."""
+    from .fetch import REMOTE_KINDS
     source = manifest.get("source") or {}
-    if source.get("kind") == "github" and source.get("owner"):
-        return f"{source['owner']}/{source['name']} @ {source.get('ref')}"
+    if source.get("kind") in REMOTE_KINDS and source.get("owner"):
+        host = source.get("host") or "github.com"
+        prefix = "" if host == "github.com" else f"{host}/"
+        return f"{prefix}{source['owner']}/{source['name']} @ {source.get('ref')}"
     if source.get("kind") == "local":
         return source.get("path") or "a local directory"
     return manifest.get("theme") or "unknown"
@@ -499,11 +658,14 @@ def cmd_profiles(args):
         for row in rows:
             source = (row["manifest"] or {}).get("source") or {}
             key = (source.get("owner"), source.get("name"))
-            if source.get("kind") != "github" or key in updates:
+            if source.get("kind") not in fetch.REMOTE_KINDS or key in updates:
                 continue
             try:
                 updates[key] = fetch.update_state(
-                    source, fetch.resolve(source["owner"], source["name"]))
+                    source, fetch.resolve(
+                        source["owner"], source["name"],
+                        host=source.get("host") or "github.com",
+                        branch=source.get("ref") if source.get("ref_kind") == "branch" else None))
             except RuntimeError as exc:
                 updates[key] = {"state": "unknown", "ref": None,
                                 "label": "could not ask GitHub",
@@ -541,7 +703,7 @@ def cmd_profiles(args):
             # ref_kind only means something for a repo: "unknown" against a
             # local directory would read as a gap rather than as N/A.
             tracking = (f"  (tracking the {source['ref_kind']})"
-                        if source.get("kind") == "github"
+                        if source.get("kind") in fetch.REMOTE_KINDS
                         and source.get("ref_kind") in ("release", "branch")
                         else "")
             print(f"             installed {manifest.get('installed', '?')}"
@@ -569,6 +731,11 @@ def cmd_profiles(args):
                 print("    update   up to date")
             elif update:
                 print(f"    update   {update['label']}")
+            if update and update.get("also"):
+                print(f"             {update['also']}")
+            if manifest.get("user_files"):
+                print(f"    yours    {len(manifest['user_files'])} file(s) you added, "
+                      "kept active")
         elif row["state"] == "unmanaged":
             print(f"    chrome/  {row['files']} file(s), not installed by "
                   "fxcss")
@@ -584,36 +751,49 @@ def cmd_profiles(args):
     if any(r["default"] for r in rows):
         print("  ● the profile Firefox opens by default")
     checkable = any(((r["manifest"] or {}).get("source") or {}).get("kind")
-                    == "github" for r in rows)
+                    in fetch.REMOTE_KINDS for r in rows)
     if not args.check and checkable:
         print("  Pass --check to ask GitHub whether anything newer exists.")
     return 0
 
 
-def _install_source(owner, name, ref, info, explicit):
+
+def _install_source(owner, name, ref, info, explicit, host="github.com", branch=None):
     """Record where a theme came from, precisely enough to fetch it again.
 
     The distinction that matters later is `ref_kind`: re-fetching a release
     means looking for a newer tag, while re-fetching a branch means looking at
     what that branch points at now. The string "main" cannot tell those apart,
     so it is settled here, where the answer is actually known, and written
-    down. Nothing infers it afterwards.
+    down. Nothing infers it afterwards. A branch records the full commit it
+    pointed at, so an exact match later reads as up to date.
     """
-    source = {"kind": "github", "owner": owner, "name": name, "ref": ref,
+    from . import fetch
+
+    source = {"kind": fetch.HOSTS.get(host, "github"), "host": host,
+              "owner": owner, "name": name, "ref": ref,
               "ref_kind": "explicit" if explicit else "unknown",
               "resolved": ref, "path": None}
     if not info:
         return source
+    if explicit:
+        source["resolved"] = fetch.snapshot_ref(ref, info)
+        return source
+    if info.get("renamed_from"):
+        source["renamed_from"] = info["renamed_from"]
     release = (info.get("release") or {}).get("tag")
+    tracked = info.get("tracked") or {}
     if ref == release:
         source["ref_kind"] = "release"
     elif ref == info.get("default_branch"):
         source["ref_kind"] = "branch"
         # A branch has no version, so the commit it pointed at is the only
         # thing a later run can compare against to see it has moved.
-        source["resolved"] = (info.get("commit") or {}).get("sha") or ref
+        source["resolved"] = fetch.snapshot_ref(ref, info)
+    elif tracked.get("ref") == ref and not tracked.get("missing"):
+        source["ref_kind"] = "branch"
+        source["resolved"] = fetch.snapshot_ref(ref, info)
     return source
-
 
 def profile_state(profile):
     """"managed" (fxcss installed a theme here), "unmanaged" or "empty"."""
@@ -861,6 +1041,7 @@ def _confirm(question, interactive, assume_yes):
     return not raw.strip().lower().startswith("n")
 
 
+
 def cmd_install(args):
     import shutil
     import tempfile
@@ -876,60 +1057,25 @@ def cmd_install(args):
 
     interactive = (sys.stdin.isatty() and sys.stdout.isatty()
                    and not os.environ.get("CI"))
-    workdir = None
+    workdir = Path(tempfile.mkdtemp(prefix="fxcss-install-"))
     try:
-        local = Path(args.repo).expanduser()
-        if local.is_dir():
-            repo_root = local.resolve()
-            theme_id = str(repo_root)
-            source = {"kind": "local", "owner": None, "name": None,
-                      "ref": None, "ref_kind": "unknown", "resolved": None,
-                      "path": str(repo_root)}
-            print(f"\n  installing from {repo_root}")
-        else:
-            try:
-                owner, name = fetch.parse_repo(args.repo)
-            except ValueError as exc:
-                print(f"error: {exc}", file=sys.stderr)
-                return 2
-            info = None
-            if args.ref:
-                ref, why = args.ref, f"ref {args.ref}"
-            else:
-                info = fetch.resolve(owner, name)
-                print()
-                for line in fetch.humanise(info):
-                    print("  " + line)
-                prefer = "commit" if args.commit else "release"
-                ref, why = _choose_ref(info, prefer, interactive)
-            workdir = Path(tempfile.mkdtemp(prefix="fxcss-install-"))
-            print(f"\n  fetching {why} …")
-            repo_root = fetch.download(owner, name, ref, workdir / "src")
-            theme_id = f"{owner}/{name}@{ref}"
-            source = _install_source(owner, name, ref, info,
-                                     explicit=bool(args.ref))
-
-        theme_root = fetch.find_theme_root(repo_root)
-        if theme_root is None:
-            print("\n  No chrome/userChrome.css anywhere in this theme, so "
-                  "there is\n  nothing for Firefox to load. Is it a "
-                  "userChrome theme?")
+        got = _acquire(args, interactive, workdir, verb="installing from")
+        if got is None:
+            return 2
+        planned = _plan_source(got["repo_root"], args, interactive, workdir,
+                               remote=got["remote"])
+        if planned is None:
+            return 2
+        plan, theme_root = planned
+        facts = fetch.describe(plan["repo_root"], theme_root, plan)
+        if _inventory_report(theme_root, facts, strict=True, force=args.force) is None:
             return 2
 
-        facts = fetch.describe(repo_root, theme_root)
         chosen = []
         if args.with_sheets:
-            wanted = {w.strip().lower()
-                      for w in args.with_sheets.split(",") if w.strip()}
-            by_name = {v.stem.lower(): v for v in facts["variants"]}
-            missing = wanted - set(by_name)
-            if missing:
-                print(f"error: no optional sheet named "
-                      f"{', '.join(sorted(missing))}; available: "
-                      f"{', '.join(sorted(by_name)) or 'none'}",
-                      file=sys.stderr)
+            chosen = _match_sheets(args.with_sheets, facts)
+            if chosen is None:
                 return 2
-            chosen = [by_name[w] for w in sorted(wanted)]
         else:
             chosen = _choose_sheets(facts["variants"], interactive)
 
@@ -944,6 +1090,10 @@ def cmd_install(args):
                   file=sys.stderr)
             return 2
 
+        pref_files = _choose_prefs(args.prefs, plan["repo_root"], theme_root)
+        if pref_files is None:
+            return 2
+
         picked = _choose_profile(args.profile, interactive)
         paint_c = paint()
         from .audit import BOLD as _BOLD
@@ -956,14 +1106,29 @@ def cmd_install(args):
         if prefs:
             print(f"  user.js: the theme also sets {len(prefs)} pref(s): "
                   f"{', '.join(prefs)}")
+        print()
+        items = _report_checklist(plan["repo_root"], theme_root, plan, pref_files)
+        previous = install.read_manifest(picked["path"])
+        if previous:
+            _report_additions(install.user_additions(picked["path"], previous))
         if not _confirm("  Install into this profile?", interactive, args.yes):
             print("  nothing installed.")
             return 1
 
-        result = install.install_theme(theme_root, picked["path"], theme_id,
-                                       sheets=chosen, source=source)
+        extra = {"layout": _layout_record(plan), "pref_files": pref_files,
+                 "sheet_paths": _sheet_paths(chosen, facts),
+                 "sheet_ids": _sheet_ids(chosen, facts)}
+        try:
+            result = install.install_theme(
+                theme_root, picked["path"], got["theme_id"], sheets=chosen,
+                source=got["source"], on_collision="theme" if args.force else "stop",
+                extra=extra, repo_root=plan["repo_root"])
+        except install.CollisionError as exc:
+            _report_collision(exc)
+            return 2
         if result["backup"]:
             print(f"  existing chrome/ saved as {result['backup']}")
+        _report_preserved(result)
         if result["sheets"]:
             print(f"  optional sheets: "
                   f"{paint_c(_BOLD, ', '.join(result['sheets']))}")
@@ -971,6 +1136,10 @@ def cmd_install(args):
             print(f"  note: {note}")
         print(f"  installed {len(result['files'])} file(s) into "
               f"{picked['path'] / 'chrome'}")
+        from . import checklist
+        if not checklist.complete(items):
+            print("  the files are in place; the REQUIRED items above are not "
+                  "something fxcss can do for you")
         print("\n  Restart Firefox to see it. `fxcss uninstall` puts "
               "everything back.")
         return 0
@@ -978,9 +1147,7 @@ def cmd_install(args):
         print(f"error: {exc}", file=sys.stderr)
         return 2
     finally:
-        if workdir:
-            shutil.rmtree(workdir, ignore_errors=True)
-
+        shutil.rmtree(workdir, ignore_errors=True)
 
 def cmd_uninstall(args):
     from . import install
@@ -1006,6 +1173,15 @@ def cmd_uninstall(args):
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    if result.get("noop"):
+        print("  no fxcss-installed theme is active here, so nothing was "
+              "removed or restored.")
+        if result.get("user_js_cleaned"):
+            print("  user.js: removed a leftover fxcss block")
+        if result.get("backups"):
+            print(f"  backups kept: {', '.join(result['backups'])}  "
+                  "(`fxcss rollback --to <name>` restores one)")
+        return 0
     if result["removed"]:
         print(f"  removed {result['removed']} file(s)")
     if result["restored"]:
@@ -1020,6 +1196,45 @@ def cmd_uninstall(args):
     return 0
 
 
+def _report_additions(additions, indent="  "):
+    """Say which of the person's own files the upgrade will keep active."""
+    files, skipped = additions["files"], additions["skipped"]
+    if files:
+        print(f"{indent}{len(files)} file(s) you added will stay active:")
+        for name in files[:6]:
+            print(f"{indent}  {name}")
+        if len(files) > 6:
+            print(f"{indent}  … and {len(files) - 6} more")
+    if skipped:
+        print(f"{indent}{len(skipped)} added item(s) are not regular files "
+              "(links, git metadata) and stay only in the backup")
+
+
+def _report_preserved(result, indent="  "):
+    """After an install: what of the person's own is active, what is not."""
+    if result.get("user_files"):
+        print(f"{indent}kept {len(result['user_files'])} file(s) you added "
+              "active in the new chrome/")
+    if result.get("displaced"):
+        print(f"{indent}{len(result['displaced'])} file(s) you added were "
+              f"replaced by the theme's own (your copies are in "
+              f"{result['backup']}):")
+        for name in result["displaced"][:6]:
+            print(f"{indent}  {name}")
+
+
+def _report_collision(exc, indent="  "):
+    print(f"\n{indent}The new version ships files at paths you added "
+          f"yourself, with different\n{indent}contents. Nothing was changed. "
+          "Move or rename yours, or pass --force to\n"
+          f"{indent}install the theme's copies (yours stay in the backup):",
+          file=sys.stderr)
+    for name in exc.collisions[:12]:
+        print(f"{indent}  {name}", file=sys.stderr)
+    if len(exc.collisions) > 12:
+        print(f"{indent}  … and {len(exc.collisions) - 12} more", file=sys.stderr)
+
+
 def _report_drift(moved, indent="  "):
     """Say what has changed under chrome/ since the install, if anything."""
     if moved["modified"]:
@@ -1032,7 +1247,8 @@ def _report_drift(moved, indent="  "):
         print(f"{indent}{len(moved['missing'])} file(s) deleted since install")
     if moved["extra"]:
         print(f"{indent}{len(moved['extra'])} file(s) added by hand "
-              "(these are left alone)")
+              "(kept active across upgrades)")
+
 
 
 def cmd_upgrade(args):
@@ -1053,23 +1269,34 @@ def cmd_upgrade(args):
 
     source = manifest.get("source") or {}
     print(f"  installed: {_theme_label(manifest)}")
+    recorded_layout = manifest.get("layout") if isinstance(manifest.get("layout"), dict) else {}
+    if args.subpath is None and recorded_layout.get("subpath"):
+        args.subpath = recorded_layout["subpath"]
+    if args.entry is None and recorded_layout.get("entry"):
+        args.entry = recorded_layout["entry"]
 
     # What is there to move to?
     info = None
+    local_root = None
     if source.get("kind") == "local":
         local_root = Path(source.get("path") or "")
-        if not (local_root / "chrome").is_dir():
+        if not local_root.is_dir():
             print(f"\n  error: the directory this was installed from is gone "
                   f"({local_root})", file=sys.stderr)
             return 2
         target_ref, why = None, f"the current contents of {local_root}"
-        state = {"state": "unsupported"}
-    elif source.get("kind") == "github":
+        state = {"state": "unsupported", "also": ""}
+    elif source.get("kind") in fetch.REMOTE_KINDS:
+        host = source.get("host") or "github.com"
+        branch = source.get("ref") if source.get("ref_kind") == "branch" else None
         try:
-            info = fetch.resolve(source["owner"], source["name"])
+            info = fetch.resolve(source["owner"], source["name"], host=host, branch=branch)
         except RuntimeError as exc:
             print(f"\n  error: {exc}", file=sys.stderr)
             return 2
+        if info.get("renamed_from"):
+            print(f"  upstream moved: {info['renamed_from']} is now "
+                  f"{info['owner']}/{info['name']}; recorded under the new name")
         state = fetch.update_state(source, info)
         if args.ref:
             target_ref, why = args.ref, f"ref {args.ref}"
@@ -1083,6 +1310,8 @@ def cmd_upgrade(args):
                 state.get("label") or "what is installed"
         print(f"  upstream:  {state['label']}"
               + (f"  — {state['detail']}" if state.get("detail") else ""))
+        if state.get("also"):
+            print(f"  also:      {state['also']}")
     else:
         print("\n  error: this install has no record of where it came from, "
               "so fxcss\n  cannot fetch a newer copy. Reinstall it with "
@@ -1102,9 +1331,11 @@ def cmd_upgrade(args):
               "hashes, so\n  whether it has been edited since cannot be "
               "checked.")
 
+    remote = source.get("kind") in fetch.REMOTE_KINDS
+    setup_requested = args.prefs is not None or args.with_sheets is not None
     nothing_to_do = (state["state"] == "current" and not args.ref
-                     and not args.commit and source.get("kind") == "github")
-    if args.check:
+                     and not args.commit and remote and not setup_requested)
+    if args.check and remote and not setup_requested:
         if nothing_to_do:
             print("\n  Up to date.")
             return 0
@@ -1119,34 +1350,39 @@ def cmd_upgrade(args):
               "anyway.")
         return 0
 
-    if (moved["modified"] or moved["missing"]) and not args.force:
-        print("\n  Refusing to upgrade over edits fxcss did not make — the "
-              "new version\n  would overwrite them. Save what you want, then "
-              "pass --force.\n  (Files you *added* are never touched; only "
-              "the ones above.)", file=sys.stderr)
-        return 2
-
-    workdir = None
+    workdir = Path(tempfile.mkdtemp(prefix="fxcss-upgrade-"))
+    keep_pin = (source.get("ref_kind") == "explicit" and not args.ref and not args.commit
+                and bool(re.fullmatch(r"[0-9a-fA-F]{40}", str(source.get("resolved") or ""))))
     try:
-        if source.get("kind") == "local":
+        if local_root is not None:
             repo_root = local_root
         else:
-            workdir = Path(tempfile.mkdtemp(prefix="fxcss-upgrade-"))
             print(f"\n  fetching {why} …")
-            repo_root = fetch.download(source["owner"], source["name"],
-                                       target_ref, workdir / "src")
+            revision = source["resolved"] if keep_pin else fetch.snapshot_ref(target_ref, info)
+            repo_root = fetch.download(info["owner"], info["name"], revision,
+                                       workdir / "src", host=info["host"])
 
-        theme_root = fetch.find_theme_root(repo_root)
-        if theme_root is None:
-            print("\n  error: no chrome/userChrome.css in that version",
-                  file=sys.stderr)
+        planned = _plan_source(repo_root, args, interactive, workdir)
+        if planned is None:
+            print("  (the recorded layout no longer matches this version; choose "
+                  "with --subpath)", file=sys.stderr)
+            return 2
+        plan, theme_root = planned
+        facts = fetch.describe(plan["repo_root"], theme_root, plan)
+        if _inventory_report(theme_root, facts, strict=True, force=args.force) is None:
             return 2
 
-        facts = fetch.describe(repo_root, theme_root)
-        wanted = (args.with_sheets.split(",") if args.with_sheets is not None
-                  else manifest.get("sheets") or [])
-        wanted = [w.strip() for w in wanted if w.strip()]
-        continuity = fetch.sheet_continuity(wanted, facts["variants"])
+        if args.with_sheets is not None:
+            selected = _match_sheets(args.with_sheets, facts)
+            if selected is None:
+                return 2
+            continuity = {"kept": selected, "missing": []}
+        else:
+            recorded = manifest.get("sheet_paths") if isinstance(manifest.get("sheet_paths"), dict) else {}
+            wanted = manifest.get("sheet_ids")
+            if not isinstance(wanted, list) or not all(isinstance(p, str) for p in wanted):
+                wanted = [recorded.get(stem, stem) for stem in (manifest.get("sheets") or [])]
+            continuity = fetch.sheet_continuity(wanted, facts["variants"], facts.get("options"))
         if continuity["missing"]:
             print(f"\n  error: the new version has no optional sheet named "
                   f"{', '.join(continuity['missing'])}.\n  It was renamed or "
@@ -1170,6 +1406,64 @@ def cmd_upgrade(args):
                       "they cancel each\n  other out. Choose with --with, or "
                       "pass --force.", file=sys.stderr)
                 return 2
+
+        if args.prefs is not None:
+            pref_files = _choose_prefs(args.prefs, plan["repo_root"], theme_root)
+            if pref_files is None:
+                return 2
+        else:
+            pref_files = [str(p) for p in (manifest.get("pref_files") or []) if isinstance(p, str)]
+            from . import checklist
+            shipped = {entry["path"] for entry in checklist.pref_files(plan["repo_root"], theme_root)}
+            gone = [p for p in pref_files if p not in shipped]
+            if gone:
+                print(f"\n  error: the new version has no preference file at "
+                      f"{', '.join(gone)}.\n  Its prefs would silently stop being "
+                      "applied. Re-run with --prefs to choose\n  from: "
+                      f"{', '.join(sorted(shipped)) or 'none'}, or --prefs '' for none.",
+                      file=sys.stderr)
+                return 2
+            if pref_files:
+                print(f"  keeping preference file(s): {', '.join(pref_files)}")
+
+        if local_root is not None or setup_requested:
+            # A local source has no upstream to ask; the files themselves are
+            # the answer. Compare what an install would write with what the
+            # last one wrote, and say "up to date" only when they agree.
+            preview = install.preview_digests(theme_root, continuity["kept"],
+                                               repo_root=plan["repo_root"])
+            recorded = {k: v for k, v in (manifest.get("digests") or {}).items()
+                        if k in set(manifest.get("files") or [])}
+            changed = sorted(k for k in set(preview) | set(recorded)
+                             if preview.get(k) != recorded.get(k))
+            block = install.user_js_body(theme_root, pref_files,
+                                         repo_root=plan["repo_root"])
+            if block != manifest.get("user_js_block"):
+                changed.append("user.js (fxcss preference block)")
+            if pref_files != (manifest.get("pref_files") or []) or (
+                    isinstance(manifest.get("sheet_ids"), list) and
+                    _sheet_ids(continuity["kept"], facts) != manifest["sheet_ids"]):
+                changed.append("setup selection")
+            same_source = local_root is not None or state["state"] in ("current", "pinned")
+            if not changed and not args.ref and same_source:
+                if args.check:
+                    print("\n  Up to date: the source and setup match what is installed.")
+                    return 0
+                print("\n  Already up to date: the source and setup match what is "
+                      "installed.")
+                return 0
+            print(f"\n  {len(changed)} file(s) differ from what is installed"
+                  + (": " + ", ".join(changed[:5]) if changed else ""))
+            if args.check:
+                print("  Run `fxcss upgrade` to take it.")
+                return 1
+
+        if (moved["modified"] or moved["missing"]) and not args.force:
+            print("\n  Refusing to upgrade over edits fxcss did not make — the "
+                  "new version\n  would overwrite them. Save what you want, then "
+                  "pass --force.\n  (Files you *added* are carried over; only "
+                  "the ones above.)", file=sys.stderr)
+            return 2
 
         if args.audit:
             from . import audit as audit_mod
@@ -1196,7 +1490,6 @@ def cmd_upgrade(args):
                 from . import compare as compare_mod
             except ImportError as exc:
                 return _needs_pillow("upgrade --compare", exc)
-            import tempfile
             firefox = choose_firefox(args.firefox)
             outdir = Path(tempfile.mkdtemp(prefix="fxcss-upgrade-compare-"))
             print("\n  rendering what is installed now …")
@@ -1213,27 +1506,45 @@ def cmd_upgrade(args):
                 return status
             print(f"  before/after images: {outdir / 'diff'}")
 
+        print()
+        _report_checklist(plan["repo_root"], theme_root, plan, pref_files)
         if install.firefox_running(picked["path"]):
             print("\n  note: Firefox appears to be running — the change will "
                   "only show after a restart.")
+        _report_additions(install.user_additions(picked["path"], manifest))
         if not _confirm(f"\n  Upgrade to {why}?", interactive, args.yes):
             print("  nothing changed.")
             return 1
 
-        theme_id = (str(repo_root) if source.get("kind") == "local"
-                    else f"{source['owner']}/{source['name']}@{target_ref}")
-        new_source = (dict(source) if source.get("kind") == "local"
-                      else _install_source(source["owner"], source["name"],
-                                           target_ref, info,
-                                           explicit=bool(args.ref)))
-        result = install.install_theme(
-            theme_root, picked["path"], theme_id,
-            sheets=continuity["kept"], source=new_source,
-            # The chrome/ from before fxcss ever ran here, carried forward so
-            # `uninstall` still reaches it however many upgrades happen.
-            origin_backup=manifest.get("origin_backup"))
+        if local_root is not None:
+            theme_id, new_source = str(repo_root), dict(source)
+        else:
+            theme_id = (f"{info['owner']}/{info['name']}@{target_ref}" if info["host"] == "github.com"
+                        else f"{info['host']}/{info['owner']}/{info['name']}@{target_ref}")
+            new_source = _install_source(info["owner"], info["name"], target_ref, info,
+                                         explicit=bool(args.ref) or (source.get("ref_kind") == "explicit"
+                                                                    and not args.commit), host=info["host"],
+                                         branch=source.get("ref") if source.get("ref_kind") == "branch" else None)
+            if keep_pin:
+                new_source["resolved"] = source["resolved"]
+        extra = {"layout": _layout_record(plan), "pref_files": pref_files,
+                 "sheet_paths": _sheet_paths(continuity["kept"], facts),
+                 "sheet_ids": _sheet_ids(continuity["kept"], facts)}
+        try:
+            result = install.install_theme(
+                theme_root, picked["path"], theme_id,
+                sheets=continuity["kept"], source=new_source,
+                # The chrome/ from before fxcss ever ran here, carried forward so
+                # `uninstall` still reaches it however many upgrades happen.
+                origin_backup=manifest.get("origin_backup"),
+                on_collision="theme" if args.force else "stop",
+                extra=extra, repo_root=plan["repo_root"])
+        except install.CollisionError as exc:
+            _report_collision(exc)
+            return 2
         print(f"\n  upgraded to {why}")
         print(f"  the previous version is kept as {result['backup']}")
+        _report_preserved(result)
         keep = args.keep
         if keep is not None and keep < 1:
             # This command has just promised a way back; honouring --keep 0
@@ -1254,9 +1565,7 @@ def cmd_upgrade(args):
         print(f"\n  error: {exc}", file=sys.stderr)
         return 2
     finally:
-        if workdir:
-            shutil.rmtree(workdir, ignore_errors=True)
-
+        shutil.rmtree(workdir, ignore_errors=True)
 
 def cmd_adopt(args):
     from . import adopt, fetch, install
@@ -1324,7 +1633,12 @@ def cmd_adopt(args):
     best, checked = None, 0
     for entry in refs:
         try:
-            listing = fetch.tree(owner, name, entry["ref"])
+            revision = entry["ref"]
+            if entry["kind"] == "branch":
+                revision = fetch.require_commit(entry.get("sha") or
+                    fetch.branch_head(owner, name, entry["ref"]), entry["ref"])
+                entry["sha"] = revision
+            listing = fetch.tree(owner, name, revision)
         except RuntimeError as exc:
             print(f"  {exc}", file=sys.stderr)
             break
@@ -1332,6 +1646,7 @@ def cmd_adopt(args):
             continue
         result = adopt.compare(chrome, listing)
         result["ref"], result["kind"] = entry["ref"], entry["kind"]
+        result["sha"] = entry.get("sha")
         checked += 1
         print(f"    {adopt.describe(result)}")
         if adopt.better(result, best):
@@ -1351,6 +1666,17 @@ def cmd_adopt(args):
         return 2
 
     print(f"\n  best match: {adopt.describe(best)}")
+    if not args.repo and best["score"] < adopt.GUESS_MIN_SCORE:
+        # The repository was only *mentioned* in the theme's files -- a
+        # credit, a palette, an upstream -- and the files mostly disagree
+        # with it. Recording that would hand every later upgrade to the
+        # wrong project.
+        print(f"\n  Only {best['matched']}/{best['files']} of that version's "
+              "files match, and the repository was\n  guessed from a mention "
+              "in the theme's own text, not from anything definite.\n  Not "
+              "recording it. If it really is this theme, say so:\n"
+              f"    fxcss adopt {owner}/{name}", file=sys.stderr)
+        return 2
     if not adopt.exact(best):
         print("  Recorded as that version plus local differences, so an "
               "upgrade knows\n  not to overwrite them without being told.")
@@ -1364,8 +1690,13 @@ def cmd_adopt(args):
 
     kind = {"release": "release", "tag": "release",
             "branch": "branch"}.get(best["kind"], "explicit")
-    source = {"kind": "github", "owner": owner, "name": name,
-              "ref": best["ref"], "ref_kind": kind, "resolved": best["ref"],
+    resolved = best["ref"]
+    if kind == "branch":
+        # The commit the branch points at, never its name: an exact match
+        # recorded as "main" announced an upgrade on the very next check.
+        resolved = fetch.require_commit(best.get("sha"), best["ref"])
+    source = {"kind": "github", "host": "github.com", "owner": owner, "name": name,
+              "ref": best["ref"], "ref_kind": kind, "resolved": resolved,
               "path": None}
     try:
         manifest = install.adopt_theme(
@@ -1522,27 +1853,67 @@ def cmd_tweaks(args):
     return 0
 
 
+
 def cmd_init(args):
-    from . import scaffold
+    from . import layout, scaffold
     theme = args.theme.resolve()
-    if not (theme / "chrome" / "userChrome.css").exists():
-        print(f"error: no chrome/userChrome.css under {theme} - run this from "
-              f"your theme's root, or pass --theme", file=sys.stderr)
+    plan = layout.discover(theme, subpath=args.subpath)
+    if plan["status"] == "ambiguous":
+        print(f"error: {plan['reason']}", file=sys.stderr)
         return 2
+    if plan["status"] != "ok":
+        print(f"error: no chrome/userChrome.css under {theme} - run this from "
+              f"your theme's root, or pass --theme. {plan['reason']}", file=sys.stderr)
+        return 2
+    if plan["kind"] in ("named", "fragment"):
+        print(f"error: this layout ({plan['kind']}) needs an explicit edition or "
+              "entry every time it is read, which the generated workflows cannot "
+              "pass yet; lay the theme out as chrome/userChrome.css to use them",
+              file=sys.stderr)
+        return 2
+    selected = plan["selected"]
+    # The real folder the workflows should name: where chrome/ lives for a
+    # standard layout, the folder with the flat files otherwise.
+    theme_dir = theme / selected["subpath"] if selected["subpath"] else theme
+    repo_root = scaffold.repository_root(theme_dir)
+    if repo_root.resolve() == theme_dir.resolve() and theme_dir != theme:
+        # No git checkout to ask: the folder passed as --theme is the
+        # repository, and the edition sits inside it.
+        repo_root = theme
     try:
-        slugs = sorted(core.find_variant_sheets(theme))
-        preview = scaffold.preview_settings(theme, args.variants, args.views,
+        standard = layout.standard_root(theme, subpath=args.subpath) \
+            if plan["kind"] != "standard" or args.subpath else theme_dir
+        slugs = sorted(core.find_variant_sheets(standard))
+        preview = scaffold.preview_settings(standard, args.variants, args.views,
                                             args.min_changed_percent, args.oldest_firefox)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    written, skipped = scaffold.write_workflows(
-        theme, slugs, watch=args.watch, showcase=args.showcase,
-        previews=args.previews, force=args.force, preview=preview)
+    for line in layout.describe_plan(plan):
+        print(f"  {line}")
+    if repo_root.resolve() != theme_dir.resolve():
+        try:
+            rel = theme_dir.resolve().relative_to(repo_root.resolve()).as_posix()
+        except ValueError:
+            rel = str(theme_dir)
+        print(f"  workflows go to {repo_root / '.github' / 'workflows'} and point at {rel}/")
+    toolkit_ref = getattr(args, "toolkit_ref", None)
+    if toolkit_ref:
+        print(f"  workflows install fxcss from commit {toolkit_ref}")
+    else:
+        print(f"  workflows pin fxcss {__version__}; that version must be published on PyPI "
+              "before they run. Use --toolkit-ref <full SHA> to test an unreleased commit.")
+    try:
+        written, skipped = scaffold.write_workflows(
+            theme_dir, slugs, watch=args.watch, showcase=args.showcase,
+            previews=args.previews, force=args.force, preview=preview,
+            repo_root=repo_root, toolkit_ref=toolkit_ref)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     print(scaffold.next_steps(written, skipped, slugs, args.watch, args.showcase,
                               args.previews))
     return 0
-
 
 def cmd_watch(args):
     theme = args.theme.resolve()
@@ -1668,7 +2039,13 @@ def _run_audit(args):
     if unused and not args.no_unused:
         audit.report_unused(unused, colour=not args.no_colour, show_all=args.all)
     if args.patch:
-        files = audit.write_patch(result, theme, args.patch.resolve())
+        source_paths = None
+        if getattr(args, "_layout_plan", None):
+            from . import layout
+            uses = {use["file"] for finding in result["findings"]
+                    if finding["confidence"] == "renamed" for use in finding["uses"]}
+            source_paths = layout.patch_source_paths(args._layout_plan, theme, uses)
+        files = audit.write_patch(result, theme, args.patch.resolve(), source_paths=source_paths)
         if files:
             print(f"  wrote {args.patch} ({files} file(s)); review it, then:")
             print(f"    git apply {args.patch}\n")
@@ -1909,6 +2286,16 @@ def _bool(v):
     return v.lower() not in ("false", "0", "no")
 
 
+def _layout_options(p):
+    p.add_argument("--subpath", default=None, metavar="DIR-OR-FILE",
+                   help="which theme to take from a repository that holds several: "
+                        "a folder (1.Normal), a named entry file "
+                        "(src/userChrome-WhiteSur.css) or an archive (chrome.zip)")
+    p.add_argument("--entry", default=None, metavar="FILE",
+                   help="for a theme with no userChrome.css: the stylesheet to "
+                        "load through a generated one, e.g. Brave-Fox/Import.css")
+
+
 def _common(p, theme=True, firefox_help=None):
     if theme:
         p.add_argument("--theme", type=Path, default=Path.cwd(),
@@ -1950,6 +2337,7 @@ def build_parser():
                     help="use the latest commit rather than the latest release")
     tr.add_argument("--with", dest="with_sheets", default=None, metavar="NAME[,NAME]",
                     help="also load named optional stylesheets")
+    _layout_options(tr)
     tr.add_argument("--dark", action="store_true", help="start in dark mode")
     tr.add_argument("--shot", type=Path, default=None,
                     help="capture screenshots instead of opening interactively")
@@ -1976,6 +2364,11 @@ def build_parser():
                      help="use the latest commit rather than the latest release")
     ins.add_argument("--with", dest="with_sheets", default=None, metavar="NAME[,NAME]",
                      help="also install named optional stylesheets")
+    _layout_options(ins)
+    ins.add_argument("--prefs", default=None, metavar="FILE[,FILE]",
+                     help="also apply these shipped preference files (paths relative "
+                          "to the repository, e.g. user.js or config/user.js) inside "
+                          "the removable fxcss block; names are previewed first")
     ins.add_argument("--profile", default=None, metavar="NAME-OR-PATH",
                      help="which Firefox profile (default: the one Firefox itself opens)")
     ins.add_argument("--list-profiles", action="store_true",
@@ -2029,6 +2422,10 @@ def build_parser():
                     metavar="NAME[,NAME]",
                     help="optional sheets to install (default: the ones "
                          "already installed)")
+    _layout_options(up)
+    up.add_argument("--prefs", default=None, metavar="FILE[,FILE]",
+                    help="shipped preference files to apply (default: the ones "
+                         "already applied; '' for none)")
     up.add_argument("--keep", type=int, default=3, metavar="N",
                     help="how many backups to keep (default 3; the original "
                          "chrome/ is never pruned)")
@@ -2108,6 +2505,8 @@ def build_parser():
     ini = sub.add_parser("init", help="add PR previews and CI checks to your theme repo")
     ini.add_argument("--theme", type=Path, default=Path.cwd(),
                      help="theme root, the folder containing chrome/ (default: cwd)")
+    ini.add_argument("--toolkit-ref", metavar="SHA",
+                     help="pin workflows to a full fxcss Git commit instead of a PyPI release")
     ini.add_argument("--watch", action="store_true",
                      help="also add the weekly Firefox release/beta/nightly audit "
                           "and capture canary")
@@ -2129,6 +2528,9 @@ def build_parser():
                      help="PR previews and the watch: say whether a change drops styling "
                           "for any Firefox back to this one; 'esr' for the current ESR "
                           "(default), a major version such as 140, or '' to skip")
+    ini.add_argument("--subpath", default=None, metavar="DIR",
+                     help="which theme in a repository that holds several "
+                          "(a folder relative to --theme)")
     ini.add_argument("--force", action="store_true",
                      help="replace workflow files that already exist")
     ini.set_defaults(func=cmd_init)
@@ -2303,6 +2705,30 @@ def build_parser():
     return ap
 
 
+# Commands that only *read* a theme. For these a flat or otherwise
+# non-standard layout is materialised into a temporary chrome/ tree, so
+# `fxcss shot --theme .` works in a repository that keeps userChrome.css at
+# its root. Commands that write beside the theme (init, check) or watch its
+# files (watch) resolve layouts themselves or need the standard shape.
+LAYOUT_AWARE = {"shot", "audit", "doctor", "snapshot", "changelog", "tweaks",
+                "pick", "inspect", "catalogue"}
+
+
+def _resolve_layouts(args):
+    from . import layout
+    if getattr(args, "cmd", None) in LAYOUT_AWARE and getattr(args, "theme", None):
+        if args.cmd == "audit" and args.patch:
+            args.theme, args._layout_plan = layout.standard_root(args.theme, with_plan=True)
+            layout.patch_source_paths(args._layout_plan, args.theme, [])
+        else:
+            args.theme = layout.standard_root(args.theme)
+    if getattr(args, "cmd", None) == "support":
+        for key in ("base", "head"):
+            value = getattr(args, key, None)
+            if value is not None and Path(value).is_dir():
+                setattr(args, key, layout.standard_root(value))
+
+
 def main(argv=None):
     raw = list(sys.argv[1:] if argv is None else argv)
     if raw and raw[0] == "__complete":
@@ -2321,8 +2747,13 @@ def main(argv=None):
     except AttributeError:
         pass
     from .fetch import FetchError
+    from .layout import LayoutError
     try:
+        _resolve_layouts(args)
         return args.func(args)
+    except LayoutError as exc:
+        print(f"\nerror: {exc}", file=sys.stderr)
+        return 2
     except (FetchError, core.MarionetteError) as exc:
         # Expected fetch and browser failures get a concise diagnostic rather
         # than a traceback; programming errors still propagate.

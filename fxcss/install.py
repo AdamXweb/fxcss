@@ -35,6 +35,10 @@ from pathlib import Path
 
 MANIFEST_NAME = "fxcss-install.json"
 
+# The stylesheets Firefox loads from chrome/ by name. A theme needs at least
+# one of them; a userContent.css-only theme is a real theme too.
+ENTRY_SHEETS = ("userChrome.css", "userContent.css")
+
 # Bumped when the manifest's shape changes. Old manifests are still read --
 # `read_manifest` normalises them -- but they are never silently rewritten:
 # whatever wrote a manifest is the thing that gets to own its contents.
@@ -52,22 +56,28 @@ BLOCK_END = "/* <<< fxcss install <<< */"
 STYLESHEET_PREF = (
     'user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);')
 
-# One pass over a stylesheet: comments and strings are consumed whole, so an
-# @import or url() inside either is never mistaken for a live reference, and
-# a "/*" inside a string never starts a comment.
-CSS_TOKEN_RE = re.compile(r"""
-    /\*.*?(?:\*/|\Z)
-  | @import\s+(?:url\(\s*)?(?P<q1>["'])(?P<imp>(?:\\.|(?!(?P=q1))[^\\\n])*)(?P=q1)
-  | @import\s+url\(\s*(?P<bimp>[^"'()\s]+)\s*\)
-  | (?<![\w-])url\(\s*(?P<q2>["'])(?P<url>(?:\\.|(?!(?P=q2))[^\\\n])*)(?P=q2)\s*\)
-  | (?<![\w-])url\(\s*(?P<burl>[^"'()\s]+)\s*\)
-  | (?P<q3>["'])(?:\\.|(?!(?P=q3))[^\\\n])*(?:(?P=q3)|(?=\n)|\Z)
-""", re.S | re.I | re.X)
-
 # How much a selected optional sheet may pull in alongside itself. Generous
 # for icon sets, small enough that a theme cannot fill a profile with files.
 MAX_SHEET_DEPENDENCIES = 256
 MAX_SHEET_DEPENDENCY_BYTES = 32 * 1024 * 1024
+
+
+class CollisionError(RuntimeError):
+    """An upgrade would put an upstream file where the user added their own.
+
+    Raised before anything in the profile moves: the replacement is still in
+    staging. `collisions` lists the chrome/-relative paths, so the caller can
+    show exactly what is in the way and let the person decide.
+    """
+
+    def __init__(self, collisions):
+        self.collisions = list(collisions)
+        shown = ", ".join(self.collisions[:6])
+        if len(self.collisions) > 6:
+            shown += f", … and {len(self.collisions) - 6} more"
+        super().__init__(
+            f"the new version ships {len(self.collisions)} file(s) at paths "
+            f"you added yourself: {shown}")
 
 
 # --- finding profiles -------------------------------------------------------
@@ -405,16 +415,44 @@ def user_js_with_block(existing, body):
     return base + BLOCK_BEGIN + "\n" + body + "\n" + BLOCK_END + "\n"
 
 
-def user_js_body(theme_root):
+def user_js_body(theme_root, pref_files=None, repo_root=None):
     """What goes inside the block: the pref that turns userChrome.css on,
-    plus whatever configuration/user.js the theme ships."""
+    plus whatever configuration/user.js the theme ships.
+
+    `pref_files` are further preference files the person chose explicitly
+    (relative to `repo_root`, or to the theme root without one, as `fxcss
+    install --prefs` records them). Each is
+    included as shipped, under a comment naming it, so the block can be read
+    back and removed as one unit. A chosen file that is missing is skipped
+    here -- the caller has already checked continuity and said so.
+    """
     body = STYLESHEET_PREF
     shipped = Path(theme_root) / "configuration" / "user.js"
     if shipped.is_file():
         body += "\n\n" + shipped.read_text(encoding="utf-8",
                                            errors="replace").rstrip("\n")
+    for relative in pref_files or []:
+        path = safe_theme_path(repo_root or theme_root, relative)
+        if path is None or not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace").rstrip("\n")
+        body += f"\n\n/* fxcss: from the theme's {_printable(str(relative))} */\n{text}"
     # Sanitised here too, so the manifest records the block as written.
     return sanitize_block_body(body)
+
+
+def safe_theme_path(theme_root, relative):
+    """`theme_root/relative`, or None when `relative` strays outside it."""
+    text = str(relative or "")
+    parts = Path(text).parts
+    if not parts or ".." in parts or Path(text).is_absolute():
+        return None
+    candidate = Path(theme_root).joinpath(*parts)
+    try:
+        candidate.resolve().relative_to(Path(theme_root).resolve())
+    except ValueError:
+        return None
+    return candidate
 
 
 PREF_NAME_RE = re.compile(
@@ -457,15 +495,11 @@ def _strip_js_comments(text):
 def css_references(text):
     """(kind, target) for each live @import ("import") and url() ("url").
 
-    Commented-out references are skipped and strings are respected, but CSS
-    escapes inside a target are not decoded.
+    Use the shared inventory grammar, including CSS escapes.
     """
-    for match in CSS_TOKEN_RE.finditer(text):
-        for kind, group in (("import", "imp"), ("import", "bimp"),
-                            ("url", "url"), ("url", "burl")):
-            if match.group(group) is not None:
-                yield kind, match.group(group)
-                break
+    from .inventory import references
+    for reference in references(text):
+        yield reference["kind"], reference["target"]
 
 
 def _local_reference(target):
@@ -475,13 +509,8 @@ def _local_reference(target):
     leading slash, a drive letter -- or a bare #fragment resolves the same
     wherever the sheet sits, so only relative paths need carrying along.
     """
-    from urllib.parse import unquote
-
-    target = target.strip()
-    if not target or target.startswith(("#", "/", "\\")) \
-            or re.match(r"^[A-Za-z][\w+.-]*:", target):
-        return None
-    return unquote(re.split(r"[?#]", target, maxsplit=1)[0]) or None
+    from .inventory import local_target
+    return local_target(target)
 
 
 def _inside(path, root):
@@ -536,6 +565,9 @@ def _copy_sheet_dependencies(sheet, dest, chrome, source_root, budget):
             if placed.exists():
                 if not placed.is_file() or \
                         placed.read_bytes() != resolved.read_bytes():
+                    if placed in budget.get("written", set()):
+                        raise RuntimeError(f"selected optional sheets need different files at "
+                                           f"chrome/{placed.relative_to(chrome).as_posix()}")
                     notes.append(
                         f"{label} (the theme's own chrome/"
                         f"{placed.relative_to(chrome).as_posix()} kept)")
@@ -556,6 +588,7 @@ def _copy_sheet_dependencies(sheet, dest, chrome, source_root, budget):
                              "not copied)")
                 continue
             shutil.copy2(resolved, placed)
+            budget.setdefault("written", set()).add(placed)
             if kind == "import" or placed.suffix.lower() == ".css":
                 queue.append((origin, placed))
     return notes
@@ -578,7 +611,7 @@ def variant_destination(chrome_dir, filename):
     for css in sorted(chrome_dir.rglob("*.css")):
         text = css.read_text(encoding="utf-8", errors="replace")
         for kind, target in css_references(text):
-            target = target.strip()
+            target = _local_reference(target)
             if kind != "import" or not target:
                 continue
             if not (target.lower().endswith("/" + needle)
@@ -714,6 +747,73 @@ def drift(profile, manifest=None):
     return result
 
 
+def user_additions(profile, manifest=None):
+    """Files the person added to a managed chrome/ since fxcss wrote it.
+
+    Returns {"files": [relative paths], "skipped": [relative paths]} where
+    paths are profile-relative ("chrome/custom/mine.css"). These are the
+    files an upgrade must keep *active*, not merely keep in a backup: a
+    stylesheet imported from customChrome.css stops applying the moment it
+    is only in chrome.backup-*. Git metadata and anything that is not a
+    regular file is listed under `skipped` -- a clone's .git/ belongs to the
+    old tree, and a symlink could point anywhere.
+    """
+    profile = Path(profile)
+    manifest = read_manifest(profile) if manifest is None else manifest
+    if not manifest:
+        return {"files": [], "skipped": []}
+    files, skipped = [], []
+    for relative in drift(profile, manifest)["extra"]:
+        parts = Path(relative).parts
+        path = profile.joinpath(*parts)
+        if ".git" in parts or path.is_symlink() or not path.is_file():
+            skipped.append(relative)
+        else:
+            files.append(relative)
+    return {"files": files, "skipped": skipped}
+
+
+def preservation_plan(profile, additions, staged_chrome):
+    """How each user-added file fares against a staged replacement chrome/.
+
+    Returns {carry, identical, collisions}: `carry` are paths the new tree
+    does not have, so the user's bytes go across untouched; `identical` are
+    paths the new version now ships with exactly the user's bytes (upstream
+    adopted the file -- nothing to carry); `collisions` are paths where the
+    new version ships different bytes, which no rule can settle silently.
+    Nothing is copied here; this is the reviewable part.
+    """
+    profile, staged_chrome = Path(profile), Path(staged_chrome)
+    plan = {"carry": [], "identical": [], "collisions": []}
+    for relative in additions:
+        parts = Path(relative).parts[1:]  # drop the leading "chrome"
+        staged = staged_chrome.joinpath(*parts)
+        if staged.is_file():
+            if staged.read_bytes() == profile.joinpath(*Path(relative).parts).read_bytes():
+                plan["identical"].append(relative)
+            else:
+                plan["collisions"].append(relative)
+        elif staged.exists() or staged.is_symlink() or any(
+                parent.is_file() for parent in staged.parents
+                if parent != staged_chrome and staged_chrome in parent.parents):
+            # A directory where the user had a file, or a file where the user
+            # had a directory: the user's bytes cannot land there either.
+            plan["collisions"].append(relative)
+        else:
+            plan["carry"].append(relative)
+    return plan
+
+
+def _carry_additions(profile, carry, staged_chrome):
+    """Copy user-added files into staging at the same chrome/-relative place."""
+    profile, staged_chrome = Path(profile), Path(staged_chrome)
+    for relative in carry:
+        parts = Path(relative).parts
+        dest = staged_chrome.joinpath(*parts[1:])
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(profile.joinpath(*parts), dest)
+
+
 # --- install ----------------------------------------------------------------
 
 def _timestamp():
@@ -798,7 +898,7 @@ def _sheet_source_root(theme_root, sheet):
     return sheet_dir if common == Path(common.anchor) else common
 
 
-def _prepare_chrome(theme_root, chrome, sheets, notes=None):
+def _prepare_chrome(theme_root, chrome, sheets, notes=None, repo_root=None):
     """Build a complete replacement in staging, without touching live files.
 
     Notes about optional-sheet references that could not be carried along
@@ -811,34 +911,84 @@ def _prepare_chrome(theme_root, chrome, sheets, notes=None):
     # Some themes @import customChrome.css without shipping it; an empty file
     # keeps the import resolving (same courtesy core.build_profile extends).
     placeholder = chrome / "customChrome.css"
-    if not placeholder.exists() and "customChrome.css" in \
-            (chrome / "userChrome.css").read_text(encoding="utf-8",
-                                                  errors="replace"):
+    entry = chrome / "userChrome.css"
+    if not placeholder.exists() and entry.is_file() and "customChrome.css" in \
+            entry.read_text(encoding="utf-8", errors="replace"):
         placeholder.write_text("/* placeholder created by fxcss */\n",
                                encoding="utf-8")
+    if sheets and not entry.exists():
+        # A userContent.css-only theme has nothing to layer optional sheets
+        # onto; an empty entry gives the wrapper below something to import.
+        entry.write_text("/* entry created by fxcss for optional sheets */\n",
+                         encoding="utf-8")
     installed_sheets, extra_imports = [], []
     budget = {"files": MAX_SHEET_DEPENDENCIES,
-              "bytes": MAX_SHEET_DEPENDENCY_BYTES}
+              "bytes": MAX_SHEET_DEPENDENCY_BYTES, "written": set()}
+    # Allocate from the pristine tree, before a selected option's own imports
+    # can be mistaken for a native slot for the next option.
+    sheets = list(dict.fromkeys(Path(sheet) for sheet in sheets))
+    destinations = []
     for sheet in sheets:
-        sheet = Path(sheet)
-        dest = variant_destination(chrome, sheet.name)
-        if dest is None:
-            # No import site exists: load it after the base through a wrapper.
-            dest = chrome / "custom" / sheet.name
+        source_root = _sheet_source_root(theme_root, sheet)
+        if repo_root is not None and _inside(sheet.resolve(), Path(repo_root).resolve()):
+            source_root = Path(repo_root).resolve()
+        source_chrome = (Path(theme_root) / "chrome").resolve()
+        if _inside(sheet.resolve(), source_chrome):
+            dest = chrome / sheet.resolve().relative_to(source_chrome)
             extra_imports.append(quote(dest.relative_to(chrome).as_posix()))
+        else:
+            dest = variant_destination(chrome, sheet.name)
+        if dest is None:
+            if len(sheets) > 1:
+                # Independent option trees retain ../ dependencies without
+                # borrowing a sibling option's asset with the same filename.
+                relative = sheet.resolve().relative_to(source_root)
+                key = hashlib.sha256(relative.as_posix().encode()).hexdigest()[:16]
+                dest = chrome / "fxcss-options" / key / relative
+            else:
+                dest = chrome / "custom" / sheet.name
+            extra_imports.append(quote(dest.relative_to(chrome).as_posix()))
+        if any(dest == previous for _, previous, _ in destinations):
+            raise RuntimeError(f"selected optional sheets share the native import slot "
+                               f"chrome/{dest.relative_to(chrome).as_posix()}; choose one")
+        destinations.append((sheet, dest, source_root))
+    for sheet, dest, source_root in destinations:
+        if dest.exists() and (not dest.is_file() or dest.read_bytes() != sheet.read_bytes()):
+            raise RuntimeError(f"optional sheet {sheet.name} would overwrite a different file at "
+                               f"chrome/{dest.relative_to(chrome).as_posix()}")
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(sheet, dest)
+        budget["written"].add(dest)
         installed_sheets.append(sheet.stem)
         found = _copy_sheet_dependencies(
-            sheet, dest, chrome, _sheet_source_root(theme_root, sheet), budget)
+            sheet, dest, chrome, source_root, budget)
         if notes is not None:
             notes.extend(found)
     layer_stylesheets(chrome / "userChrome.css", extra_imports)
     return installed_sheets
 
 
+def preview_digests(theme_root, sheets=(), repo_root=None):
+    """What an install from `theme_root` would record, without installing.
+
+    Returns {relative path: sha256} for the files the theme itself would put
+    under chrome/ (optional sheets included), computed from a staging copy
+    that is discarded. Comparing this with a manifest's `digests` answers
+    "has the local source changed since it was installed?" exactly, where
+    the old answer -- "a local source might have changed" -- announced an
+    upgrade every time.
+    """
+    theme_root = Path(theme_root)
+    with tempfile.TemporaryDirectory(prefix="fxcss-preview-") as td:
+        chrome = Path(td) / "chrome"
+        _prepare_chrome(theme_root, chrome, sheets, [], repo_root=repo_root)
+        return {("chrome/" + p.relative_to(chrome).as_posix()): _digest(p)
+                for p in chrome.rglob("*") if p.is_file() and p.name != MANIFEST_NAME}
+
+
 def install_theme(theme_root, profile, theme_id, sheets=(), stamp=None,
-                  source=None, origin_backup=_UNSET):
+                  source=None, origin_backup=_UNSET, on_collision="stop",
+                  extra=None, repo_root=None):
     """Prepare a theme, then swap it into the profile with a way back.
 
     All copies, optional imports, prefs and the manifest are prepared on the
@@ -849,14 +999,27 @@ def install_theme(theme_root, profile, theme_id, sheets=(), stamp=None,
     `origin_backup` is carried through upgrades, including None for a profile
     that originally had no chrome/. `source` records how to fetch the theme
     again; older callers can still supply that information in `theme_id`.
+
+    When the active chrome/ is one fxcss manages, files the person added to
+    it are carried into the new tree so they stay active (`user_files` in
+    the manifest). A path the new version now ships with different bytes is
+    a collision: with `on_collision="stop"` (the default) CollisionError is
+    raised before anything moves; with "theme" the new version's file is
+    installed and the person's copy stays in the backup. `extra` is a dict
+    of additional manifest keys (layout, pref files) the caller wants kept.
     """
     from . import __version__
 
     theme_root, profile = Path(theme_root), Path(profile)
-    if not (theme_root / "chrome" / "userChrome.css").is_file():
-        raise RuntimeError(f"no chrome/userChrome.css under {theme_root}")
+    entries = [name for name in ENTRY_SHEETS
+               if (theme_root / "chrome" / name).is_file()]
+    if not entries:
+        raise RuntimeError(f"no chrome/userChrome.css or chrome/userContent.css "
+                           f"under {theme_root}")
     if not profile.is_dir():
         raise RuntimeError(f"profile directory does not exist: {profile}")
+    if on_collision not in ("stop", "theme"):
+        raise ValueError(f"on_collision must be 'stop' or 'theme', not {on_collision!r}")
 
     active = profile / "chrome"
     user_js = profile / "user.js"
@@ -869,10 +1032,29 @@ def install_theme(theme_root, profile, theme_id, sheets=(), stamp=None,
             chrome = staging / "chrome"
             sheet_notes = []
             installed_sheets = _prepare_chrome(theme_root, chrome, sheets,
-                                               sheet_notes)
+                                               sheet_notes, repo_root=repo_root)
+            # Upstream-owned files are recorded before the person's own are
+            # merged in, so `files`/`digests` describe only what the theme
+            # shipped and uninstall never removes something it did not write.
+            files = sorted(p.relative_to(staging).as_posix()
+                           for p in chrome.rglob("*")
+                           if p.is_file() and p != chrome / MANIFEST_NAME)
+            digests = {name: digest for name, digest in
+                       ((name, _digest(staging / name)) for name in files)
+                       if digest}
+            user_files, displaced = [], []
+            if previous:
+                additions = user_additions(profile, previous)
+                plan = preservation_plan(profile, additions["files"], chrome)
+                if plan["collisions"] and on_collision == "stop":
+                    raise CollisionError(plan["collisions"])
+                displaced = plan["collisions"]
+                _carry_additions(profile, plan["carry"], chrome)
+                user_files = sorted(plan["carry"])
             created = not user_js.exists()
             existing = "" if created else read_prefs(user_js)
-            block = user_js_body(theme_root)
+            block = user_js_body(theme_root, (extra or {}).get("pref_files"),
+                                 repo_root=repo_root)
             staged_prefs = staging / "user.js"
             if not created:
                 shutil.copy2(user_js, staged_prefs)
@@ -881,9 +1063,6 @@ def install_theme(theme_root, profile, theme_id, sheets=(), stamp=None,
             # not something an upgrade should reset just because it exists.
             if origin_backup is not _UNSET and previous:
                 created = previous.get("user_js_created", created)
-            files = sorted(p.relative_to(staging).as_posix()
-                           for p in chrome.rglob("*")
-                           if p.is_file() and p != chrome / MANIFEST_NAME)
             manifest = {
                 "schema": MANIFEST_SCHEMA,
                 "fxcss": __version__,
@@ -898,10 +1077,15 @@ def install_theme(theme_root, profile, theme_id, sheets=(), stamp=None,
                 # References in those sheets that could not be installed.
                 "sheet_notes": sheet_notes,
                 "files": files,
-                "digests": {name: digest for name, digest in
-                            ((name, _digest(staging / name)) for name in files)
-                            if digest},
+                "digests": digests,
+                # The person's own files, kept active across this install;
+                # and the ones the new version displaced (still in `backup`).
+                "user_files": user_files,
+                "displaced": displaced,
             }
+            for key, value in (extra or {}).items():
+                if key not in manifest:
+                    manifest[key] = value
             (chrome / MANIFEST_NAME).write_text(
                 json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
 
@@ -1222,16 +1406,27 @@ def uninstall_theme(profile, stamp=None):
     backups = [b for b in list_backups(profile) if not b["path"].is_symlink()]
     stamp = stamp or _timestamp()
     summary = {"removed": 0, "restored": None, "moved_aside": None,
-               "kept": [], "theme": manifest.get("theme") if manifest else None}
-    if not manifest and not backups:
-        raise RuntimeError(
-            f"nothing fxcss installed in {profile}: no "
-            f"chrome/{MANIFEST_NAME} and no chrome.backup-* to restore")
+               "kept": [], "theme": manifest.get("theme") if manifest else None,
+               "noop": False}
     with _profile_work(profile, "uninstall") as work:
         prefs = _clean_prefs(work, profile, manifest)
         if prefs is not None:
             summary["user_js_cleaned"] = True
         outgoing = work / "previous"
+        if not manifest:
+            # A chrome/ without a manifest is the person's own: what a
+            # rollback to the original put back, or a theme installed by
+            # hand. There is no managed installation to remove, so nothing
+            # moves -- restoring the newest backup here would reinstall the
+            # theme the rollback just took out. The same holds when chrome/
+            # is absent after uninstall. Only a stray pref block is ours to clean up.
+            summary["noop"] = True
+            summary["backups"] = [b["name"] for b in backups]
+            if prefs is _REMOVE_PREFS:
+                (profile / "user.js").unlink()
+            elif prefs is not None:
+                prefs.replace(profile / "user.js")
+            return summary
         if manifest:
             # Preserve links as links; never traverse them while removing files.
             shutil.copytree(chrome, work / "chrome", symlinks=True)
@@ -1255,11 +1450,5 @@ def uninstall_theme(profile, stamp=None):
                 if backup.is_dir() and not backup.is_symlink():
                     replacement = backup
                     summary["restored"] = recorded
-        else:
-            replacement = backups[0]["path"]
-            summary["restored"] = replacement.name
-            outgoing = _spare_name(profile, f"chrome.removed-{stamp}")
-            if chrome.exists() or chrome.is_symlink():
-                summary["moved_aside"] = outgoing.name
         _swap_profile(profile, replacement, outgoing, prefs, work)
     return summary

@@ -173,20 +173,28 @@ class ConnectionLifecycleTests(unittest.TestCase):
 
 
 class ConnectionCliTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        theme = Path(temporary.name)
+        (theme / "chrome").mkdir()
+        (theme / "chrome" / "userChrome.css").write_text("/* test theme */")
+        self.argv = ["doctor", "--theme", str(theme)]
+
     def test_normal_marionette_failures_are_reported_without_tracebacks(self):
         for error in (core.MarionetteError("Firefox exited with status 3"),
                       core.BrowserStartupError("initial document timed out")):
             with self.subTest(error=error):
                 stderr = io.StringIO()
                 with patch.object(cli, "cmd_doctor", side_effect=error), contextlib.redirect_stderr(stderr):
-                    self.assertEqual(cli.main(["doctor"]), 2)
+                    self.assertEqual(cli.main(self.argv), 2)
                 self.assertIn(f"error: {error}", stderr.getvalue())
                 self.assertNotIn("Traceback", stderr.getvalue())
 
     def test_programming_errors_still_propagate(self):
         with patch.object(cli, "cmd_doctor", side_effect=ValueError("bug")):
             with self.assertRaisesRegex(ValueError, "bug"):
-                cli.main(["doctor"])
+                cli.main(self.argv)
 
 
 if __name__ == "__main__":

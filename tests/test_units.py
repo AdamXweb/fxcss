@@ -7,6 +7,7 @@ for the logic that can regress silently inside it.
 """
 
 import json
+import shutil
 import re
 import tempfile
 import unittest
@@ -2058,31 +2059,46 @@ class UninstallThemeTests(unittest.TestCase):
             self.assertTrue(
                 (profile / "chrome.backup-20260814120000").is_dir())
 
-    def test_without_manifest_nothing_is_deleted(self):
+    def test_without_manifest_nothing_is_deleted_or_restored(self):
+        """A chrome/ with no manifest is the person's own state, whatever
+        backups sit beside it: uninstall has nothing managed to remove and
+        must not swap a theme backup back in over it."""
         from fxcss.install import uninstall_theme
         with tempfile.TemporaryDirectory() as td:
             profile = self.installed(Path(td))
             (profile / "chrome" / "fxcss-install.json").unlink()
+            before = sorted(p.relative_to(profile).as_posix()
+                            for p in profile.rglob("*") if p.is_file())
             summary = uninstall_theme(profile, stamp="20260814130000")
-            self.assertEqual(summary["moved_aside"],
-                             "chrome.removed-20260814130000")
-            self.assertEqual(summary["restored"],
-                             "chrome.backup-20260814120000")
-            self.assertEqual(
-                (profile / "chrome" / "userChrome.css").read_text(),
-                "/* the user's own */\n")
-            self.assertTrue((profile / summary["moved_aside"]).is_dir())
+            self.assertTrue(summary["noop"])
+            self.assertIsNone(summary["moved_aside"])
+            self.assertIsNone(summary["restored"])
+            self.assertEqual(summary["backups"], ["chrome.backup-20260814120000"])
+            after = sorted(p.relative_to(profile).as_posix()
+                           for p in profile.rglob("*") if p.is_file())
+            self.assertEqual(before, after)
+            self.assertFalse(list(profile.glob("chrome.removed-*")))
 
-    def test_nothing_installed_is_an_error_not_a_wipe(self):
+    def test_missing_chrome_with_backups_requires_explicit_rollback(self):
+        from fxcss.install import uninstall_theme
+        with tempfile.TemporaryDirectory() as td:
+            profile = self.installed(Path(td))
+            shutil.rmtree(profile / "chrome")
+            summary = uninstall_theme(profile)
+            self.assertTrue(summary["noop"])
+            self.assertIsNone(summary["restored"])
+            self.assertFalse((profile / "chrome").exists())
+            self.assertTrue((profile / "chrome.backup-20260814120000").is_dir())
+
+    def test_nothing_installed_is_a_noop_not_a_wipe(self):
         from fxcss.install import uninstall_theme
         with tempfile.TemporaryDirectory() as td:
             profile = Path(td)
             (profile / "chrome").mkdir()
-            (profile / "chrome" / "userChrome.css").write_text(
-                "/* hand-made */\n", encoding="utf-8")
-            with self.assertRaises(RuntimeError):
-                uninstall_theme(profile)
-            self.assertTrue((profile / "chrome" / "userChrome.css").is_file())
+            original = profile / "chrome" / "userChrome.css"
+            original.write_bytes(b"/* hand-made */\n")
+            self.assertTrue(uninstall_theme(profile)["noop"])
+            self.assertEqual(original.read_bytes(), b"/* hand-made */\n")
 
     def test_tampered_manifest_cannot_reach_outside_chrome(self):
         import json
@@ -2627,7 +2643,7 @@ class InstallSourceTests(unittest.TestCase):
     """`ref_kind` is settled where it is known, and never inferred later."""
 
     INFO = {"release": {"tag": "v2.0.0"}, "default_branch": "main",
-            "commit": {"sha": "abc1234"}}
+            "commit": {"sha": "abc1234", "full_sha": "abc1234" + "0" * 33}}
 
     def test_a_release_tag_is_recorded_as_a_release(self):
         from fxcss.cli import _install_source
@@ -2639,7 +2655,7 @@ class InstallSourceTests(unittest.TestCase):
         from fxcss.cli import _install_source
         got = _install_source("o", "n", "main", self.INFO, explicit=False)
         self.assertEqual(got["ref_kind"], "branch")
-        self.assertEqual(got["resolved"], "abc1234")
+        self.assertEqual(got["resolved"], "abc1234" + "0" * 33)
 
     def test_an_explicit_ref_says_so_without_a_lookup(self):
         from fxcss.cli import _install_source

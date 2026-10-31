@@ -161,12 +161,22 @@ def extract_tokens(theme: Path):
     by renaming individual ids and classes, and a whole selector containing
     `&` nesting or `::part()` cannot be handed to querySelectorAll anyway.
     """
+    from . import inventory
     found = {}
-    for path in sorted((theme / "chrome").rglob("*.css")):
+    chrome = theme / "chrome"
+    # Sheets reached only from userContent.css style web and extension
+    # pages; their selectors are never about the browser window, so they
+    # are scoped out the way an @-moz-document block for another document
+    # is, with the reason recorded so the report can say which it was.
+    scanned = inventory.scan(chrome) if chrome.is_dir() else None
+    for path in sorted(chrome.rglob("*.css")):
         try:
             raw = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
+        relative = path.relative_to(chrome).as_posix()
+        content_only = bool(scanned) and relative in scanned["sheets"] \
+            and scanned["sheets"][relative]["scope"] == ["content"]
 
         # Blank comments across the whole file, not per line: a block comment
         # spans lines, and a selector named in prose is not a selector. Newlines
@@ -200,7 +210,8 @@ def extract_tokens(theme: Path):
                         "file": str(path.relative_to(theme)),
                         "line": index + 1,
                         "text": source_lines[index].rstrip(),
-                        "scoped_out": scoped_out,
+                        "scoped_out": scoped_out or content_only,
+                        "document": "content" if content_only else "chrome",
                     })
     return found
 
@@ -370,10 +381,20 @@ def _markup_home(pack, kind, name):
     return where.rsplit("/", 1)[-1] if where else None
 
 
-def suggest(token, dom, pack=None, scoped_out=False):
-    """Infer a replacement for a token that matches nothing."""
+def suggest(token, dom, pack=None, scoped_out=False, document=None):
+    """Infer a replacement for a token that matches nothing.
+
+    `document` says why a use is scoped out: "content" for a rule that
+    loads only through userContent.css, which styles web and extension
+    pages and is never evidence about the browser window.
+    """
     kind, name = token[0], token[1:]
     ids, classes = dom["ids"], dom["classes"]
+
+    if scoped_out and document == "content":
+        return {"replacement": None, "confidence": "other-document",
+                "reason": "loaded only through userContent.css, which styles "
+                          "web and extension pages, not the browser window"}
 
     # Every rule using this token is scoped by @-moz-document to a document the
     # live audit never opens, so the running window's DOM is not evidence about
@@ -461,10 +482,14 @@ def audit(session, theme: Path, verbose=True, pack=None):
         # file:line sites a finding carries, so one shared verdict would let a
         # confident rename reach the sites this audit just admitted it cannot
         # judge -- the very failure the scope check exists to prevent.
-        for scoped_out in sorted({bool(use.get("scoped_out")) for use in uses}):
+        keys = sorted({(bool(use.get("scoped_out")), use.get("document") or "chrome")
+                       for use in uses})
+        for scoped_out, document in keys:
             group = [use for use in uses
-                     if bool(use.get("scoped_out")) is scoped_out]
-            info = suggest(token, dom, pack=pack, scoped_out=scoped_out)
+                     if bool(use.get("scoped_out")) is scoped_out
+                     and (use.get("document") or "chrome") == document]
+            info = suggest(token, dom, pack=pack, scoped_out=scoped_out,
+                           document=document)
             info.update({"token": token, "uses": group})
             findings.append(info)
 
@@ -678,7 +703,7 @@ def report(result, show_all=False, colour=True):
     print()
 
 
-def write_patch(result, theme: Path, out: Path):
+def write_patch(result, theme: Path, out: Path, source_paths=None):
     """Emit a unified diff of the confident replacements, for review."""
     _mark_duplicate_patches(result, theme)
     edits = {}
@@ -703,10 +728,21 @@ def write_patch(result, theme: Path, out: Path):
             index = line_no - 1
             if 0 <= index < len(updated):
                 updated[index] = replace_in_line(updated[index], token, replacement)
+        target = source_paths[rel] if source_paths is not None else rel
+        def header(prefix):
+            name = f"{prefix}/{target}"
+            # Git's quoted-path syntax is needed for control characters,
+            # backslashes and literal double quotes in a repository filename.
+            if any(c in name for c in '\t\n\r\\"'):
+                import json
+                return json.dumps(name, ensure_ascii=False)
+            return name
         chunks.extend(difflib.unified_diff(
-            original, updated, fromfile=f"a/{rel}", tofile=f"b/{rel}", lineterm=""))
+            original, updated, fromfile=header("a"), tofile=header("b"), lineterm=""))
 
-    out.write_text("\n".join(chunks) + "\n", encoding="utf-8")
+    # Git patch syntax uses LF even when generated on Windows. Text-mode
+    # newline translation would add carriage returns to every context line.
+    out.write_bytes(("\n".join(chunks) + "\n").encode("utf-8"))
     return len(edits)
 
 
@@ -739,30 +775,23 @@ ENTRY_SHEETS = ("userChrome.css", "userContent.css")
 # Directories of deliberately opt-in sheets. A theme ships these expecting its
 # installer (or the user) to enable them, so "nothing imports it" is the
 # intended state rather than a finding.
-OPTIONAL_DIRS = {"custom", "optional", "options", "extras", "variants"}
+from .inventory import OPTION_DIRS as _OPTION_DIRS  # noqa: E402
+OPTIONAL_DIRS = set(_OPTION_DIRS)
 
 
 def import_graph(theme: Path):
-    """Every stylesheet reachable by following @import from the entry sheets."""
-    chrome = theme / "chrome"
-    reachable, queue = set(), []
-    for entry in ENTRY_SHEETS:
-        path = chrome / entry
-        if path.exists():
-            queue.append(path.resolve())
+    """Every stylesheet reachable by following @import from the entry sheets.
 
-    while queue:
-        current = queue.pop()
-        if current in reachable or not current.exists():
-            continue
-        reachable.add(current)
-        text = COMMENT.sub("", current.read_text(encoding="utf-8", errors="replace"))
-        for target in IMPORT_RE.findall(text):
-            target = target.strip()
-            if re.match(r"^(chrome:|resource:|https?:|data:)", target):
-                continue
-            queue.append((current.parent / target).resolve())
-    return reachable
+    Read through the shared inventory, so quoted and unquoted imports,
+    escaped paths and conditional imports all count -- the same reading
+    install and upgrade use. Returns resolved absolute paths.
+    """
+    from . import inventory
+    chrome = theme / "chrome"
+    if not chrome.is_dir():
+        return set()
+    found = inventory.scan(chrome)
+    return {inventory._locate(chrome, key).resolve() for key in found["sheets"]}
 
 
 def custom_properties(paths):
@@ -829,11 +858,13 @@ def probe_properties(session, names):
 
 def collect_unused(theme: Path):
     """The parts that need no browser: reachability and property bookkeeping."""
+    from . import inventory
     chrome = theme / "chrome"
     if not chrome.is_dir():
         return None
 
-    reachable = import_graph(theme)
+    found = inventory.scan(chrome)
+    reachable = {(chrome / relative).resolve() for relative in found["sheets"]}
     orphans, optional = [], []
     for sheet in sorted(chrome.rglob("*.css")):
         if sheet.resolve() in reachable:
@@ -853,6 +884,19 @@ def collect_unused(theme: Path):
         "used": used,
         "kept": kept,
         "devtools": devtools,
+        # What the inventory could and could not settle: an unresolved
+        # required import or a missing entry means the picture is partial,
+        # and the report says so instead of reading as clean.
+        "analysis": {
+            "complete": found["complete"],
+            "reasons": list(found["reasons"]),
+            "entries": list(found["entries"]),
+            "unresolved": [f"{e['source']} → {e['target']}" for e in found["unresolved"]],
+            "conditional": [f"{e['source']} → {e['target']}" for e in found["conditional"]],
+            "hooks": sorted({Path(e["resolved"]).name for e in found["hooks"]}),
+            "content_only": sorted(rel for rel, s in found["sheets"].items()
+                                   if s["scope"] == ["content"]),
+        },
     }
 
 
@@ -957,6 +1001,7 @@ def classify_unused(static, firefox_knows, pack=None):
         "reachable": static["reachable"],
         "orphans": static["orphans"],
         "optional": static["optional"],
+        "analysis": static.get("analysis") or {"complete": True, "reasons": []},
         "overrides": len(overrides),
         "kept": sorted(kept & (defined_only | devtools_only)),
         "packed": pack is not None,
@@ -980,6 +1025,24 @@ def report_unused(unused, colour=True, show_all=False):
     print(c(BOLD, "  Unused and unreachable"))
     print(f"  {c(DIM, 'Housekeeping, not breakage — nothing here stops the theme working.')}")
     print()
+
+    analysis = unused.get("analysis") or {}
+    if analysis and not analysis.get("complete", True):
+        print(f"  {c(YELLOW, 'INCOMPLETE')}    the import graph could not be read in full, "
+              "so the findings\n  below describe only the part that resolved:")
+        for reason in analysis.get("reasons") or []:
+            print(f"    {reason}")
+        print()
+    if analysis.get("conditional"):
+        count = len(analysis["conditional"])
+        print(f"  {c(DIM, f'{count} conditional import(s) point at files not shipped; off unless their pref or media applies.')}")
+    if analysis.get("hooks"):
+        print(f"  {c(DIM, 'User hook(s) the theme imports but does not ship, as intended: ' + ', '.join(analysis['hooks']))}")
+    if analysis.get("content_only"):
+        count = len(analysis["content_only"])
+        print(f"  {c(DIM, f'{count} stylesheet(s) load only through userContent.css (web and extension pages, not the browser window).')}")
+    if analysis.get("conditional") or analysis.get("hooks") or analysis.get("content_only"):
+        print()
 
     if unused["orphans"]:
         print(f"  {c(YELLOW, 'NOT IMPORTED')}  {len(unused['orphans'])} stylesheet"

@@ -108,9 +108,11 @@ def main():
                 session_chrome = session.profile / "chrome"
                 expected_base = (session_chrome / "assets" / "probe.svg").as_uri()
                 if mode == "install":
-                    # install_theme copied the optional sheet's own files under
-                    # chrome/custom/, keeping their layout relative to the sheet.
-                    option_image = session_chrome / "custom" / "assets" / "option.svg"
+                    # Multiple options can live in separate trees to avoid
+                    # same-name asset collisions. Dependencies must remain
+                    # beside the installed sheet, whatever its allocated path.
+                    first_copy, = session_chrome.rglob(first.name)
+                    option_image = first_copy.parent / "assets" / "option.svg"
                     assert option_image.is_file(), sorted(session_chrome.rglob("*"))
                     expected_option = option_image.as_uri()
                 else:
