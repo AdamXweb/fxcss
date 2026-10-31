@@ -122,6 +122,21 @@
 .coffee-replay { display: flex !important; padding: 8px 0 0; font-size: 12px; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
 .coffee-dismiss { padding: 2px; margin-left: auto; }
 
+/* The logo picker wears the outline of `fxcss pick`. Its label is a deeper
+   pink so the white selector text keeps 4.9:1 contrast. */
+.brand { user-select: none; }
+.brand[data-picking] .brand-mark { visibility: hidden; }
+html[data-logo-picking], html[data-logo-picking] * { cursor: grabbing !important; }
+.logo-picker-outline, .logo-picker-ghost, .logo-picker-label { position: fixed; top: 0; left: 0; pointer-events: none; }
+.logo-picker-outline { z-index: 1000; box-sizing: border-box; border: 2px solid #ff0080; border-radius: 3px; background: #ff008024; }
+.logo-picker-ghost { z-index: 1001; scale: 1.15; filter: drop-shadow(0 8px 10px #18213947); }
+.logo-picker-ghost .brand-braces { filter: drop-shadow(0 0 12px #00ddef) drop-shadow(0 0 24px #00ddef88); }
+.logo-picker-label { z-index: 1002; max-width: calc(100% - 8px); overflow: hidden; padding: 2px 6px; border-radius: 3px; background: #db0078; color: #fff; font: 12px/1.5 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; text-overflow: ellipsis; white-space: nowrap; }
+@media (prefers-reduced-motion: no-preference) {
+  .logo-picker-ghost { animation: logo-picker-lift 140ms ease-out; }
+}
+@keyframes logo-picker-lift { from { scale: 1; } }
+
 /* The arena uses the site's purple, orange and monospace details. */
 .battle-page { max-width: 960px; padding-top: 60px; padding-bottom: 100px; }
 .battle-intro { margin-bottom: 40px; }

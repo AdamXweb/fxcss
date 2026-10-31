@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { searchSecret } from '../lib/easter-eggs.ts';
+import { authoredClasses, classedElement, classesOf, classLabel, labelPosition } from '../lib/logo-picker.ts';
 import { battleRounds, winningRule } from '../lib/specificity.ts';
 import { watchSleepyFavicon } from '../lib/sleepy-favicon.ts';
 import { retroDestinationForQuery, retroDestinations, storedRetroDestination } from '../lib/time-machine.ts';
@@ -92,4 +93,52 @@ test('favicon sleeps in every format, handles navigation metadata and restores e
   assert.equal(replacement.getAttribute('href'), '/replacement.ico');
   assert.equal(listeners.size, 0);
   assert.equal(disconnected, true);
+});
+
+test('the logo picker labels the nearest classed element, never <body> or <html>', () => {
+  const element = (localName, className, parentElement = null) => ({ localName, parentElement, getAttribute: (name) => (name === 'class' ? className : null) });
+  const html = element('html', 'js');
+  const body = element('body', 'page', html);
+  const main = element('main', null, body);
+  const card = element('article', ' card  missing card ', main);
+  const text = element('p', '   ', card);
+  assert.deepEqual(classesOf(card), ['card', 'missing']);
+  assert.deepEqual(classesOf(text), []);
+  assert.equal(classedElement(text), card);
+  assert.equal(classedElement(card), card);
+  assert.equal(classedElement(main), null);
+  assert.equal(classedElement(null), null);
+});
+
+test('logo picker labels prefer the site’s own classes over layered utilities', () => {
+  class Layer { constructor(cssRules) { this.cssRules = cssRules; } }
+  const authored = authoredClasses([
+    { cssRules: [
+      { selectorText: '.site-header nav a:hover' },
+      { selectorText: 'html[data-retro] :is(.showcase, .field-guide)' },
+      new Layer([{ selectorText: '.inline-flex' }, { media: {}, cssRules: [{ selectorText: '.md\\:flex' }] }]),
+      { media: {}, cssRules: [{ selectorText: '.detail-toggle[data-slot="button"]' }] },
+      { name: 'spin', cssRules: [{ keyText: 'from' }] },
+    ] },
+    { get cssRules() { throw new Error('SecurityError'); } },
+  ], Layer);
+  assert.deepEqual([...authored].sort(), ['detail-toggle', 'field-guide', 'showcase', 'site-header']);
+
+  const escape = (name) => name.replace(/[[\]:]/g, '\\$&');
+  assert.equal(classLabel(['site-header', 'docs-header'], new Set(['site-header', 'docs-header']), escape), '.site-header.docs-header');
+  // A Tailwind component is named by the class the site styles it with.
+  assert.equal(classLabel(['inline-flex', 'hover:bg-muted', 'detail-toggle'], authored, escape), '.detail-toggle');
+  // Utilities alone are shown escaped, and a long list is shortened.
+  assert.equal(classLabel(['lucide', 'lucide-x'], authored, escape), '.lucide.lucide-x');
+  assert.equal(classLabel(['relative', 'h-[1px]', 'hover:underline', 'flex-1', 'gap-2'], authored, escape), '.relative.h-\\[1px\\].hover\\:underline +2');
+});
+
+test('logo picker labels sit underneath, flip above at the bottom and stay on screen', () => {
+  const label = { width: 120, height: 22 };
+  const viewport = { width: 1280, height: 900 };
+  assert.deepEqual(labelPosition({ left: 100, top: 50, bottom: 90 }, label, viewport), { left: 100, top: 92 });
+  assert.deepEqual(labelPosition({ left: 100, top: 800, bottom: 890 }, label, viewport), { left: 100, top: 776 });
+  assert.deepEqual(labelPosition({ left: 1250, top: 50, bottom: 90 }, label, viewport), { left: 1156, top: 92 });
+  // An element taller than the viewport keeps its label inside it.
+  assert.deepEqual(labelPosition({ left: -20, top: -400, bottom: 2000 }, label, viewport), { left: 4, top: 874 });
 });
