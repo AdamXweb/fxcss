@@ -173,41 +173,134 @@ export function pickReport(element: Element): PickReport {
   };
 }
 
-/** The report as `fxcss pick` would print it in a terminal. */
-export function reportLines(report: PickReport) {
-  const { box, rules } = report;
-  const lines = [`${report.tag}  →  ${report.label}`];
-  const { classes } = report;
-  if (classes.length)
-    lines.push(
-      `classes   ${classes.slice(0, SHOWN_CLASSES).join(' ')}` +
-        (classes.length > SHOWN_CLASSES
-          ? ` +${classes.length - SHOWN_CLASSES} more`
-          : ''),
-    );
-  lines.push(
-    `box       ${box.width}×${box.height} at (${box.x}, ${box.y})` +
-      (box.width && box.height ? '' : '   (not visible in this layout)'),
+/** What a piece of the report is, so the card can colour it. */
+export type TokenKind =
+  | 'text'
+  | 'label'
+  | 'muted'
+  | 'tag'
+  | 'heading'
+  | 'class'
+  | 'attribute'
+  | 'pseudo'
+  | 'property'
+  | 'value'
+  | 'colour';
+export type Token = { kind: TokenKind; text: string };
+
+const token = (kind: TokenKind, text: string): Token => ({ kind, text });
+
+/** Pieces of text matched by a pattern, with the text between them. */
+function split(
+  text: string,
+  pattern: RegExp,
+  kindOf: (match: RegExpMatchArray) => TokenKind,
+  between: TokenKind,
+) {
+  const tokens: Token[] = [];
+  let last = 0;
+  for (const match of text.matchAll(pattern)) {
+    if (match.index > last)
+      tokens.push(token(between, text.slice(last, match.index)));
+    tokens.push(token(kindOf(match), match[0]));
+    last = match.index + match[0].length;
+  }
+  if (last < text.length) tokens.push(token(between, text.slice(last)));
+  return tokens;
+}
+
+/** A selector with its classes, attribute tests and pseudo-classes marked. */
+export function selectorTokens(selector: string) {
+  return split(
+    selector,
+    /(\.(?:\\.|[\w-])+)|(\[[^\]]*\])|(::?[\w-]+)/g,
+    (match) => (match[1] ? 'class' : match[2] ? 'attribute' : 'pseudo'),
+    'text',
   );
-  if (report.styles.length) {
-    lines.push('styles');
-    for (const [property, value] of report.styles)
-      lines.push(`  ${property}: ${value}`);
+}
+
+/** A computed value with each colour in it marked, for a swatch. */
+export function valueTokens(value: string) {
+  return split(
+    value,
+    /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\([^)]*\)/g,
+    () => 'colour',
+    'value',
+  );
+}
+
+/**
+ * The report as `fxcss pick` prints it, one array of tokens per line. Style
+ * values line up in a column, which the terminal leaves ragged.
+ */
+export function reportTokens(report: PickReport): Token[][] {
+  const { box, classes, rules, styles } = report;
+  const lines: Token[][] = [
+    [
+      token('tag', report.tag),
+      token('muted', '  →  '),
+      token('heading', report.label),
+    ],
+  ];
+  if (classes.length)
+    lines.push([
+      token('label', 'classes   '),
+      ...classes
+        .slice(0, SHOWN_CLASSES)
+        .flatMap((name, index) => [
+          ...(index ? [token('text', ' ')] : []),
+          token('class', name),
+        ]),
+      ...(classes.length > SHOWN_CLASSES
+        ? [token('muted', ` +${classes.length - SHOWN_CLASSES} more`)]
+        : []),
+    ]);
+  lines.push([
+    token('label', 'box       '),
+    token('value', `${box.width}×${box.height}`),
+    token('label', ' at '),
+    token('value', `(${box.x}, ${box.y})`),
+    ...(box.width && box.height
+      ? []
+      : [token('muted', '   (not visible in this layout)')]),
+  ]);
+  if (styles.length) {
+    lines.push([token('label', 'styles')]);
+    const width = Math.max(...styles.map(([property]) => property.length));
+    for (const [property, value] of styles)
+      lines.push([
+        token('text', '  '),
+        token('property', property),
+        token('muted', ':'.padEnd(width - property.length + 2)),
+        ...valueTokens(value),
+      ]);
   }
   if (!rules.length) {
-    lines.push('styled by no rules on this site (browser defaults only)');
+    lines.push([
+      token('label', 'styled by no rules on this site (browser defaults only)'),
+    ]);
     return lines;
   }
-  lines.push(
-    `styled by ${rules.length} rule${rules.length === 1 ? '' : 's'} on this site`,
-  );
+  lines.push([
+    token(
+      'label',
+      `styled by ${rules.length} rule${rules.length === 1 ? '' : 's'} on this site`,
+    ),
+  ]);
   for (const rule of rules.slice(0, SHOWN_RULES))
-    lines.push(
-      rule.layer
-        ? `  @layer ${rule.layer}  ${rule.selector}`
-        : `  ${rule.selector}`,
-    );
+    lines.push([
+      token('text', '  '),
+      ...(rule.layer ? [token('muted', `@layer ${rule.layer}  `)] : []),
+      ...selectorTokens(rule.selector),
+    ]);
   if (rules.length > SHOWN_RULES)
-    lines.push(`  … and ${rules.length - SHOWN_RULES} more`);
+    lines.push([token('muted', `  … and ${rules.length - SHOWN_RULES} more`)]);
   return lines;
+}
+
+/** The report as plain text, one string per line. */
+export function reportLines(report: PickReport) {
+  return reportTokens(report).map((line) =>
+    line.map(({ text }) => text).join(''),
+  );
 }

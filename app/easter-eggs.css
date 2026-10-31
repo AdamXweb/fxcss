@@ -147,6 +147,17 @@ html[data-logo-picking], html[data-logo-picking] * { cursor: grabbing !important
 .pick-card-report { min-height: 0; margin: 0; padding: 10px 12px; overflow: auto; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
 .pick-card-report strong { color: #ff6fb5; font-weight: 700; }
 .pick-card-report > * { display: block; padding-left: 4ch; text-indent: -4ch; }
+/* Each kind of token keeps one colour, so a property, its value and the
+   classes in a selector read apart. Every colour meets 4.5:1 on its console. */
+.pick-card { --pick-label: #8d9abd; --pick-property: #7cc7ff; --pick-value: #ffd27a; --pick-class: #86e1b0; --pick-attribute: #c9a6ff; }
+.pick-token-label, .pick-token-muted { color: var(--pick-label); }
+.pick-token-muted { font-style: italic; }
+.pick-token-property { color: var(--pick-property); }
+.pick-token-value, .pick-token-colour { color: var(--pick-value); }
+.pick-token-class { color: var(--pick-class); }
+.pick-token-attribute, .pick-token-pseudo { color: var(--pick-attribute); }
+.pick-card-report strong .pick-token-muted { font-style: normal; }
+.pick-swatch { display: inline-block; width: 0.9em; height: 0.9em; margin-right: 0.4em; border: 1px solid var(--pick-label); border-radius: 2px; vertical-align: -0.1em; background: repeating-conic-gradient(#bbb 0 25%, #fff 0 50%) 0 0 / 6px 6px; text-indent: 0; }
 .pick-card-prompt::before { content: '$ '; }
 .pick-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 8px 12px 10px; border-top: 1px solid #2b3350; }
 .pick-card-actions button { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid #ff4fa7; border-radius: 4px; background: #db0078; color: #fff; font: inherit; cursor: pointer; }
@@ -169,6 +180,7 @@ html[data-retro='windows'] .pick-card-close { padding: 0 1px; border: 2px outset
 html[data-retro='windows'] .pick-card-close:active { border-style: inset; }
 html[data-retro='windows'] .pick-card-report { margin: 2px 0; border: 2px inset #eee; background: #000; color: #c0c0c0; }
 html[data-retro='windows'] .pick-card-report strong { color: #ff55ff; }
+html[data-retro='windows'] .pick-card { --pick-label: #a8a8a8; --pick-property: #55ffff; --pick-value: #ffff55; --pick-class: #55ff55; --pick-attribute: #ff5555; }
 html[data-retro='windows'] .pick-card-actions { border: 0; padding: 6px 4px 4px; font-family: Tahoma, Verdana, sans-serif; }
 html[data-retro='windows'] .pick-card-actions button { border: 2px outset #eee; border-radius: 0; background: #c0c0c0; color: #111; }
 html[data-retro='windows'] .pick-card-actions button:active { border-style: inset; }
@@ -185,6 +197,7 @@ html[data-retro='mac'] .pick-card-close svg { width: 9px; height: 9px; opacity: 
 html[data-retro='mac'] .pick-card-close:is(:hover, :focus-visible) svg { opacity: 1; }
 html[data-retro='mac'] .pick-card-report { background: #fff; color: #111; }
 html[data-retro='mac'] .pick-card-report strong { color: #b8005f; }
+html[data-retro='mac'] .pick-card { --pick-label: #6b6b6b; --pick-property: #1d55b0; --pick-value: #8a4600; --pick-class: #1c6b36; --pick-attribute: #7a2bb5; }
 html[data-retro='mac'] .pick-card-actions { border-top-color: #c6c6c6; font-family: 'Lucida Grande', 'Lucida Sans Unicode', Arial, sans-serif; }
 html[data-retro='mac'] .pick-card-actions button { padding: 3px 14px; border: 1px solid #3a6fb0; border-radius: 999px; background: linear-gradient(#d8ecff, #8cc2f8 50%, #6aaef5 50%, #b6dcff); color: #111; }
 html[data-retro='mac'] .pick-card-actions button:hover { filter: brightness(1.05); }
@@ -198,6 +211,7 @@ html[data-retro='linux'] .pick-card-close { border: 1px solid #2c3a4c; border-ra
 html[data-retro='linux'] .pick-card-close:hover { background: #fff; color: #111; }
 html[data-retro='linux'] .pick-card-report { background: #000; color: #e5e5e5; }
 html[data-retro='linux'] .pick-card-report strong { color: #ff55ff; }
+html[data-retro='linux'] .pick-card { --pick-label: #a8a8a8; --pick-property: #00cdcd; --pick-value: #cdcd00; --pick-class: #00cd00; --pick-attribute: #ff6464; }
 html[data-retro='linux'] .pick-card-actions { border-top-color: #a9a69b; font-family: 'DejaVu Sans', 'Liberation Sans', Arial, sans-serif; }
 html[data-retro='linux'] .pick-card-actions button { border: 1px solid #8a877d; border-radius: 3px; background: linear-gradient(#f4f3ef, #dedcd4); color: #111; }
 html[data-retro='linux'] .pick-card-actions button:hover { background: #fff; }

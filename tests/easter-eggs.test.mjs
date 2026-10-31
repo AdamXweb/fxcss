@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { searchSecret } from '../lib/easter-eggs.ts';
 import { authoredClasses, classedElement, classesOf, classLabel, labelPosition, nearBox } from '../lib/logo-picker.ts';
-import { matchingRules, reportedStyles, reportLines } from '../lib/pick-report.ts';
+import { matchingRules, reportedStyles, reportLines, reportTokens, selectorTokens, valueTokens } from '../lib/pick-report.ts';
 import { battleRounds, winningRule } from '../lib/specificity.ts';
 import { watchSleepyFavicon } from '../lib/sleepy-favicon.ts';
 import { retroDestinationForQuery, retroDestinations, storedRetroDestination } from '../lib/time-machine.ts';
@@ -223,4 +223,25 @@ test('the logo stays a click until the pointer leaves it, so a shaky click still
   for (const [x, y] of [[40, 20], [180, 60], [110, 40], [33, 13], [188, 68]]) assert.equal(nearBox(logo, x, y), true, `${x},${y}`);
   for (const [x, y] of [[31, 40], [189, 40], [110, 11], [110, 69]]) assert.equal(nearBox(logo, x, y), false, `${x},${y}`);
   assert.equal(nearBox(logo, 30, 40, 10), true);
+});
+
+test('the pick card colours each part of the report and lines up style values', () => {
+  const kinds = (tokens) => tokens.map(({ kind, text }) => `${kind}:${text}`);
+  assert.deepEqual(kinds(selectorTokens('html[data-retro="mac"] :is(.time-machine-bar button, .site-header .h-\\[1px\\]):hover')), [
+    'text:html', 'attribute:[data-retro="mac"]', 'text: ', 'pseudo::is', 'text:(', 'class:.time-machine-bar', 'text: button, ',
+    'class:.site-header', 'text: ', 'class:.h-\\[1px\\]', 'text:)', 'pseudo::hover',
+  ]);
+  assert.deepEqual(kinds(valueTokens('rgb(255, 255, 255) 0px 1px 0px 0px inset, oklch(0.7 0.1 250 / 50%) 0px 0px 2px')), [
+    'colour:rgb(255, 255, 255)', 'value: 0px 1px 0px 0px inset, ', 'colour:oklch(0.7 0.1 250 / 50%)', 'value: 0px 0px 2px',
+  ]);
+  assert.deepEqual(kinds(valueTokens('8px')), ['value:8px']);
+
+  const report = { tag: 'a', selector: '.github-link', label: '.github-link', classes: ['github-link', 'inline-flex'], box: { x: 1, y: 2, width: 3, height: 4 }, styles: [['color', 'rgb(1, 2, 3)'], ['border-radius', '8px']], rules: [{ selector: '.inline-flex', layer: 'utilities' }] };
+  const lines = reportTokens(report);
+  assert.deepEqual(kinds(lines[0]), ['tag:a', 'muted:  →  ', 'heading:.github-link']);
+  assert.deepEqual(kinds(lines[1]), ['label:classes   ', 'class:github-link', 'text: ', 'class:inline-flex']);
+  assert.deepEqual(kinds(lines[2]), ['label:box       ', 'value:3×4', 'label: at ', 'value:(1, 2)']);
+  assert.deepEqual(reportLines(report).slice(3, 6), ['styles', '  color:         rgb(1, 2, 3)', '  border-radius: 8px']);
+  assert.deepEqual(kinds(lines[4]), ['text:  ', 'property:color', 'muted::         ', 'colour:rgb(1, 2, 3)']);
+  assert.deepEqual(kinds(lines.at(-1)), ['text:  ', 'muted:@layer utilities  ', 'class:.inline-flex']);
 });

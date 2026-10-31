@@ -175,7 +175,34 @@ test('dropping the logo prints the fxcss pick report and copies the selector', a
       ),
     ),
   ).toHaveCount(1);
-  await expect(line(/^ {2}color: rgb/)).toHaveCount(1);
+  const colour = line(/^ {2}color:\s+rgb/);
+  await expect(colour).toHaveCount(1);
+  // Properties, values and classes are coloured apart; colours get a swatch.
+  const tint = (part: string) =>
+    report
+      .locator(part)
+      .first()
+      .evaluate((element) => getComputedStyle(element).color);
+  const tints = new Set([
+    await tint('.pick-token-property'),
+    await tint('.pick-token-value, .pick-token-colour'),
+    await tint('.pick-token-class'),
+    await tint('.pick-token-label'),
+  ]);
+  expect(tints.size, 'four distinct colours').toBe(4);
+  await expect(colour.locator('.pick-swatch')).toHaveAttribute(
+    'aria-hidden',
+    'true',
+  );
+  expect(
+    await colour
+      .locator('.pick-swatch')
+      .evaluate((element) => getComputedStyle(element).boxShadow),
+  ).toMatch(/^rgb.* inset$/);
+  // A wrapped value stays under its own column.
+  expect(
+    await colour.evaluate((element) => getComputedStyle(element).textIndent),
+  ).toMatch(/^-\d/);
   const styledBy = line(/^styled by \d+ rules? on this site$/);
   await expect(styledBy).toHaveCount(1);
   // Rules naming the element's class come first.

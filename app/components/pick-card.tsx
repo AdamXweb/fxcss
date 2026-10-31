@@ -12,7 +12,11 @@ import {
 import { createPortal } from 'react-dom';
 import { Check, Copy, X } from 'lucide-react';
 import { labelPosition } from '../../lib/logo-picker';
-import { reportLines, type PickReport } from '../../lib/pick-report';
+import {
+  reportTokens,
+  type PickReport,
+  type Token,
+} from '../../lib/pick-report';
 
 /**
  * What a dropped logo picked, printed the way `fxcss pick` prints a click.
@@ -34,7 +38,7 @@ export function PickCard({
   const [status, setStatus] = useState('');
   const statusTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const close = useEffectEvent(onClose);
-  const [header, ...details] = reportLines(report);
+  const [header, ...details] = reportTokens(report);
 
   // Beside the element, as the label was, and still beside it after scrolling.
   useLayoutEffect(() => {
@@ -127,10 +131,24 @@ export function PickCard({
       </div>
       <pre className="pick-card-report">
         {/* One block per line, so a wrapped rule hangs under its own start. */}
-        <strong>{header}</strong>
-        {details.map((line, index) => (
-          <span key={index}>{line}</span>
-        ))}
+        <strong>
+          <Tokens line={header} />
+        </strong>
+        {details.map((line, index) => {
+          const hang = valueColumn(line);
+          return (
+            <span
+              key={index}
+              style={
+                hang === undefined
+                  ? undefined
+                  : { paddingLeft: `${hang}ch`, textIndent: `-${hang}ch` }
+              }
+            >
+              <Tokens line={line} />
+            </span>
+          );
+        })}
       </pre>
       <div className="pick-card-actions">
         <button type="button" onClick={copy}>
@@ -148,5 +166,42 @@ export function PickCard({
       </div>
     </dialog>,
     element.ownerDocument.body,
+  );
+}
+
+/**
+ * Where a labelled line's values start, so a long value that wraps stays in
+ * its column. Other lines, such as rules, hang by the stylesheet's default.
+ */
+function valueColumn(line: Token[]) {
+  const lead = line.find(({ kind }) => kind !== 'text');
+  if (lead?.kind !== 'label' && lead?.kind !== 'property') return undefined;
+  const start = line.findIndex(({ kind }) =>
+    ['value', 'colour', 'class'].includes(kind),
+  );
+  if (start < 0) return undefined;
+  return line
+    .slice(0, start)
+    .reduce((width, { text }) => width + text.length, 0);
+}
+
+/** One line of the report, coloured by what each piece is. */
+function Tokens({ line }: { line: Token[] }) {
+  return line.map(({ kind, text }, index) =>
+    kind === 'text' ? (
+      text
+    ) : (
+      <span key={index} className={`pick-token-${kind}`}>
+        {kind === 'colour' && (
+          // Painted over a checkerboard, so a translucent colour shows as one.
+          <span
+            className="pick-swatch"
+            style={{ boxShadow: `inset 0 0 0 1em ${text}` }}
+            aria-hidden="true"
+          />
+        )}
+        {text}
+      </span>
+    ),
   );
 }
