@@ -136,6 +136,74 @@ html[data-logo-picking], html[data-logo-picking] * { cursor: grabbing !important
   .logo-picker-ghost { animation: logo-picker-lift 140ms ease-out; }
 }
 @keyframes logo-picker-lift { from { scale: 1; } }
+/* Dropping the logo prints what `fxcss pick` prints for a click, in a
+   terminal that keeps its colours in every theme and time-machine stop. */
+.pick-card { position: fixed; z-index: 1003; inset: 0 auto auto 0; margin: 0; padding: 0; width: min(440px, calc(100% - 16px)); max-height: calc(100dvh - 16px); display: flex; flex-direction: column; overflow: hidden; border: 1px solid #39425e; border-radius: 8px; box-shadow: 0 14px 44px #18213952; background: #121a2c; color: #dfe4f2; font: 12px/1.6 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; text-align: left; }
+.pick-card:focus { outline: none; }
+.pick-card:focus-visible { outline: 2px solid #ff4fa7; outline-offset: 2px; }
+.pick-card-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 6px 5px 12px; border-bottom: 1px solid #2b3350; background: #1b2440; color: #b4bdd6; }
+.pick-card-close { display: grid; place-items: center; padding: 4px; border: 0; border-radius: 4px; background: transparent; color: inherit; cursor: pointer; }
+.pick-card-close:hover { background: #2b3556; color: #fff; }
+.pick-card-report { min-height: 0; margin: 0; padding: 10px 12px; overflow: auto; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pick-card-report strong { color: #ff6fb5; font-weight: 700; }
+.pick-card-report > * { display: block; padding-left: 4ch; text-indent: -4ch; }
+.pick-card-prompt::before { content: '$ '; }
+.pick-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 8px 12px 10px; border-top: 1px solid #2b3350; }
+.pick-card-actions button { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid #ff4fa7; border-radius: 4px; background: #db0078; color: #fff; font: inherit; cursor: pointer; }
+.pick-card-actions button:hover { background: #b80065; }
+.pick-card-actions a { color: #9fc4ff; text-decoration: underline; text-underline-offset: 3px; }
+.pick-card-actions a:hover { color: #c9ddff; }
+.pick-card :is(button, a):focus-visible { outline: 2px solid #ff9ccc; outline-offset: 2px; }
+.pick-card-status { color: #9be7c4; }
+@media (prefers-reduced-motion: no-preference) {
+  .pick-card { animation: pick-card-open 140ms ease-out; }
+}
+@keyframes pick-card-open { from { opacity: 0; scale: 0.97; } }
+/* Each time-machine stop gets the terminal it would have had: an MS-DOS
+   Prompt in 1999, Terminal on Mac OS X in 2003 and an xterm in 2002. The
+   pink header stays, as `fxcss pick` keeps its colours everywhere. */
+html[data-retro='windows'] .pick-card { padding: 2px; border: 2px outset #eee; border-radius: 0; box-shadow: 2px 2px 0 #0007; background: #c0c0c0; color: #111; font-family: 'Lucida Console', 'Courier New', monospace; }
+html[data-retro='windows'] .pick-card-bar { padding: 2px 2px 2px 6px; border: 0; background: var(--retro-titlebar); color: #fff; font: 700 12px/1.6 Tahoma, Verdana, sans-serif; }
+html[data-retro='windows'] .pick-card-prompt::before { content: 'C:\\> '; }
+html[data-retro='windows'] .pick-card-close { padding: 0 1px; border: 2px outset #eee; border-radius: 0; background: #c0c0c0; color: #111; }
+html[data-retro='windows'] .pick-card-close:active { border-style: inset; }
+html[data-retro='windows'] .pick-card-report { margin: 2px 0; border: 2px inset #eee; background: #000; color: #c0c0c0; }
+html[data-retro='windows'] .pick-card-report strong { color: #ff55ff; }
+html[data-retro='windows'] .pick-card-actions { border: 0; padding: 6px 4px 4px; font-family: Tahoma, Verdana, sans-serif; }
+html[data-retro='windows'] .pick-card-actions button { border: 2px outset #eee; border-radius: 0; background: #c0c0c0; color: #111; }
+html[data-retro='windows'] .pick-card-actions button:active { border-style: inset; }
+html[data-retro='windows'] .pick-card-actions a { color: #000080; }
+html[data-retro='windows'] .pick-card-status { color: #111; }
+html[data-retro='windows'] .pick-card :is(button, a):focus-visible { outline: 1px dotted #111; outline-offset: -4px; }
+html[data-retro='windows'] .pick-card-actions a:focus-visible { outline-offset: 2px; }
+
+html[data-retro='mac'] .pick-card { border: 1px solid #8d8d8d; border-radius: 6px; box-shadow: 0 12px 34px #0007; background: var(--retro-surface); color: #111; font-family: Monaco, Menlo, 'Courier New', monospace; }
+html[data-retro='mac'] .pick-card-bar { position: relative; justify-content: center; padding: 4px 28px; border-bottom: 1px solid #9a9a9a; background: linear-gradient(#f1f1f1, #cfcfcf); color: #252525; font: 12px/1.6 'Lucida Grande', 'Lucida Sans Unicode', Arial, sans-serif; }
+html[data-retro='mac'] .pick-card-prompt::before { content: '% '; }
+html[data-retro='mac'] .pick-card-close { position: absolute; left: 8px; width: 14px; height: 14px; padding: 0; border: 1px solid #a9564b; border-radius: 50%; background: radial-gradient(circle at 35% 25%, #ffe4de, #ec6255 65%); color: #5c130c; }
+html[data-retro='mac'] .pick-card-close svg { width: 9px; height: 9px; opacity: 0; }
+html[data-retro='mac'] .pick-card-close:is(:hover, :focus-visible) svg { opacity: 1; }
+html[data-retro='mac'] .pick-card-report { background: #fff; color: #111; }
+html[data-retro='mac'] .pick-card-report strong { color: #b8005f; }
+html[data-retro='mac'] .pick-card-actions { border-top-color: #c6c6c6; font-family: 'Lucida Grande', 'Lucida Sans Unicode', Arial, sans-serif; }
+html[data-retro='mac'] .pick-card-actions button { padding: 3px 14px; border: 1px solid #3a6fb0; border-radius: 999px; background: linear-gradient(#d8ecff, #8cc2f8 50%, #6aaef5 50%, #b6dcff); color: #111; }
+html[data-retro='mac'] .pick-card-actions button:hover { filter: brightness(1.05); }
+html[data-retro='mac'] .pick-card-actions a { color: #17529c; }
+html[data-retro='mac'] .pick-card-status { color: #1d6131; }
+html[data-retro='mac'] .pick-card :is(button, a):focus-visible { outline: 3px solid #2f6fc0; outline-offset: 1px; }
+
+html[data-retro='linux'] .pick-card { border: 1px solid #2c3a4c; border-radius: 0; box-shadow: 3px 3px 0 #0005; background: var(--retro-surface); color: #111; font-family: 'DejaVu Sans Mono', 'Liberation Mono', 'Courier New', monospace; }
+html[data-retro='linux'] .pick-card-bar { padding: 3px 3px 3px 8px; border: 0; background: var(--retro-titlebar); color: #fff; font: 700 12px/1.6 'DejaVu Sans', 'Liberation Sans', Arial, sans-serif; }
+html[data-retro='linux'] .pick-card-close { border: 1px solid #2c3a4c; border-radius: 2px; background: #dedcd4; color: #111; }
+html[data-retro='linux'] .pick-card-close:hover { background: #fff; color: #111; }
+html[data-retro='linux'] .pick-card-report { background: #000; color: #e5e5e5; }
+html[data-retro='linux'] .pick-card-report strong { color: #ff55ff; }
+html[data-retro='linux'] .pick-card-actions { border-top-color: #a9a69b; font-family: 'DejaVu Sans', 'Liberation Sans', Arial, sans-serif; }
+html[data-retro='linux'] .pick-card-actions button { border: 1px solid #8a877d; border-radius: 3px; background: linear-gradient(#f4f3ef, #dedcd4); color: #111; }
+html[data-retro='linux'] .pick-card-actions button:hover { background: #fff; }
+html[data-retro='linux'] .pick-card-actions a { color: #334f75; }
+html[data-retro='linux'] .pick-card-status { color: #1d5a2c; }
+html[data-retro='linux'] .pick-card :is(button, a):focus-visible { outline: 2px solid #334f75; outline-offset: 2px; }
 
 /* The arena uses the site's purple, orange and monospace details. */
 .battle-page { max-width: 960px; padding-top: 60px; padding-bottom: 100px; }
