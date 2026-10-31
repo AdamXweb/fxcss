@@ -1,14 +1,38 @@
 // Drag the fxcss mark across the site and it outlines the element underneath,
 // with its classes labelled below it: `fxcss pick` for the website itself.
 
-/** Movement that turns a press into a drag; anything shorter stays a click. */
-export const PICK_DISTANCE = 4;
+/**
+ * How far outside the logo the pointer must go before the mark lifts off.
+ * Until then a press is a click, however much it wobbles, so a shaky hand
+ * still goes home.
+ */
+export const CLICK_SLOP = 8;
 /** Longer class lists are shortened to this many classes and a count. */
 const SHOWN_CLASSES = 3;
 
 type Box = { left: number; top: number; bottom: number };
+
+/** Whether a point is on the box or within `slop` pixels of it. */
+export function nearBox(
+  box: Box & { right: number },
+  x: number,
+  y: number,
+  slop = CLICK_SLOP,
+) {
+  return (
+    x >= box.left - slop &&
+    x <= box.right + slop &&
+    y >= box.top - slop &&
+    y <= box.bottom + slop
+  );
+}
 type Size = { width: number; height: number };
-type Picker = { follow(x: number, y: number): void; land(fly: boolean): void };
+type Picker = {
+  follow(x: number, y: number): void;
+  land(fly: boolean): void;
+  /** What a release here picks: nothing over the logo or off the page. */
+  pickAt(x: number, y: number): Element | null;
+};
 
 export function classesOf(element: Element) {
   return [
@@ -66,15 +90,16 @@ export function classLabel(
   classes: string[],
   authored: ReadonlySet<string>,
   escape = (name: string) => CSS.escape(name),
+  limit = SHOWN_CLASSES,
 ) {
   const own = classes.filter((name) => authored.has(name));
   const shown = own.length ? own : classes;
   const selector = shown
-    .slice(0, SHOWN_CLASSES)
+    .slice(0, limit)
     .map((name) => `.${escape(name)}`)
     .join('');
-  return shown.length > SHOWN_CLASSES
-    ? `${selector} +${shown.length - SHOWN_CLASSES}`
+  return shown.length > limit
+    ? `${selector} +${shown.length - limit}`
     : selector;
 }
 
@@ -107,13 +132,19 @@ export function labelPosition(
 }
 
 /**
- * Follows a press on the logo. Past PICK_DISTANCE the mark lifts off and
- * labels the classed element under the pointer; releasing flies it home, and
- * Escape puts it back early. The click that ends a drag is swallowed, so
+ * Follows a press on the logo. Once the pointer leaves the logo by CLICK_SLOP
+ * the mark lifts off and labels the classed element under the pointer.
+ * Releasing over one picks it, as a click does in `fxcss pick`, and flies the
+ * logo home. Releasing back on the logo or outside the page, or pressing
+ * Escape, puts it back without picking. The click that ends a drag is swallowed, so
  * neither the logo nor whatever it was dropped on activates. Returns a
  * function that ends everything at once.
  */
-export function followLogoPress(link: HTMLElement, press: PointerEvent) {
+export function followLogoPress(
+  link: HTMLElement,
+  press: PointerEvent,
+  onPick: (element: Element) => void = () => {},
+) {
   const home = link.querySelector<SVGSVGElement>('.brand-mark');
   const view = link.ownerDocument.defaultView;
   if (!home || !view) return () => {};
@@ -121,6 +152,8 @@ export function followLogoPress(link: HTMLElement, press: PointerEvent) {
   const { signal } = listening;
   let picker: Picker | undefined;
   let held = true;
+  const overLogo = (x: number, y: number) =>
+    nearBox(link.getBoundingClientRect(), x, y);
 
   function end(fly: boolean) {
     listening.abort();
@@ -134,12 +167,8 @@ export function followLogoPress(link: HTMLElement, press: PointerEvent) {
     'pointermove',
     (event) => {
       if (event.pointerId !== press.pointerId || !held) return;
-      const moved = Math.hypot(
-        event.clientX - press.clientX,
-        event.clientY - press.clientY,
-      );
-      if (!picker && moved < PICK_DISTANCE) return;
-      picker ??= liftMark(link, home);
+      if (!picker && overLogo(event.clientX, event.clientY)) return;
+      picker ??= liftMark(link, home, overLogo);
       picker.follow(event.clientX, event.clientY);
     },
     { signal },
@@ -148,8 +177,10 @@ export function followLogoPress(link: HTMLElement, press: PointerEvent) {
     'pointerup',
     (event) => {
       if (event.pointerId !== press.pointerId) return;
+      const picked = held ? picker?.pickAt(event.clientX, event.clientY) : null;
       end(true);
       if (picker) swallowClick(view);
+      if (picked) onPick(picked);
     },
     { signal },
   );
@@ -186,7 +217,11 @@ function swallowClick(view: Window) {
   view.setTimeout(() => view.removeEventListener('click', swallow, true));
 }
 
-function liftMark(link: HTMLElement, home: SVGSVGElement): Picker {
+function liftMark(
+  link: HTMLElement,
+  home: SVGSVGElement,
+  overLogo: (x: number, y: number) => boolean,
+): Picker {
   const doc = link.ownerDocument;
   const view = doc.defaultView!;
   const root = doc.documentElement;
@@ -212,10 +247,15 @@ function liftMark(link: HTMLElement, home: SVGSVGElement): Picker {
   let flight: Animation | undefined;
   let landed = false;
 
+  function find(x: number, y: number) {
+    return overLogo(x, y) ? null : classedElement(doc.elementFromPoint(x, y));
+  }
+
   // Every frame, so scrolling and layout changes under a still pointer count.
   function draw() {
     ghost.style.translate = `${pointer.x - size.width / 2}px ${pointer.y - size.height / 2}px`;
-    const found = classedElement(doc.elementFromPoint(pointer.x, pointer.y));
+    // Over the logo there is nothing to pick: dropping there puts it back.
+    const found = find(pointer.x, pointer.y);
     if (found !== target) {
       target = found;
       outline.hidden = label.hidden = !target;
@@ -247,6 +287,7 @@ function liftMark(link: HTMLElement, home: SVGSVGElement): Picker {
   }
 
   return {
+    pickAt: find,
     follow(x, y) {
       pointer = { x, y };
       if (!frame) draw();

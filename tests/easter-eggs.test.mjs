@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { searchSecret } from '../lib/easter-eggs.ts';
-import { authoredClasses, classedElement, classesOf, classLabel, labelPosition } from '../lib/logo-picker.ts';
+import { authoredClasses, classedElement, classesOf, classLabel, labelPosition, nearBox } from '../lib/logo-picker.ts';
+import { matchingRules, reportedStyles, reportLines } from '../lib/pick-report.ts';
 import { battleRounds, winningRule } from '../lib/specificity.ts';
 import { watchSleepyFavicon } from '../lib/sleepy-favicon.ts';
 import { retroDestinationForQuery, retroDestinations, storedRetroDestination } from '../lib/time-machine.ts';
@@ -141,4 +142,85 @@ test('logo picker labels sit underneath, flip above at the bottom and stay on sc
   assert.deepEqual(labelPosition({ left: 1250, top: 50, bottom: 90 }, label, viewport), { left: 1156, top: 92 });
   // An element taller than the viewport keeps its label inside it.
   assert.deepEqual(labelPosition({ left: -20, top: -400, bottom: 2000 }, label, viewport), { left: 4, top: 874 });
+});
+
+test('a dropped logo reports the rules that match, the site’s own before Tailwind’s layers', () => {
+  class Layer { constructor(name, cssRules) { this.name = name; this.cssRules = cssRules; } }
+  class Media { constructor(conditionText, cssRules) { this.conditionText = conditionText; this.cssRules = cssRules; } }
+  class Supports { constructor(conditionText, cssRules) { this.conditionText = conditionText; this.cssRules = cssRules; } }
+  const element = { matches(selector) {
+    if (selector.includes('::')) throw new SyntaxError(selector);
+    return ['.github-link', '.inline-flex', '.site-header nav a', '.wide', '.grid-ok'].includes(selector);
+  } };
+  const rules = matchingRules(element, [
+    { cssRules: [
+      new Layer('utilities', [{ selectorText: '.inline-flex' }, new Layer('', [{ selectorText: '.github-link' }])]),
+      { selectorText: '.github-link' },
+      { selectorText: '.github-link::after' },
+      { selectorText: '.other' },
+      new Media('(min-width: 900px)', [{ selectorText: '.wide' }]),
+      new Media('print', [{ selectorText: '.github-link' }]),
+      new Supports('display: grid', [{ selectorText: '.grid-ok' }]),
+      new Supports('display: nonsense', [{ selectorText: '.github-link' }]),
+      { name: 'spin', cssRules: [{ keyText: 'from' }] },
+    ] },
+    { cssRules: [{ selectorText: '.site-header nav a' }] },
+    { get cssRules() { throw new Error('SecurityError'); } },
+  ], {
+    matchMedia: (query) => ({ matches: query !== 'print' }),
+    supports: (condition) => condition === 'display: grid',
+    LayerBlock: Layer, MediaRule: Media, SupportsRule: Supports,
+  }, ['github-link']);
+  // Rules naming the element's class lead, as fxcss pick lists the rules naming it.
+  assert.deepEqual(rules.map(({ selector, layer }) => layer ? `${layer} ${selector}` : selector), [
+    '.github-link',
+    'utilities.anonymous .github-link',
+    '.wide',
+    '.grid-ok',
+    '.site-header nav a',
+    'utilities .inline-flex',
+  ]);
+  assert.deepEqual(rules.slice(0, 2), [{ selector: '.github-link' }, { selector: '.github-link', layer: 'utilities.anonymous' }]);
+  const unsorted = matchingRules(element, [{ cssRules: [new Layer('utilities', [{ selectorText: '.inline-flex' }]), { selectorText: '.site-header nav a' }, { selectorText: '.github-link' }] }], {
+    matchMedia: () => ({ matches: true }), supports: () => true, LayerBlock: Layer, MediaRule: Media, SupportsRule: Supports,
+  });
+  assert.deepEqual(unsorted, [
+    { selector: '.site-header nav a' },
+    { selector: '.github-link' },
+    { selector: '.inline-flex', layer: 'utilities' },
+  ]);
+});
+
+test('a dropped logo prints its report in the order and wording of fxcss pick', () => {
+  const computed = { color: 'rgb(24, 33, 57)', 'background-color': 'rgba(0, 0, 0, 0)', 'border-radius': '8px', opacity: '1', margin: '0px', display: 'flex', padding: '' };
+  assert.deepEqual(reportedStyles({ getPropertyValue: (name) => computed[name] ?? '' }), [['color', 'rgb(24, 33, 57)'], ['border-radius', '8px'], ['display', 'flex']]);
+
+  const report = { tag: 'a', selector: '.github-link', label: '.github-link', classes: ['github-link', 'inline-flex'], box: { x: 1180, y: 14, width: 36, height: 36 }, styles: [['color', 'rgb(24, 33, 57)']], rules: [{ selector: '.github-link' }, ...Array.from({ length: 9 }, (_, index) => ({ selector: `.u${index}`, layer: 'utilities' }))] };
+  assert.deepEqual(reportLines(report), [
+    'a  →  .github-link',
+    'classes   github-link inline-flex',
+    'box       36×36 at (1180, 14)',
+    'styles',
+    '  color: rgb(24, 33, 57)',
+    'styled by 10 rules on this site',
+    '  .github-link',
+    ...Array.from({ length: 7 }, (_, index) => `  @layer utilities  .u${index}`),
+    '  … and 2 more',
+  ]);
+  assert.deepEqual(reportLines({ ...report, classes: [], box: { x: 0, y: 0, width: 0, height: 12 }, styles: [], rules: [{ selector: '.only' }] }), [
+    'a  →  .github-link',
+    'box       0×12 at (0, 0)   (not visible in this layout)',
+    'styled by 1 rule on this site',
+    '  .only',
+  ]);
+  assert.deepEqual(reportLines({ ...report, rules: [] }).at(-1), 'styled by no rules on this site (browser defaults only)');
+  const utilities = ['detail-toggle', ...Array.from({ length: 30 }, (_, index) => `u-${index}`)];
+  assert.equal(reportLines({ ...report, classes: utilities })[1], 'classes   detail-toggle u-0 u-1 u-2 u-3 u-4 +25 more');
+});
+
+test('the logo stays a click until the pointer leaves it, so a shaky click still goes home', () => {
+  const logo = { left: 40, top: 20, right: 180, bottom: 60 };
+  for (const [x, y] of [[40, 20], [180, 60], [110, 40], [33, 13], [188, 68]]) assert.equal(nearBox(logo, x, y), true, `${x},${y}`);
+  for (const [x, y] of [[31, 40], [189, 40], [110, 11], [110, 69]]) assert.equal(nearBox(logo, x, y), false, `${x},${y}`);
+  assert.equal(nearBox(logo, 30, 40, 10), true);
 });
