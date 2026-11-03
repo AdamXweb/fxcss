@@ -323,6 +323,15 @@ assert.equal(
   await installer.text(),
   await fs.readFile(new URL('../public/install.sh', import.meta.url), 'utf8'),
 );
+// The uptime probe is a static file: no Worker CPU per fetch, typed and
+// uncached by public/_headers.
+const probe = await fetch(new URL('/ratchet', base), { redirect: 'manual' });
+assert.equal(probe.status, 200, 'uptime probe');
+assert.equal((await probe.text()).trim(), 'clank', 'uptime probe body');
+assert.match(probe.headers.get('content-type') || '', /^text\/plain/);
+assert.match(probe.headers.get('cache-control') || '', /no-cache/);
+assertSecurityHeaders(probe, '/ratchet');
+assert.equal(probe.headers.get('x-robots-tag'), 'noindex');
 const robots = await fetch(new URL('/robots.txt', base));
 assert.equal(robots.status, 200);
 assert.match(
