@@ -442,3 +442,15 @@ test('the Worker answers only on fxcss.com and uploads no repository metadata', 
       );
   }
 });
+
+test('the uptime probe is a static file with its own headers', () => {
+  // Blackbox fetches /ratchet every minute. Served before the Worker runs it
+  // costs no CPU, which a homepage probe does not; public/_headers types it
+  // and keeps it uncached so every probe reaches the asset store.
+  assert.equal(read('../public/ratchet').toString().trim(), 'clank');
+  const headers = read('../public/_headers').toString();
+  const rule = headers.match(/^\/ratchet\n((?:[ \t]+\S.*\n?)+)/m)?.[1] ?? '';
+  assert.match(rule, /Content-Type: text\/plain; charset=utf-8/);
+  assert.match(rule, /Cache-Control: no-cache/);
+  assert.match(rule, /X-Robots-Tag: noindex/);
+});
