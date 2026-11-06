@@ -91,6 +91,13 @@ GROUPS = (
 TAGLINE = "live-reload, inspect and screenshot-test Firefox userChrome.css themes"
 
 
+def _command_row(name, summary, width):
+    """`    name  summary`, the summary wrapped under itself on a narrow terminal."""
+    from . import style
+    lines = style.wrap(summary, indent=4 + width)
+    return [f"    {name.ljust(width)}{lines[0].lstrip()}"] + lines[1:]
+
+
 def landing_text():
     """What bare `fxcss` prints: where to start, by what someone came to do."""
     from . import style
@@ -103,7 +110,7 @@ def landing_text():
         out.append("")
         out.append(style.heading_line(title))
         for name, args in subset:
-            out.append(f"    {f'fxcss {name} {args}'.rstrip().ljust(width)}{COMMANDS[name]}")
+            out.extend(_command_row(f"fxcss {name} {args}".rstrip(), COMMANDS[name], width))
     out.append("")
     for line in style.wrap("Find themes at firefoxcss-store.github.io and r/FirefoxCSS.", indent=2):
         out.append(style.muted(line))
@@ -112,8 +119,8 @@ def landing_text():
                            "you choose.", indent=2):
         out.append(style.muted(line))
     out += ["",
-            f"  {style.cmd('fxcss --help')} {style.muted('lists every command,')} "
-            f"{style.cmd('fxcss <command> --help')} {style.muted('its options.')}",
+            f"  {style.muted('Run')} {style.cmd('fxcss --help')} "
+            f"{style.muted('for every command and its options.')}",
             ""]
     return "\n".join(out)
 
@@ -122,14 +129,17 @@ def help_text():
     """`fxcss --help`: every command once, grouped, with nothing generated."""
     from . import style
     width = max(len(n) for n in COMMANDS) + 2
-    out = [f"  {style.brand('fxcss')} {style.muted(__version__)}  {TAGLINE}",
+    lead = f"fxcss {__version__}  "
+    tagline = style.wrap(TAGLINE, indent=2 + len(lead))
+    out = [f"  {style.brand('fxcss')} {style.muted(__version__)}  {tagline[0].lstrip()}",
+           *tagline[1:],
            "",
            f"  {style.muted('Usage')}  fxcss <command> [options]"]
     for title, _, names, _ in GROUPS:
         out.append("")
         out.append(style.heading_line(title))
         for name in names:
-            out.append(f"    {name.ljust(width)}{COMMANDS[name]}")
+            out.extend(_command_row(name, COMMANDS[name], width))
     out += ["",
             style.heading_line("Options"),
             f"    {'-h, --help'.ljust(width)}show this help",
@@ -575,14 +585,14 @@ def cmd_try(args):
                 print(line)
         if facts["flags"]:
             # Reference, not a choice: fxcss never runs the install script
-            # these belong to, so they come last and quiet.
+            # these belong to, so they come last, descriptions quiet.
             print()
             print(style.heading_line("README install flags",
-                                     "the theme's own script takes these; fxcss does not run it"))
+                                     "for the theme's own script, which fxcss never runs"))
             width = max(len(entry["flag"]) for entry in facts["flags"]) + 2
             for entry in facts["flags"]:
                 wrapped = style.wrap(entry["text"], indent=4 + width)
-                print(f"    {entry['flag'].ljust(width)}{style.muted(wrapped[0].lstrip())}")
+                print(style.muted(f"    {entry['flag'].ljust(width)}{wrapped[0].lstrip()}"))
                 for more in wrapped[1:]:
                     print(style.muted(more))
 
@@ -859,16 +869,24 @@ def cmd_profiles(args):
     from . import style
     default_note = f"{style.BULLET} opens by default" if any(r["default"] for r in rows) else None
     print(style.title("profiles"))
+    parents = {Path(r["path"]).parent for r in rows}
+    shared = parents.pop() if len(parents) == 1 else None
     print()
     print(style.heading_line("Firefox profiles",
-                             f"{len(rows)} found" + (f" {style.DOT} {default_note}" if default_note else "")))
+                             f"{len(rows)} in {style.short_path(shared)}" if shared else f"{len(rows)} found"))
     name_w = max(len(r["name"]) for r in rows)
+    kind_w = max(len(r.get("kind") or "unrecognised") for r in rows)
     for row in rows:
         mark = style.brand(style.BULLET) if row["default"] else " "
         kind = row.get("kind") or "unrecognised"
         print()
-        print(f"  {mark} {style.strong(row['name'].ljust(name_w))}  {style.muted(kind)}")
-        print(style.muted(f"      {style.short_path(row['path'])}"))
+        folder = Path(row["path"]).name if shared else style.short_path(row["path"])
+        empty = row["state"] == "empty" and not row["running"]
+        print(f"  {mark} {style.strong(row['name'].ljust(name_w))}  "
+              f"{style.muted(kind.ljust(kind_w))}  {style.muted(folder)}"
+              + (f"  {style.muted(style.DOT + ' no theme')}" if empty else ""))
+        if empty:
+            continue
         pairs = []
         if row["state"] == "managed":
             manifest = row["manifest"]
@@ -894,7 +912,7 @@ def cmd_profiles(args):
             note = _drift_note(row)
             first, _, rest = note.partition(", ")
             pairs.append(("files", first.split(" ")[0]
-                          + (f"  {style.warn(style.BANG + ' ' + rest)}" if rest else "")))
+                          + (f"  {style.caution(rest)}" if rest else "")))
             adopted = manifest.get("adopted")
             if isinstance(adopted, dict):
                 # Adopted rather than installed: say how sure the
@@ -921,7 +939,7 @@ def cmd_profiles(args):
                 pairs.append(("yours", f"{style.plural(len(manifest['user_files']), 'file')} "
                                        "you added, kept active"))
         elif row["state"] == "unmanaged":
-            pairs.append(("theme", [style.warn(f"{style.BANG} installed by hand") + "  "
+            pairs.append(("theme", [style.caution("installed by hand") + "  "
                                     + style.muted(f"chrome/ holds {style.plural(row['files'], 'file')}"),
                                     style.cmd("fxcss adopt") + style.muted(" takes it over; ")
                                     + style.cmd("fxcss install") + style.muted(" would replace it, "
@@ -934,6 +952,8 @@ def cmd_profiles(args):
             print(line)
 
     notes = []
+    if default_note:
+        notes.append(f"{default_note}: the profile Firefox opens on its own")
     if any(not r.get("kind") for r in rows):
         notes.append("unrecognised: no Firefox channel suffix in the folder name")
     checkable = any(((r["manifest"] or {}).get("source") or {}).get("kind")
@@ -1331,14 +1351,13 @@ def cmd_install(args):
         if previous:
             _report_additions(install.user_additions(picked["path"], previous))
         print()
-        writes = "copies the theme's chrome/ into " + picked["name"]
+        writes = f"Copies the theme into {picked['name']}"
         if any(i["state"] == "applied" for i in items):
-            writes += " and adds its prefs to user.js"
+            writes += " and its prefs into user.js"
         if (Path(picked["path"]) / "chrome").exists():
-            writes += "; the chrome/ there now is backed up first"
-        for line in style.wrap(writes[0].upper() + writes[1:] + ".", indent=2):
-            print(style.muted(line))
-        print(f"  {style.cmd('fxcss uninstall')} {style.muted('puts it all back.')}")
+            writes += "; chrome/ is backed up first"
+        for line in style.wrap(f"{writes}. fxcss uninstall puts it back.", indent=2):
+            print(line.replace("fxcss uninstall", style.cmd("fxcss uninstall")))
         if not _confirm(f"  Install {theme_name} into {picked['name']}?",
                         interactive, args.yes):
             print(style.muted("  Nothing installed."))
@@ -2162,13 +2181,11 @@ def cmd_watch(args):
     _install_signal_handlers()
 
     from . import style
-    print(style.title("watch", style.short_path(theme)))
-    print()
-    for line in style.rows([
-            ("firefox", style.muted(style.short_path(firefox))),
-            ("menus", "XUL, themeable: right-click to inspect them live"
-             if args.native_menus is False else None)]):
-        print(line)
+    print(style.title("watch", f"{style.short_path(theme)} {style.DOT} "
+                               f"{style.short_path(_app_bundle(firefox))}"))
+    if args.native_menus is False:
+        print(style.muted("  right-click menus are XUL and themeable: right-click to "
+                          "inspect them live"))
 
     # An empty userChrome.css hands the stylesheet entirely to us, so replacing
     # it reflects deletions as well as additions: a rule you remove really
@@ -2343,7 +2360,6 @@ def _run_audit(args):
     hint = any(r.get("hint") for r in context)
     audit.print_context(context, args.all, style.colour_on() and not args.no_colour,
                         hint=hint)
-    print()
 
     final_ids, final_classes = (states[-1][1], states[-1][2]) if states else (0, 0)
     shipped = None
@@ -2358,16 +2374,11 @@ def _run_audit(args):
     short_states = {"find bar open": "find bar", "address bar results": "address bar",
                     "app menu opened": "app menu", "context menus built": "context menus"}
     names = ", ".join(short_states.get(label, label) for label, _, _ in states)
-    parts = [f"Checked {_pl(result.get('tokens', 0), 'id and class', 'ids and classes')} "
-             f"from the theme"]
-    if states:
-        parts.append(f"against {final_ids:,} ids and {final_classes:,} classes found live "
-                     f"in {len(states)} states ({names})")
-    parts.append(f"in Firefox {version}" if version else "in Firefox")
-    sentence = " ".join(parts) + f", {style.short_path(_app_bundle(firefox))}"
-    if shipped:
-        sentence += f"; names this build declares read from {shipped}"
-    for line in style.wrap(sentence + ".", indent=2):
+    sentence = (f"Checked {_pl(result.get('tokens', 0), 'id and class', 'ids and classes')} "
+                f"against Firefox {version or ''}".rstrip()
+                + (f" in {len(states)} states" if states else "")
+                + (", reading the names it ships from omni.ja" if shipped else "") + ".")
+    for line in style.wrap(sentence, indent=2):
         print(style.muted(line))
     print()
     if args.patch:

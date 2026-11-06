@@ -696,15 +696,15 @@ def report(result, show_all=False, colour=True, headline=True, context=None):
 
     groups = [
         (offscreen, "in states this audit could not open: dialogs, other platforms",
-         lambda f: f["reason"]),
+         "in states not opened", lambda f: f["reason"]),
         (elsewhere, "scoped by @-moz-document to pages this audit does not open",
-         lambda f: f["uses"][0]["file"] + ":" + str(f["uses"][0]["line"])),
+         "in other documents", lambda f: f["uses"][0]["file"] + ":" + str(f["uses"][0]["line"])),
         (unresolved, "never seen in any state; usually platform- or state-specific",
-         lambda f: f["uses"][0]["file"] + ":" + str(f["uses"][0]["line"])),
+         "never seen", lambda f: f["uses"][0]["file"] + ":" + str(f["uses"][0]["line"])),
     ]
-    rows = [{"count": len(items), "text": text,
+    rows = [{"count": len(items), "text": text, "short": short, "kind": "token",
              "details": [(f["token"], where(f)) for f in items] if show_all else []}
-            for items, text, where in groups if items]
+            for items, text, short, where in groups if items]
     if context is not None:
         context.extend(rows)
         context.append({"hint": not show_all and bool(rows)})
@@ -714,17 +714,31 @@ def report(result, show_all=False, colour=True, headline=True, context=None):
     print()
 
 
+_KINDS = (("token", "tokens out of reach"),
+          ("file", "files left out as intended"),
+          ("property", "properties skipped on purpose"))
+
+
 def print_context(rows, show_all, on, hint=None):
-    """The `Not counted` block: one right-aligned count and a dim reason each."""
+    """What the audit left out, as one quiet sentence -- or, with --all, one
+    right-aligned count and reason per part, each with its names."""
     from . import style
     rows = [r for r in rows if "count" in r]
     if not rows:
         return
-    if hint is None:
-        hint = not show_all
-    print(style.heading_line("Not counted",
-                             "healthy, out of reach or deliberate"
-                             + ("; --all lists the tokens" if hint else ""), on=on))
+    if not show_all:
+        parts = []
+        for kind, label in _KINDS:
+            group = [r for r in rows if r.get("kind") == kind]
+            if group:
+                parts.append(f"{sum(r['count'] for r in group):,} {label}")
+        parts += [f"{r['count']:,} {r['text']}" for r in rows
+                  if r.get("kind") not in dict(_KINDS)]
+        for line in style.wrap("Not counted: " + ", ".join(parts)
+                               + " (--all explains each).", indent=2):
+            print(style.muted(line, on=on))
+        return
+    print(style.heading_line("Not counted", "healthy, out of reach or deliberate", on=on))
     width = max(len(f"{r['count']:,}") for r in rows)
     for row in rows:
         print(f"    {row['count']:>{width},}  {style.muted(row['text'], on=on)}")
@@ -1041,7 +1055,7 @@ def classify_unused(static, firefox_knows, pack=None):
     }
 
 
-def _names_block(items, on, show_all, suggest_word, limit=10, width=None):
+def _names_block(items, on, show_all, suggest_word, limit=10, width=None, quiet=False):
     """Property rows: the name, then where, in one column for the report."""
     from . import style
     pad = " " * BODY
@@ -1050,7 +1064,8 @@ def _names_block(items, on, show_all, suggest_word, limit=10, width=None):
     for item in shown:
         where = f"{item['file']}:{item['line']}" if item.get("file") else ""
         uses = f" {style.muted('×' + str(item['uses']), on=on)}" if item.get("uses") else ""
-        print(f"{pad}{item['name'].ljust(width)}{style.muted(where, on=on)}{uses}".rstrip())
+        name = style.muted(item["name"].ljust(width), on=on) if quiet else item["name"].ljust(width)
+        print(f"{pad}{name}{style.muted(where, on=on)}{uses}".rstrip())
         if item.get("devtools"):
             print(pad + "  " + style.muted("only DevTools declares it, and these rules do not reach DevTools", on=on))
         if item.get("read_here"):
@@ -1102,18 +1117,22 @@ def report_unused(unused, colour=True, show_all=False, context=None):
         print()
     if analysis.get("conditional"):
         n = len(analysis["conditional"])
-        notes.append({"count": n,
+        notes.append({"count": n, "kind": "file",
+                      "short": "conditional import" if n == 1 else "conditional imports",
                       "text": ("conditional import" if n == 1 else "conditional imports")
                               + " of files not shipped, off unless their pref or media applies"})
     if analysis.get("hooks"):
         n = len(analysis["hooks"])
-        notes.append({"count": n,
+        notes.append({"count": n, "kind": "file",
+                      "short": ("user hook" if n == 1 else "user hooks")
+                               + f" ({', '.join(analysis['hooks'])})",
                       "text": ("user hook" if n == 1 else "user hooks")
                               + " imported but not shipped, as intended: "
                               + ", ".join(analysis["hooks"])})
     if analysis.get("content_only"):
         n = len(analysis["content_only"])
-        notes.append({"count": n,
+        notes.append({"count": n, "kind": "file",
+                      "short": "content-only stylesheet" if n == 1 else "content-only stylesheets",
                       "text": ("stylesheet that loads" if n == 1 else "stylesheets that load")
                               + " only through userContent.css, for web and extension pages"})
     print()
@@ -1121,11 +1140,12 @@ def report_unused(unused, colour=True, show_all=False, context=None):
     if unused["orphans"]:
         print(_status("NOT IMPORTED", "warn", on)
               + f"{_pl(len(unused['orphans']), 'stylesheet')} nothing reaches")
-        for path in unused["orphans"][:12]:
+        limit = None if show_all else 5
+        for path in unused["orphans"][:limit]:
             print(f"{pad}{path}")
-        extra = len(unused["orphans"]) - 12
+        extra = len(unused["orphans"]) - (limit or len(unused["orphans"]))
         if extra > 0:
-            print(pad + style.muted(f"{style.ELLIPSIS} and {extra} more", on=on))
+            print(pad + style.muted(f"{style.ELLIPSIS} and {extra} more; --all lists them", on=on))
         print()
 
     if unused["missing_properties"]:
@@ -1176,17 +1196,18 @@ def report_unused(unused, colour=True, show_all=False, context=None):
                       "likely renamed or dropped. Worth checking rather than deleting: a",
                       "name Firefox references without setting would look the same here."], on)
         _names_block(unused["unused_properties"], on, show_all, "is what this Firefox reads",
-                     width=name_width)
+                     width=name_width, quiet=True)
         print()
 
     if unused.get("overrides"):
         n = unused["overrides"]
-        notes.append({"count": n,
+        notes.append({"count": n, "kind": "property",
+                      "short": "Firefox-only overrides" if n != 1 else "Firefox-only override",
                       "text": ("property" if n == 1 else "properties")
                               + " set here but read only by Firefox: deliberate overrides, not dead code"})
     if unused.get("kept"):
         n = len(unused["kept"])
-        notes.append({"count": n,
+        notes.append({"count": n, "kind": "property", "short": "marked fxcss-keep",
                       "text": ("property" if n == 1 else "properties")
                               + " marked fxcss-keep, left out of the findings"})
     if context is None and notes:

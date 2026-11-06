@@ -208,7 +208,19 @@ def status(word, role, width=12, on=None, mark=True):
     pale, and with colour off, where there is no colour at all.
     """
     text = f"{MARKS[role]} {word}" if mark and role in MARKS else word
-    return paint(text, role, on=on) + " " * max(1, width - len(text))
+    if role == "warn" and mark:
+        # ANSI yellow is pale olive on a light background, and bold yellow
+        # turns bright yellow in most terminals: unreadable on white. The
+        # mark carries the colour; the word keeps the default ink.
+        painted = f"{warn(MARKS[role], on=on)} {strong(word, on=on)}"
+    else:
+        painted = paint(text, role, on=on)
+    return painted + " " * max(1, width - len(text))
+
+
+def caution(text, on=None):
+    """A warning inside a sentence: the yellow mark, then the words in ink."""
+    return f"{warn(BANG, on=on)} {strong(text, on=on)}"
 
 
 def cmd(text, on=None):
