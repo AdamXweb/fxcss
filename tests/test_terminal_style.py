@@ -83,5 +83,18 @@ class EntryScreenTests(unittest.TestCase):
                 self.assertIn(cli.COMMANDS[name], " ".join(welcome.split()))
 
 
+
+class ColourScopeTests(unittest.TestCase):
+    def test_no_colour_does_not_outlive_the_audit(self):
+        import argparse
+        from pathlib import Path
+        args = argparse.Namespace(no_colour=True, theme=Path("."), firefox=None)
+        seen = []
+        with mock.patch("fxcss.cli._audit_report",
+                        side_effect=lambda a: seen.append(style._override) or 0):
+            self.assertEqual(cli._run_audit(args), 0)
+        self.assertEqual(seen, [False])
+        self.assertIsNone(style._override)
+
 if __name__ == "__main__":
     unittest.main()

@@ -2296,12 +2296,26 @@ def _app_bundle(binary):
 
 
 def _run_audit(args):
+    """The audit, with --no-colour holding only for its own output.
+
+    `fxcss check` runs this in-process with no_colour=True, so the switch
+    must not outlive the call and strip colour from what check prints next.
+    """
+    from . import style
+    previous = style._override
+    if args.no_colour:
+        style.set_colour(False)
+    try:
+        return _audit_report(args)
+    finally:
+        style.set_colour(previous)
+
+
+def _audit_report(args):
     from . import audit, omni
     from . import style
     theme = args.theme.resolve()
     firefox = choose_firefox(args.firefox)
-    if args.no_colour:
-        style.set_colour(False)
     print(style.title("audit", style.short_path(theme)))
     pack = omni.scan(firefox)
     static = (audit.collect_unused(theme)
