@@ -202,19 +202,18 @@ MARKS = {"good": TICK, "warn": BANG, "bad": CROSS, "muted": DOT}
 
 
 def status(word, role, width=12, on=None, mark=True):
-    """A status word in its colour, after its mark, padded outside the codes.
+    """A status word after its mark, padded outside the colour codes.
 
-    The mark is what carries severity on a light terminal, where yellow is
-    pale, and with colour off, where there is no colour at all.
+    One rule everywhere: the mark carries the colour (✗ red, ! yellow,
+    ✓ green), the word carries the weight in the terminal's own ink. Bold
+    yellow turns bright yellow in most terminals, unreadable on white, so
+    colour never sits on the word. `muted` words stay dim: informational.
     """
-    text = f"{MARKS[role]} {word}" if mark and role in MARKS else word
-    if role == "warn" and mark:
-        # ANSI yellow is pale olive on a light background, and bold yellow
-        # turns bright yellow in most terminals: unreadable on white. The
-        # mark carries the colour; the word keeps the default ink.
-        painted = f"{warn(MARKS[role], on=on)} {strong(word, on=on)}"
-    else:
-        painted = paint(text, role, on=on)
+    if role == "muted" or not mark or role not in MARKS:
+        text = f"{MARKS[role]} {word}" if mark and role in MARKS else word
+        return paint(text, role, on=on) + " " * max(1, width - len(text))
+    text = f"{MARKS[role]} {word}"
+    painted = f"{paint(MARKS[role], role, on=on)} {strong(word, on=on)}"
     return painted + " " * max(1, width - len(text))
 
 
@@ -234,8 +233,14 @@ def check(state, text, detail=None, indent=2, on=None):
                   "bad": (CROSS, "bad"), "info": (DOT, "muted")}[state]
     out = [f"{' ' * indent}{paint(mark, role, on=on)} {text}"]
     if detail:
-        # The detail is what to do about it, so it reads at full weight.
-        out.extend(wrap(detail, indent=indent + 2))
+        # A sub-note like every other: dim, with any --flag in it bold, since
+        # the flag is the part to type.
+        import re as _re
+        for line in wrap(detail, indent=indent + 2):
+            line = muted(line, on=on)
+            if colour_on() if on is None else on:
+                line = _re.sub(r"(--[\w-]+(?:=\S+)?)", lambda m: "\033[22;1m" + m.group(1) + "\033[22;2m", line)
+            out.append(line)
     return out
 
 

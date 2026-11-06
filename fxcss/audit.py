@@ -727,15 +727,17 @@ def print_context(rows, show_all, on, hint=None):
     if not rows:
         return
     if not show_all:
+        short = {"token": "out of reach", "file": "left out", "property": "skipped"}
         parts = []
         for kind, label in _KINDS:
             group = [r for r in rows if r.get("kind") == kind]
             if group:
-                parts.append(f"{sum(r['count'] for r in group):,} {label}")
+                noun = label.split()[0]
+                parts.append(f"{sum(r['count'] for r in group):,} {noun} {short[kind]}")
         parts += [f"{r['count']:,} {r['text']}" for r in rows
                   if r.get("kind") not in dict(_KINDS)]
-        for line in style.wrap("Not counted: " + ", ".join(parts)
-                               + " (--all explains each).", indent=2):
+        for line in style.rows([("not counted", f" {style.DOT} ".join(parts) + "  (--all explains)")],
+                               indent=2, label_width=11, on=on):
             print(style.muted(line, on=on))
         return
     print(style.heading_line("Not counted", "healthy, out of reach or deliberate", on=on))
@@ -1081,8 +1083,12 @@ def _names_block(items, on, show_all, suggest_word, limit=10, width=None, quiet=
 
 
 def _explain(lines, on):
+    """A dim note under a finding: a fragment, no closing full stop."""
     from . import style
-    for line in style.wrap(" ".join(lines), indent=BODY):
+    text = " ".join(lines).rstrip(".")
+    if not text.startswith(("Firefox", "DevTools")):
+        text = text[0].lower() + text[1:]
+    for line in style.wrap(text, indent=BODY):
         print(style.muted(line, on=on))
 
 
@@ -1102,6 +1108,15 @@ def report_unused(unused, colour=True, show_all=False, context=None):
              + len(unused.get("stale_overrides", []))
              + len(unused.get("devtools_only", []))
              + len(unused["missing_properties"]))
+    if unused["missing_properties"]:
+        count = len(unused["missing_properties"])
+        print(_status("UNDEFINED", "bad", on)
+              + f"{_pl(count, 'custom property', 'custom properties')} used but never set")
+        _explain(["Firefox does not provide these either, so the var() falls back or fails."], on)
+        _names_block(unused["missing_properties"], on, show_all,
+                     "is what this Firefox provides", width=name_width)
+        print()
+
     print(style.heading_line("Unused and unreachable",
                              "housekeeping, not breakage: nothing here stops the theme working",
                              on=on))
@@ -1146,15 +1161,6 @@ def report_unused(unused, colour=True, show_all=False, context=None):
         extra = len(unused["orphans"]) - (limit or len(unused["orphans"]))
         if extra > 0:
             print(pad + style.muted(f"{style.ELLIPSIS} and {extra} more; --all lists them", on=on))
-        print()
-
-    if unused["missing_properties"]:
-        count = len(unused["missing_properties"])
-        print(_status("UNDEFINED", "bad", on)
-              + f"{_pl(count, 'custom property', 'custom properties')} used but never set")
-        _explain(["Firefox does not provide these either, so the var() falls back or fails."], on)
-        _names_block(unused["missing_properties"], on, show_all,
-                     "is what this Firefox provides", width=name_width)
         print()
 
     if unused.get("stale_overrides"):

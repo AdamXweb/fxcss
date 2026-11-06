@@ -320,15 +320,21 @@ def render(items, indent="  "):
         names = item.get("names") if item.get("pref_file") else None
         text = (f"{_pl(len(names), 'pref')} in {item['pref_file']}" if names
                 else item["item"])
-        wrapped = style.wrap(text, indent=text_indent)
+        note = item.get("note")
+        if names and item["state"] == "applied":
+            # Said once, beside the row, rather than as a line of its own.
+            text += "  " + style.muted("in fxcss's own block")
+            note = None
+        wrapped = style.wrap(text, indent=text_indent) if style._visible(text) == text else [text]
         lines.append(head + wrapped[0].lstrip())
         lines.extend(wrapped[1:])
-        for name in (names or [])[:5]:
-            lines.append(style.muted(f"{' ' * text_indent}{name}"))
-        if names and len(names) > 5:
-            lines.append(style.muted(f"{' ' * text_indent}{style.ELLIPSIS} and {len(names) - 5} more"))
-        if item.get("note"):
-            lines.extend(style.muted(line) for line in style.wrap(item["note"], indent=text_indent))
+        if names:
+            shown = f" {style.DOT} ".join(names[:5])
+            if len(names) > 5:
+                shown += f" {style.DOT} {style.ELLIPSIS} and {len(names) - 5} more"
+            lines.extend(style.muted(line) for line in style.wrap(shown, indent=text_indent))
+        if note:
+            lines.extend(style.muted(line) for line in style.wrap(note, indent=text_indent))
     return lines
 
 

@@ -77,7 +77,7 @@ GROUPS = (
     ("Try or install a theme", "Trying someone else's theme?",
      ("try", "install", "profiles", "upgrade", "rollback", "adopt", "uninstall"),
      (("try", "owner/repo"), ("install", "owner/repo"), ("profiles", ""),
-      ("upgrade", ""), ("rollback", ""), ("adopt", "owner/theme"))),
+      ("upgrade", ""), ("rollback", ""), ("adopt", "owner/repo"), ("uninstall", ""))),
     ("Build a theme", "Building a theme?",
      ("new", "watch", "pick", "inspect"),
      (("new", "my-theme"), ("watch", ""), ("pick", ""))),
@@ -92,10 +92,16 @@ TAGLINE = "live-reload, inspect and screenshot-test Firefox userChrome.css theme
 
 
 def _command_row(name, summary, width):
-    """`    name  summary`, the summary wrapped under itself on a narrow terminal."""
+    """`    name  summary`, the summary wrapped under itself on a narrow terminal.
+
+    Only the command word is bold, so the eye runs down the names first.
+    """
     from . import style
     lines = style.wrap(summary, indent=4 + width)
-    return [f"    {name.ljust(width)}{lines[0].lstrip()}"] + lines[1:]
+    words = name.split(" ")
+    verb = 1 if words[0] != "fxcss" else 2
+    shown = " ".join(words[:verb - 1] + [style.strong(words[verb - 1])] + words[verb:])
+    return [f"    {shown}{' ' * (width - len(name))}{lines[0].lstrip()}"] + lines[1:]
 
 
 def landing_text():
@@ -588,11 +594,12 @@ def cmd_try(args):
             # these belong to, so they come last, descriptions quiet.
             print()
             print(style.heading_line("README install flags",
-                                     "for the theme's own script, which fxcss never runs"))
+                                     "as the README words them, for its own script; "
+                                     "fxcss never runs it"))
             width = max(len(entry["flag"]) for entry in facts["flags"]) + 2
             for entry in facts["flags"]:
                 wrapped = style.wrap(entry["text"], indent=4 + width)
-                print(style.muted(f"    {entry['flag'].ljust(width)}{wrapped[0].lstrip()}"))
+                print(f"    {entry['flag'].ljust(width)}{style.muted(wrapped[0].lstrip())}")
                 for more in wrapped[1:]:
                     print(style.muted(more))
 
@@ -867,7 +874,7 @@ def cmd_profiles(args):
         return 0
 
     from . import style
-    default_note = f"{style.BULLET} opens by default" if any(r["default"] for r in rows) else None
+    default_note = any(r["default"] for r in rows)
     print(style.title("profiles"))
     parents = {Path(r["path"]).parent for r in rows}
     shared = parents.pop() if len(parents) == 1 else None
@@ -876,13 +883,17 @@ def cmd_profiles(args):
                              f"{len(rows)} in {style.short_path(shared)}" if shared else f"{len(rows)} found"))
     name_w = max(len(r["name"]) for r in rows)
     kind_w = max(len(r.get("kind") or "unrecognised") for r in rows)
+    # The profile Firefox opens first, then the rest by name: the order of
+    # profiles.ini is an accident of history, not something to read.
+    rows = sorted(rows, key=lambda r: (not r["default"], r["name"].lower()))
     for row in rows:
         mark = style.brand(style.BULLET) if row["default"] else " "
         kind = row.get("kind") or "unrecognised"
         print()
         folder = Path(row["path"]).name if shared else style.short_path(row["path"])
         empty = row["state"] == "empty" and not row["running"]
-        print(f"  {mark} {style.strong(row['name'].ljust(name_w))}  "
+        name = row["name"].ljust(name_w)
+        print(f"  {mark} {name if empty else style.strong(name)}  "
               f"{style.muted(kind.ljust(kind_w))}  {style.muted(folder)}"
               + (f"  {style.muted(style.DOT + ' no theme')}" if empty else ""))
         if empty:
@@ -905,8 +916,9 @@ def cmd_profiles(args):
             else:
                 label = style.strong(label)
             installed = str(manifest.get("installed", "?"))[:16]
-            pairs.append(("theme", [label,
-                                    style.muted(f"installed {installed}{tracking}")]))
+            pairs.append(("theme", label))
+            pairs.append(("installed", installed + (f"  {style.muted(tracking.lstrip(', '))}"
+                                                     if tracking else "")))
             if manifest.get("sheets"):
                 pairs.append(("sheets", ", ".join(manifest["sheets"])))
             note = _drift_note(row)
@@ -948,22 +960,24 @@ def cmd_profiles(args):
             pairs.append(("theme", style.muted("none")))
         if row["running"]:
             pairs.append(("note", style.warn("Firefox is using this profile right now")))
-        for line in style.rows(pairs, indent=6, label_width=7):
+        for line in style.rows(pairs, indent=6, label_width=9):
             print(line)
 
     notes = []
     if default_note:
-        notes.append(f"{default_note}: the profile Firefox opens on its own")
+        notes.append((style.brand(style.BULLET), "opens by default: the profile Firefox opens on its own"))
     if any(not r.get("kind") for r in rows):
-        notes.append("unrecognised: no Firefox channel suffix in the folder name")
+        notes.append((" ", "unrecognised: no Firefox channel suffix in the folder name"))
     checkable = any(((r["manifest"] or {}).get("source") or {}).get("kind")
                     in fetch.REMOTE_KINDS for r in rows)
     if not args.check and checkable:
         notes.append("Pass --check to ask GitHub whether anything newer exists.")
     if notes:
         print()
-        for note in notes:
-            for line in style.wrap(note, indent=2, hang=4):
+        for mark, note in notes:
+            lines = style.wrap(note, indent=4)
+            print(f"  {mark} {style.muted(lines[0].lstrip())}")
+            for line in lines[1:]:
                 print(style.muted(line))
     print()
     return 0
@@ -1182,7 +1196,7 @@ def _choose_sheets(variants, interactive):
     chosen = []
     for attempt in range(3):
         try:
-            raw = input(style.ask("Include which?", "numbers like 1,3, or all", "none"))
+            raw = input(style.ask("Include which?", "e.g. 1,3 or all", "none"))
         except EOFError:
             raw = ""
         # Empty means "none" the first time and "keep what you read" on a
@@ -1351,13 +1365,14 @@ def cmd_install(args):
         if previous:
             _report_additions(install.user_additions(picked["path"], previous))
         print()
+        # Its prefs are on the automatic row just above; this line is only
+        # what happens to the profile, kept to one line.
         writes = f"Copies the theme into {picked['name']}"
-        if any(i["state"] == "applied" for i in items):
-            writes += " and its prefs into user.js"
         if (Path(picked["path"]) / "chrome").exists():
-            writes += "; chrome/ is backed up first"
-        for line in style.wrap(f"{writes}. fxcss uninstall puts it back.", indent=2):
-            print(line.replace("fxcss uninstall", style.cmd("fxcss uninstall")))
+            writes += ", backing up chrome/ first"
+        for line in style.wrap(f"{writes}; fxcss uninstall undoes it.", indent=2):
+            print(style.muted(line).replace("fxcss uninstall",
+                                            style.cmd("fxcss uninstall") + ("\033[2m" if style.colour_on() else "")))
         if not _confirm(f"  Install {theme_name} into {picked['name']}?",
                         interactive, args.yes):
             print(style.muted("  Nothing installed."))
@@ -2226,11 +2241,11 @@ def cmd_watch(args):
                           f"{style.bad('reload failed')}  {exc}")
                     continue
                 reloads += 1
-                names = _fit_names([p.name for p in changed], 38)
-                ms = f"{(time.perf_counter() - t0) * 1000:.0f} ms"
+                names = _fit_names([p.name for p in changed], 30)
+                ms = f"{(time.perf_counter() - t0) * 1000:.0f}"
                 print(f"  {style.good(style.TICK)} "
                       f"{style.muted(time.strftime('%H:%M:%S'))}  "
-                      f"{names:<38} {style.muted('reloaded in')} {style.strong(ms.rjust(7))}")
+                      f"{names:<30}  {style.muted('reloaded in')} {ms:>5} {style.muted('ms')}")
                 if args.shot:
                     args.shot.parent.mkdir(parents=True, exist_ok=True)
                     args.shot.write_bytes(session.m.screenshot())
@@ -2374,11 +2389,14 @@ def _run_audit(args):
     short_states = {"find bar open": "find bar", "address bar results": "address bar",
                     "app menu opened": "app menu", "context menus built": "context menus"}
     names = ", ".join(short_states.get(label, label) for label, _, _ in states)
-    sentence = (f"Checked {_pl(result.get('tokens', 0), 'id and class', 'ids and classes')} "
-                f"against Firefox {version or ''}".rstrip()
-                + (f" in {len(states)} states" if states else "")
-                + (", reading the names it ships from omni.ja" if shipped else "") + ".")
-    for line in style.wrap(sentence, indent=2):
+    checked = [_pl(result.get("tokens", 0), "id and class", "ids and classes"),
+               f"Firefox {version}" if version else "Firefox"]
+    if states:
+        checked.append(_pl(len(states), "state"))
+    if shipped:
+        checked.append("names from omni.ja")
+    for line in style.rows([("checked", f" {style.DOT} ".join(checked))],
+                           indent=2, label_width=11):
         print(style.muted(line))
     print()
     if args.patch:
@@ -2653,9 +2671,8 @@ def cmd_doctor(args):
         ver_w = max(len(v) for v in versions.values())
         for build in builds:
             using = build["path"] == firefox
-            mark = style.brand(style.BULLET) if using else " "
             tail = f"  {style.brand('in use')}" if using else ""
-            print(f"    {mark} {build['label'].ljust(label_w)}  {versions[build['path']].ljust(ver_w)}  "
+            print(f"    {build['label'].ljust(label_w)}  {versions[build['path']].ljust(ver_w)}  "
                   f"{style.muted(style.short_path(build['path']))}{tail}")
         if len(builds) > 1:
             print(style.muted(f"      choose one per run with --firefox <name>, e.g. "
@@ -2666,7 +2683,7 @@ def cmd_doctor(args):
         print(f"  {style.bad(style.CROSS)} {style.strong(style.plural(findings['bad'], 'problem') + ' to fix')}"
               f"  {style.muted(', '.join(named))}")
     elif findings["warn"]:
-        print(f"  {style.warn(style.BANG)} {style.strong('Ready to theme')}  "
+        print(f"  {style.good(style.TICK)} {style.strong('Ready to theme')}  "
               f"{style.muted(style.plural(findings['warn'], 'thing') + ' to know: ' + ', '.join(named))}")
     else:
         print(f"  {style.good(style.TICK)} {style.strong('Ready to theme')}")
