@@ -179,13 +179,18 @@ def rows(pairs, indent=2, gap=2, width=None, label_width=None, on=None):
         values = value if isinstance(value, (list, tuple)) else [value]
         first = True
         for item in (values or [""]):
-            plain = _visible(str(item))
-            pieces = ([str(item)] if plain == str(item) and lead + len(plain) < width
-                      else None)
-            if pieces is None:
-                pieces = (textwrap.wrap(str(item), width=max(20, width - lead - 1),
-                                        break_long_words=False, break_on_hyphens=False)
-                          if plain == str(item) else [str(item)])
+            item = str(item)
+            plain = _visible(item)
+            if lead + len(plain) < width:
+                pieces = [item]
+            elif plain == item:
+                pieces = textwrap.wrap(item, width=max(20, width - lead - 1),
+                                       break_long_words=False, break_on_hyphens=False)
+            else:
+                # Styled text cannot be re-wrapped safely, but every styled
+                # value here is `value  note`: too long, the note moves to
+                # the next line under the value instead of splitting a word.
+                pieces = [piece for piece in item.split("  ") if piece]
             for piece in pieces:
                 label = muted(key.ljust(lw), on=on) if first else " " * lw
                 out.append(f"{' ' * indent}{label}{' ' * gap}{piece}")
@@ -193,9 +198,22 @@ def rows(pairs, indent=2, gap=2, width=None, label_width=None, on=None):
     return out
 
 
-def status(word, role, width=12, on=None):
-    """An upper-case status word in its colour, padded outside the codes."""
-    return paint(word, role, on=on) + " " * max(1, width - len(word))
+MARKS = {"good": TICK, "warn": BANG, "bad": CROSS, "muted": DOT}
+
+
+def status(word, role, width=12, on=None, mark=True):
+    """A status word in its colour, after its mark, padded outside the codes.
+
+    The mark is what carries severity on a light terminal, where yellow is
+    pale, and with colour off, where there is no colour at all.
+    """
+    text = f"{MARKS[role]} {word}" if mark and role in MARKS else word
+    return paint(text, role, on=on) + " " * max(1, width - len(text))
+
+
+def cmd(text, on=None):
+    """A command to type, inside a sentence: bold, never in backticks."""
+    return strong(text, on=on)
 
 
 def check(state, text, detail=None, indent=2, on=None):
@@ -204,14 +222,17 @@ def check(state, text, detail=None, indent=2, on=None):
                   "bad": (CROSS, "bad"), "info": (DOT, "muted")}[state]
     out = [f"{' ' * indent}{paint(mark, role, on=on)} {text}"]
     if detail:
-        for line in wrap(detail, indent=indent + 2):
-            out.append(muted(line, on=on))
+        # The detail is what to do about it, so it reads at full weight.
+        out.extend(wrap(detail, indent=indent + 2))
     return out
 
 
 def columns(items, indent=4, gap=3, width=None, numbered=False):
-    gap = 2 if numbered else gap
-    """Names packed into as many columns as fit, filled top to bottom."""
+    """Names packed into as many columns as fit, filled top to bottom.
+
+    Each column is as wide as its own longest entry, and the gutter between
+    columns is the same everywhere, so no pair of columns runs together.
+    """
     width = width or term_width()
     labels = list(items)
     if numbered:
@@ -219,14 +240,20 @@ def columns(items, indent=4, gap=3, width=None, numbered=False):
         labels = [f"{i:>{digits}}. {name}" for i, name in enumerate(labels, 1)]
     if not labels:
         return []
-    cell = max(len(s) for s in labels) + gap
-    per_row = max(1, (width - indent) // cell)
-    nrows = -(-len(labels) // per_row)
+    for ncols in range(min(len(labels), 8), 0, -1):
+        nrows = -(-len(labels) // ncols)
+        cols = [labels[c * nrows:(c + 1) * nrows] for c in range(ncols)]
+        cols = [c for c in cols if c]
+        widths = [max(len(s) for s in col) for col in cols]
+        if indent + sum(widths) + gap * (len(cols) - 1) <= width - 1 or ncols == 1:
+            break
     out = []
     for r in range(nrows):
-        cells = [labels[c * nrows + r] for c in range(per_row)
-                 if c * nrows + r < len(labels)]
-        out.append(" " * indent + "".join(s.ljust(cell) for s in cells).rstrip())
+        cells = []
+        for c, col in enumerate(cols):
+            if r < len(col):
+                cells.append(col[r].ljust(widths[c]))
+        out.append(" " * indent + (" " * gap).join(cells).rstrip())
     return out
 
 

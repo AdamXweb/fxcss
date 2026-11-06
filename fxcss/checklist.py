@@ -205,7 +205,7 @@ def build(repo_root, theme_root=None, plan=None, applied_pref_files=()):
             "item": f"preferences in {entry['path']} ({_pl(entry['count'], 'pref')}: {preview})",
             "state": state,
             "evidence": entry["path"],
-            "note": ("applied inside the fxcss block of user.js" if state == "applied" else
+            "note": ("fxcss writes these into its own block of user.js" if state == "applied" else
                      f"not applied; `--prefs {entry['path']}` adds them to the managed block"),
             "pref_file": entry["path"],
             "names": entry["names"],
@@ -283,11 +283,13 @@ def build(repo_root, theme_root=None, plan=None, applied_pref_files=()):
 
 
 _STATES = {
-    # state: (mark, role, word shown, phrase in the heading)
-    "required": ("✗", "bad", "required", "required"),
-    "applied": ("✓", "good", "applied", "applied"),
-    "optional": ("·", "muted", "optional", "optional"),
-    "unknown": ("!", "warn", "check", "to check"),
+    # state: (role, word shown, phrase in the heading). "applied" is shown
+    # as "automatic": try --info and install print this before anything has
+    # been applied, and the word must not claim otherwise.
+    "required": ("bad", "required", "required"),
+    "applied": ("good", "automatic", "automatic"),
+    "optional": ("muted", "optional", "optional"),
+    "unknown": ("warn", "check", "to check"),
 }
 
 
@@ -305,20 +307,26 @@ def render(items, indent="  "):
     counts = {}
     for item in items:
         counts[item["state"]] = counts.get(item["state"], 0) + 1
-    summary = f" {style.DOT} ".join(f"{counts[state]} {_STATES[state][3]}"
+    summary = f" {style.DOT} ".join(f"{counts[state]} {_STATES[state][2]}"
                                     for state in order if state in counts)
     lines = [style.heading_line("Setup beyond the files", summary,
                                 indent=len(indent))]
     pad = len(indent) + 2
+    width = 13
     for item in items:
-        _, role, word, _ = _STATES[item["state"]]
-        mark = {"required": style.CROSS, "applied": style.TICK,
-                "optional": style.DOT, "unknown": style.BANG}[item["state"]]
-        head = f"{' ' * pad}{style.paint(mark, role)} {style.status(word, role, width=10)}"
-        text_indent = pad + 2 + 10
-        wrapped = style.wrap(item["item"], indent=text_indent)
+        role, word, _ = _STATES[item["state"]]
+        head = f"{' ' * pad}{style.status(word, role, width=width)}"
+        text_indent = pad + width
+        names = item.get("names") if item.get("pref_file") else None
+        text = (f"{_pl(len(names), 'pref')} in {item['pref_file']}" if names
+                else item["item"])
+        wrapped = style.wrap(text, indent=text_indent)
         lines.append(head + wrapped[0].lstrip())
         lines.extend(wrapped[1:])
+        for name in (names or [])[:5]:
+            lines.append(style.muted(f"{' ' * text_indent}{name}"))
+        if names and len(names) > 5:
+            lines.append(style.muted(f"{' ' * text_indent}{style.ELLIPSIS} and {len(names) - 5} more"))
         if item.get("note"):
             lines.extend(style.muted(line) for line in style.wrap(item["note"], indent=text_indent))
     return lines

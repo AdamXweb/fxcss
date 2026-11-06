@@ -75,7 +75,7 @@ class FlatThemeLifecycleTests(unittest.TestCase):
         self.assertEqual(manifest["source"]["path"], str(self.repo.resolve()))
         prefs = (self.profile / "user.js").read_text()
         self.assertIn('user_pref("browser.tabs.a", true);', prefs)
-        self.assertIn("applied   preferences in user.js", out)
+        self.assertIn("automatic  2 prefs in user.js", out)
 
         # Unchanged source: no update announced.
         code, out, _ = run_cli("upgrade", "--profile", str(self.profile), "--check")

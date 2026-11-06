@@ -199,7 +199,7 @@ class ThemeMarkerTests(unittest.TestCase):
             self.assertEqual(cli.cmd_install(args), 1)
         self.assertRegex(seen[-1], r"Install \S+ into \S+\?")
         # Wrapped to the terminal, so compare the words, not the line breaks.
-        self.assertIn("theme.before, theme.middle, theme.after", " ".join(seen[-1].split()))
+        self.assertRegex(" ".join(seen[-1].split()), r"theme\.before,? theme\.middle,? theme\.after")
         self.assertIsNone(install.read_manifest(self.profile))
 
 

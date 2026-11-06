@@ -615,7 +615,7 @@ def actionable(findings):
 # The status column every audit finding starts with: one width, and colour
 # by what the finding costs the theme -- red breaks it, yellow wastes or
 # guesses, dim is housekeeping. The word always carries the meaning alone.
-STATUS_WIDTH = 14
+STATUS_WIDTH = 16
 BODY = 2 + STATUS_WIDTH
 
 
@@ -624,7 +624,7 @@ def _status(word, role, on):
     return "  " + style.status(word, role, width=STATUS_WIDTH, on=on)
 
 
-def report(result, show_all=False, colour=True, headline=True):
+def report(result, show_all=False, colour=True, headline=True, context=None):
     from . import style
     on = colour and style.colour_on()
     pad = " " * BODY
@@ -674,8 +674,9 @@ def report(result, show_all=False, colour=True, headline=True):
             print(pad + style.muted("check what reads that name before using it: a close", on=on))
             print(pad + style.muted("spelling can belong to an unrelated element", on=on))
 
-        for use in finding["uses"][:3]:
-            print()
+        for i, use in enumerate(finding["uses"][:3]):
+            if i:
+                print()
             print(pad + style.muted(use["file"] + ":" + str(use["line"]), on=on))
             if exact and use.get("patch_note"):
                 print(pad + use["text"].strip())
@@ -691,7 +692,6 @@ def report(result, show_all=False, colour=True, headline=True):
                 print(pad + "  " + use["text"].strip())
         extra = len(finding["uses"]) - 3
         if extra > 0:
-            print()
             print(pad + style.muted(f"{style.ELLIPSIS} and {_pl(extra, 'more occurrence')}", on=on))
 
     groups = [
@@ -702,19 +702,34 @@ def report(result, show_all=False, colour=True, headline=True):
         (unresolved, "never seen in any state; usually platform- or state-specific",
          lambda f: f["uses"][0]["file"] + ":" + str(f["uses"][0]["line"])),
     ]
-    groups = [g for g in groups if g[0]]
-    if groups:
+    rows = [{"count": len(items), "text": text,
+             "details": [(f["token"], where(f)) for f in items] if show_all else []}
+            for items, text, where in groups if items]
+    if context is not None:
+        context.extend(rows)
+        context.append({"hint": not show_all and bool(rows)})
+    elif rows:
         print()
-        hint = "healthy or out of reach" + ("" if show_all else "; --all lists them")
-        print(style.heading_line("Not counted", hint, on=on))
-        width = max(len(f"{len(g[0]):,}") for g in groups)
-        for items, text, where in groups:
-            print(f"    {len(items):>{width},}  {style.muted(text, on=on)}")
-            if show_all:
-                for finding in items:
-                    print(f"    {' ' * width}    {finding['token']:<44} "
-                          f"{style.muted(where(finding), on=on)}")
+        print_context(rows, show_all, on)
     print()
+
+
+def print_context(rows, show_all, on, hint=None):
+    """The `Not counted` block: one right-aligned count and a dim reason each."""
+    from . import style
+    rows = [r for r in rows if "count" in r]
+    if not rows:
+        return
+    if hint is None:
+        hint = not show_all
+    print(style.heading_line("Not counted",
+                             "healthy, out of reach or deliberate"
+                             + ("; --all lists the tokens" if hint else ""), on=on))
+    width = max(len(f"{r['count']:,}") for r in rows)
+    for row in rows:
+        print(f"    {row['count']:>{width},}  {style.muted(row['text'], on=on)}")
+        for token, where in row.get("details", []):
+            print(f"    {' ' * width}    {token:<44} {style.muted(where, on=on)}")
 
 
 def write_patch(result, theme: Path, out: Path, source_paths=None):
@@ -1026,12 +1041,12 @@ def classify_unused(static, firefox_knows, pack=None):
     }
 
 
-def _names_block(items, on, show_all, suggest_word, limit=10):
-    """Property rows: the name, then where, aligned per block, then a hint."""
+def _names_block(items, on, show_all, suggest_word, limit=10, width=None):
+    """Property rows: the name, then where, in one column for the report."""
     from . import style
     pad = " " * BODY
     shown = items if show_all or limit is None else items[:limit]
-    width = max(len(i["name"]) for i in items) + 2
+    width = width or max(len(i["name"]) for i in items) + 2
     for item in shown:
         where = f"{item['file']}:{item['line']}" if item.get("file") else ""
         uses = f" {style.muted('×' + str(item['uses']), on=on)}" if item.get("uses") else ""
@@ -1056,13 +1071,18 @@ def _explain(lines, on):
         print(style.muted(line, on=on))
 
 
-def report_unused(unused, colour=True, show_all=False):
+def report_unused(unused, colour=True, show_all=False, context=None):
     from . import style
     on = colour and style.colour_on()
     pad = " " * BODY
 
     if not unused:
         return
+    # One file:line column for every property block in the report, so the
+    # references line up all the way down rather than block by block.
+    named = [i for key in ("missing_properties", "stale_overrides", "devtools_only",
+                           "unused_properties") for i in unused.get(key) or []]
+    name_width = max((len(i["name"]) for i in named), default=0) + 2
     total = (len(unused["orphans"]) + len(unused["unused_properties"])
              + len(unused.get("stale_overrides", []))
              + len(unused.get("devtools_only", []))
@@ -1070,7 +1090,7 @@ def report_unused(unused, colour=True, show_all=False):
     print(style.heading_line("Unused and unreachable",
                              "housekeeping, not breakage: nothing here stops the theme working",
                              on=on))
-    print()
+    notes = [] if context is None else context
 
     analysis = unused.get("analysis") or {}
     if analysis and not analysis.get("complete", True):
@@ -1080,25 +1100,23 @@ def report_unused(unused, colour=True, show_all=False):
         for reason in analysis.get("reasons") or []:
             print(pad + "  " + reason)
         print()
-    context = []
     if analysis.get("conditional"):
-        count = len(analysis["conditional"])
-        context.append(f"{_pl(count, 'conditional import')} "
-                       f"{'point' if count != 1 else 'points'} at files not shipped; "
-                       "off unless their pref or media applies.")
+        n = len(analysis["conditional"])
+        notes.append({"count": n,
+                      "text": ("conditional import" if n == 1 else "conditional imports")
+                              + " of files not shipped, off unless their pref or media applies"})
     if analysis.get("hooks"):
-        names = ", ".join(analysis["hooks"])
-        context.append(f"{names} {'is a user hook' if len(analysis['hooks']) == 1 else 'are user hooks'} "
-                       "the theme imports but does not ship, as intended.")
+        n = len(analysis["hooks"])
+        notes.append({"count": n,
+                      "text": ("user hook" if n == 1 else "user hooks")
+                              + " imported but not shipped, as intended: "
+                              + ", ".join(analysis["hooks"])})
     if analysis.get("content_only"):
-        count = len(analysis["content_only"])
-        context.append(f"{_pl(count, 'stylesheet')} {'load' if count != 1 else 'loads'} "
-                       "only through userContent.css, for web and extension pages.")
-    for line in context:
-        for wrapped in style.wrap(line, indent=2, hang=4):
-            print(style.muted(wrapped, on=on))
-    if context:
-        print()
+        n = len(analysis["content_only"])
+        notes.append({"count": n,
+                      "text": ("stylesheet that loads" if n == 1 else "stylesheets that load")
+                              + " only through userContent.css, for web and extension pages"})
+    print()
 
     if unused["orphans"]:
         print(_status("NOT IMPORTED", "warn", on)
@@ -1116,7 +1134,7 @@ def report_unused(unused, colour=True, show_all=False):
               + f"{_pl(count, 'custom property', 'custom properties')} used but never set")
         _explain(["Firefox does not provide these either, so the var() falls back or fails."], on)
         _names_block(unused["missing_properties"], on, show_all,
-                     "is what this Firefox provides")
+                     "is what this Firefox provides", width=name_width)
         print()
 
     if unused.get("stale_overrides"):
@@ -1127,7 +1145,8 @@ def report_unused(unused, colour=True, show_all=False):
         _explain(["Overriding these changes nothing: the shipped chrome carries the",
                   "declaration but not one var() or script that consumes it. Mark a",
                   "line `/* fxcss-keep */` if an older Firefox you support still reads it."], on)
-        _names_block(unused["stale_overrides"], on, show_all, "is what this Firefox reads")
+        _names_block(unused["stale_overrides"], on, show_all, "is what this Firefox reads",
+                     width=name_width)
         print()
 
     if unused.get("devtools_only"):
@@ -1140,7 +1159,8 @@ def report_unused(unused, colour=True, show_all=False):
                   "rule reaches from @-moz-document url-prefix(\"chrome://devtools/\").",
                   "Set anywhere else they override nothing: usually a rename the browser",
                   "made and DevTools did not."], on)
-        _names_block(unused["devtools_only"], on, show_all, "is what this Firefox reads")
+        _names_block(unused["devtools_only"], on, show_all, "is what this Firefox reads",
+                     width=name_width)
         print()
 
     if unused["unused_properties"]:
@@ -1155,23 +1175,22 @@ def report_unused(unused, colour=True, show_all=False):
             _explain(["An unthemed Firefox does not resolve these names either, so they are",
                       "likely renamed or dropped. Worth checking rather than deleting: a",
                       "name Firefox references without setting would look the same here."], on)
-        _names_block(unused["unused_properties"], on, show_all, "is what this Firefox reads")
+        _names_block(unused["unused_properties"], on, show_all, "is what this Firefox reads",
+                     width=name_width)
         print()
 
-    quiet = []
     if unused.get("overrides"):
-        count = unused["overrides"]
-        quiet.append(f"{_pl(count, 'more property', 'more properties')} "
-                     f"{'is' if count == 1 else 'are'} set here but read only by Firefox: "
-                     "deliberate overrides, not dead code.")
+        n = unused["overrides"]
+        notes.append({"count": n,
+                      "text": ("property" if n == 1 else "properties")
+                              + " set here but read only by Firefox: deliberate overrides, not dead code"})
     if unused.get("kept"):
-        count = len(unused["kept"])
-        quiet.append(f"{_pl(count, 'property', 'properties')} marked fxcss-keep "
-                     f"{'is' if count == 1 else 'are'} left out of the findings above.")
-    for line in quiet:
-        for wrapped in style.wrap(line, indent=2, hang=4):
-            print(style.muted(wrapped, on=on))
-    if quiet:
+        n = len(unused["kept"])
+        notes.append({"count": n,
+                      "text": ("property" if n == 1 else "properties")
+                              + " marked fxcss-keep, left out of the findings"})
+    if context is None and notes:
+        print_context(notes, show_all, on, hint=False)
         print()
 
     if total == 0:
