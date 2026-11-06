@@ -30,6 +30,7 @@ import zipfile
 from pathlib import Path
 
 from . import inventory
+from .style import plural as _pl, agree as _agree
 
 # The layouts a plan can describe.
 STANDARD = "standard"        # <root>/chrome/userChrome.css
@@ -382,8 +383,8 @@ def discover(source, subpath=None, entry=None, workdir=None):
               and e["chrome_dir"].startswith(selected["chrome_dir"] + "/")
               and selected["chrome_dir"] != ""]
     if nested:
-        plan["notes"].append(f"{len(nested)} alternative theme(s) live inside the "
-                             "selected chrome/ and are copied with it as files")
+        plan["notes"].append(f"{_pl(len(nested), 'alternative theme')} {_agree(len(nested), 'live', 'lives')} inside the "
+                             f"selected chrome/ and {_agree(len(nested), 'are', 'is')} copied with it as files")
     others = [e for e in editions if e is not selected and e not in nested]
     if others:
         plan["notes"].append("other editions here (choose with --subpath): "

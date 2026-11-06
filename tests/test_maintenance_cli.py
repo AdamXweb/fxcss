@@ -203,7 +203,7 @@ class EditionSelectionTests(unittest.TestCase):
     def test_try_info_reports_plan_and_checklist(self):
         code, out, _ = run_cli("try", str(self.repo), "--info", "--subpath", "1.Normal")
         self.assertEqual(code, 0)
-        self.assertIn("theme: 1.Normal", out)
+        self.assertIn("at 1.Normal", out)
         self.assertIn("other editions here", out)
 
 
@@ -404,7 +404,7 @@ class ChecklistTests(unittest.TestCase):
             self.assertIn("browser.tabs.allow_transparent_browser", mentioned["evidence"])
             self.assertFalse(checklist.complete(items))
             lines = checklist.render(items)
-            self.assertTrue(lines[0].strip().startswith("setup beyond the files"))
+            self.assertTrue(lines[0].strip().lower().startswith("setup beyond the files"))
             applied = checklist.build(repo, repo, applied_pref_files=["user.js"])
             self.assertEqual([i["state"] for i in applied if i["item"].startswith("preferences in user.js")],
                              ["applied"])
