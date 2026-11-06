@@ -32,6 +32,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from .style import plural as _pl
 
 MANIFEST_NAME = "fxcss-install.json"
 
@@ -76,7 +77,7 @@ class CollisionError(RuntimeError):
         if len(self.collisions) > 6:
             shown += f", … and {len(self.collisions) - 6} more"
         super().__init__(
-            f"the new version ships {len(self.collisions)} file(s) at paths "
+            f"the new version ships {_pl(len(self.collisions), 'file')} at paths "
             f"you added yourself: {shown}")
 
 

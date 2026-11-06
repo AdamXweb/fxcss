@@ -434,8 +434,8 @@ class FetchFailureTests(unittest.TestCase):
             (Path(td) / "chrome/userChrome.css").write_text("#nav-bar { }\n")
             code, out, _ = self.run_cli("try", td, "--info")
         self.assertEqual(code, 0)
-        self.assertIn("trying", out)
-        self.assertIn("theme found at the top of the folder", out)
+        self.assertIn("fxcss try", out)
+        self.assertIn("at the top of the folder", out)
 
     def test_try_reports_a_missing_folder(self):
         code, _, err = self.run_cli("try", "./no-such-theme-folder", "--info")
@@ -485,8 +485,8 @@ class FlagLineTests(unittest.TestCase):
                 code = cli.main(["try", td, "--info"])
         out = buffer.getvalue()
         self.assertEqual(code, 0)
-        self.assertIn("    -c        Left hand side tab close button\n", out)
-        self.assertIn("    -t <name> Colour theme (see Colour themes below)\n", out)
+        self.assertIn("    -c         Left hand side tab close button\n", out)
+        self.assertIn("    -t <name>  Colour theme (see Colour themes below)\n", out)
         self.assertNotIn("`", out)
 
     def test_prose_bullets_do_not_parse(self):

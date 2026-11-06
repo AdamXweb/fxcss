@@ -197,8 +197,9 @@ class ThemeMarkerTests(unittest.TestCase):
             stack.enter_context(patch("builtins.input", side_effect=answer))
             stack.enter_context(patch("fxcss.install.discover_profiles", return_value=[]))
             self.assertEqual(cli.cmd_install(args), 1)
-        self.assertIn("Install into this profile?", seen[-1])
-        self.assertIn("theme.before, theme.middle, theme.after", seen[-1])
+        self.assertRegex(seen[-1], r"Install \S+ into \S+\?")
+        # Wrapped to the terminal, so compare the words, not the line breaks.
+        self.assertRegex(" ".join(seen[-1].split()), r"theme\.before(,| ·)? theme\.middle(,| ·)? theme\.after")
         self.assertIsNone(install.read_manifest(self.profile))
 
 

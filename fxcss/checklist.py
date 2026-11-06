@@ -27,6 +27,7 @@ import re
 from pathlib import Path
 
 from .install import PREF_NAME_RE, _strip_js_comments
+from .style import plural as _pl
 
 MAX_README_BYTES = 512 * 1024
 MAX_PREF_FILE_BYTES = 1024 * 1024
@@ -201,10 +202,10 @@ def build(repo_root, theme_root=None, plan=None, applied_pref_files=()):
                 state = "optional"
         preview = ", ".join(entry["names"][:5]) + (" …" if entry["count"] > 5 else "")
         items.append({
-            "item": f"preferences in {entry['path']} ({entry['count']} pref(s): {preview})",
+            "item": f"preferences in {entry['path']} ({_pl(entry['count'], 'pref')}: {preview})",
             "state": state,
             "evidence": entry["path"],
-            "note": ("applied inside the fxcss block of user.js" if state == "applied" else
+            "note": ("fxcss writes these into its own block of user.js" if state == "applied" else
                      f"not applied; `--prefs {entry['path']}` adds them to the managed block"),
             "pref_file": entry["path"],
             "names": entry["names"],
@@ -220,7 +221,7 @@ def build(repo_root, theme_root=None, plan=None, applied_pref_files=()):
             fonts.append(relative)
     if loaders:
         shown = ", ".join(loaders[:3]) + (" …" if len(loaders) > 3 else "")
-        items.append({"item": f"a userChrome.js loader for {len(loaders)} script file(s)",
+        items.append({"item": f"a userChrome.js loader for {_pl(len(loaders), 'script file')}",
                       "state": "required", "evidence": shown,
                       "note": "fxcss copies the files but installs no loader; without "
                               "fx-autoconfig or similar they do nothing"})
@@ -230,7 +231,7 @@ def build(repo_root, theme_root=None, plan=None, applied_pref_files=()):
                       "state": "unknown", "evidence": shown,
                       "note": "fxcss does not install extensions or import their settings"})
     if fonts:
-        items.append({"item": f"{len(fonts)} font file(s) shipped with the theme",
+        items.append({"item": f"{_pl(len(fonts), 'font file')} shipped with the theme",
                       "state": "unknown", "evidence": fonts[0],
                       "note": "fonts referenced from the stylesheets load from chrome/; "
                               "ones meant to be installed system-wide are not"})
@@ -255,7 +256,7 @@ def build(repo_root, theme_root=None, plan=None, applied_pref_files=()):
                 mentioned.append(name)
         if mentioned:
             shown = ", ".join(mentioned[:6]) + (" …" if len(mentioned) > 6 else "")
-            items.append({"item": f"{len(mentioned)} preference name(s) mentioned in the README",
+            items.append({"item": f"{_pl(len(mentioned), 'preference name')} mentioned in the README",
                           "state": "unknown", "evidence": shown,
                           "note": "read the README; fxcss never applies prefs from prose"})
 
@@ -281,23 +282,59 @@ def build(repo_root, theme_root=None, plan=None, applied_pref_files=()):
     return items
 
 
+_STATES = {
+    # state: (role, word shown, phrase in the heading). "applied" is shown
+    # as "automatic": try --info and install print this before anything has
+    # been applied, and the word must not claim otherwise.
+    "required": ("bad", "required", "required"),
+    "applied": ("good", "automatic", "automatic"),
+    "optional": ("muted", "optional", "optional"),
+    "unknown": ("warn", "check", "to check"),
+}
+
+
 def render(items, indent="  "):
-    """Lines for a terminal. Empty list when there is nothing to say."""
+    """Lines for a terminal. Empty list when there is nothing to say.
+
+    Each item is a mark and a status word in a fixed column, then the item
+    wrapped under itself; `unknown` reads as "check" because that is what
+    it asks of the person reading it.
+    """
+    from . import style
     if not items:
         return []
+    order = ("required", "applied", "optional", "unknown")
     counts = {}
     for item in items:
         counts[item["state"]] = counts.get(item["state"], 0) + 1
-    summary = ", ".join(f"{n} {state}" for state, n in sorted(
-        counts.items(), key=lambda kv: {"required": 0, "applied": 1, "optional": 2,
-                                        "unknown": 3}.get(kv[0], 4)))
-    lines = [f"{indent}setup beyond the files ({summary}):"]
+    summary = f" {style.DOT} ".join(f"{counts[state]} {_STATES[state][2]}"
+                                    for state in order if state in counts)
+    lines = [style.heading_line("Setup beyond the files", summary,
+                                indent=len(indent))]
+    pad = len(indent) + 2
+    width = 13
     for item in items:
-        tag = {"required": "REQUIRED", "applied": "applied ", "optional": "optional",
-               "unknown": "unknown "}[item["state"]]
-        lines.append(f"{indent}  {tag}  {item['item']}")
-        if item.get("note"):
-            lines.append(f"{indent}            {item['note']}")
+        role, word, _ = _STATES[item["state"]]
+        head = f"{' ' * pad}{style.status(word, role, width=width)}"
+        text_indent = pad + width
+        names = item.get("names") if item.get("pref_file") else None
+        text = (f"{_pl(len(names), 'pref')} in {item['pref_file']}" if names
+                else item["item"])
+        note = item.get("note")
+        if names and item["state"] == "applied":
+            # Said once, beside the row, rather than as a line of its own.
+            text += "  " + style.muted("in fxcss's own block")
+            note = None
+        wrapped = style.wrap(text, indent=text_indent) if style._visible(text) == text else [text]
+        lines.append(head + wrapped[0].lstrip())
+        lines.extend(wrapped[1:])
+        if names:
+            shown = f" {style.DOT} ".join(names[:5])
+            if len(names) > 5:
+                shown += f" {style.DOT} {style.ELLIPSIS} and {len(names) - 5} more"
+            lines.extend(style.muted(line) for line in style.wrap(shown, indent=text_indent))
+        if note:
+            lines.extend(style.muted(line) for line in style.wrap(note, indent=text_indent))
     return lines
 
 
