@@ -31,6 +31,7 @@ Run `fxcss <command> --help` for the options of each.
 import argparse
 import os
 import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -261,6 +262,76 @@ def _parse_choice(raw, count, default):
     return index if 0 <= index < count else default
 
 
+def _menu(question, note, lines, default):
+    """A numbered question, asked the same way by every command.
+
+    A bold heading with a dim note, one line per choice (rendered by the
+    caller, the default marked), then `Which one? 1-N [d]`. Enter takes the
+    default, and so does anything unusable. Returns a zero-based index.
+    """
+    from . import style
+    print()
+    print(style.heading_line(question, note))
+    for line in lines:
+        print(line)
+    print()
+    try:
+        raw = input(style.ask("Which one?", f"1-{len(lines)}", str(default + 1)))
+    except EOFError:
+        raw = ""
+    return _parse_choice(raw, len(lines), default)
+
+
+def _menu_row(number, name, cells=(), default=False, path=False):
+    """One choice: its number, the name in bold, then dim detail.
+
+    The last cell is cut to the terminal rather than wrapped back under the
+    number, so every choice stays on one line and the numbers stay a column;
+    `path` says it is a path, which keeps its tail. A last cell with too
+    little room left to say anything is left out rather than cut to a stub.
+    """
+    from . import style
+    lead = f"  {number:>2}. "
+    cells = [c for c in cells if c]
+    tail = "  (Enter)" if default else ""
+    if cells:
+        used = len(lead) + len(name) + sum(len(c) + 2 for c in cells[:-1]) + 2 + len(tail)
+        room = style.term_width() - 1 - used
+        if room < 16:
+            cells.pop()
+        else:
+            cells[-1] = style.clip(cells[-1], room, path=path)
+    line = lead + style.strong(name) + "".join(f"  {style.muted(c)}" for c in cells)
+    return line + (f"  {style.muted('(Enter)')}" if default else "")
+
+
+def _skip_hint(value, option):
+    """`using nightly  --firefox nightly skips this question`, after a menu.
+
+    Every menu ends this way: what was picked, and the option that picks it
+    next time, so a question answered once need never be asked again.
+    """
+    from . import style
+    used = f"  {style.muted('using')} {style.strong(value)}"
+    hint = f"{style.cmd(option)}{style.muted(' skips this question')}"
+    if len(f"  using {value}  {option} skips this question") < style.term_width():
+        return f"{used}  {hint}"
+    return f"{used}\n  {hint}"
+
+
+def _shared_parent(paths):
+    """The folder every path sits in, and each path's name inside it.
+
+    A menu of paths that all start the same way names that folder once in its
+    heading, so the rows show only what differs. (None, paths) when they do
+    not share one, or there is only one.
+    """
+    parents = {str(Path(p).parent) for p in paths}
+    if len(paths) < 2 or len(parents) != 1:
+        return None, list(paths)
+    return parents.pop(), [Path(p).name for p in paths]
+
+
 def choose_firefox(explicit):
     """Resolve which Firefox to drive, asking when that is a real question.
 
@@ -278,19 +349,19 @@ def choose_firefox(explicit):
     if len(builds) < 2 or not interactive:
         return core.find_firefox(None)
 
+    from . import style
     default = 0
-    print("Several Gecko builds are installed:")
-    for i, build in enumerate(builds, 1):
-        version = core.firefox_version(build["path"]) or "?"
-        marker = "  (Enter)" if i - 1 == default else ""
-        print(f"  {i}. {build['label']:<10} {version:<14} {build['path']}{marker}")
-    try:
-        raw = input(f"Test against [1-{len(builds)}]: ")
-    except EOFError:
-        raw = ""
-    picked = builds[_parse_choice(raw, len(builds), default)]
-    print(f"  using {picked['label']} — skip this menu with "
-          f"--firefox {picked['label']}\n")
+    versions = [core.firefox_version(build["path"]) or "?" for build in builds]
+    label_w = max(len(build["label"]) for build in builds)
+    version_w = max(len(v) for v in versions)
+    folder, places = _shared_parent([style.short_path(_app_bundle(b["path"])) for b in builds])
+    lines = [_menu_row(i, build["label"].ljust(label_w), [version.ljust(version_w), place],
+                       default=i - 1 == default, path=True)
+             for i, (build, version, place) in enumerate(zip(builds, versions, places), 1)]
+    note = f"{len(builds)} installed" + (f" in {folder}" if folder else "")
+    picked = builds[_menu("Which Gecko build?", note, lines, default)]
+    print(_skip_hint(picked["label"], f"--firefox {picked['label']}"))
+    print()
     return picked["path"]
 
 
@@ -377,14 +448,23 @@ def _plan_source(repo_root, args, interactive, workdir, remote=False, quiet=Fals
     if plan["status"] == "ambiguous" and interactive and plan["editions"]:
         candidates = ([e for e in plan["editions"] if not e["demoted"] and not e["misnamed"]]
                       or plan["editions"])
-        print("\n  This repository holds several themes:")
-        for number, edition in enumerate(candidates, 1):
-            print(f"    {number}. {edition['label']}")
-        try:
-            raw = input(f"  Which one [1-{len(candidates)}]: ")
-        except EOFError:
-            raw = ""
-        chosen = candidates[_parse_choice(raw, len(candidates), 0)]
+        from . import style
+        # The label is `key  (kind; stylesheets in where)  [warning]`: the
+        # key is what to pick by, the rest is detail.
+        parts = []
+        for edition in candidates:
+            key, _, detail = edition["label"].partition("  ")
+            about, bracket, warning = detail.strip().partition("  [")
+            if about.startswith("(") and about.endswith(")"):
+                about = about[1:-1]
+            parts.append((key, about.replace("; ", f" {style.DOT} ")
+                          + (f"  [{warning}" if bracket else "")))
+        key_w = max(len(key) for key, _ in parts)
+        lines = [_menu_row(i, key.ljust(key_w), [about], default=i == 1)
+                 for i, (key, about) in enumerate(parts, 1)]
+        chosen = candidates[_menu("Which theme?", f"this repository holds {len(candidates)}",
+                                  lines, 0)]
+        print(_skip_hint(chosen["key"], f"--subpath {shlex.quote(chosen['key'])}"))
         plan = layout.discover(repo_root, subpath=chosen["key"], entry=entry,
                                workdir=workdir / "layout")
     if plan["status"] == "ambiguous":
@@ -1078,19 +1158,22 @@ def _choose_profile(explicit, interactive, prefer=None):
             "--profile <name-or-path> (--list-profiles shows them)")
     default = profiles.index(defaults[0]) if defaults else 0
     from . import style
-    print()
-    print(style.heading_line("Which profile?", f"{len(profiles)} found"))
-    width = max(len(p["name"]) for p in profiles)
-    for i, profile in enumerate(profiles, 1):
-        marker = f"  {style.muted('(Enter)')}" if i - 1 == default else ""
-        print(_profile_line(profile, number=i, marker=marker, name_width=width,
-                            notes=_profile_notes(profile)))
-    print()
-    try:
-        raw = input(style.ask("Which one?", f"1-{len(profiles)}", str(default + 1)))
-    except EOFError:
-        raw = ""
-    return profiles[_parse_choice(raw, len(profiles), default)]
+    name_w = max(len(p["name"]) for p in profiles)
+    kind_w = max(len(p.get("kind") or "unrecognised") for p in profiles)
+    folder, places = _shared_parent([_short_path(p["path"]) for p in profiles])
+    lines = []
+    for i, (profile, place) in enumerate(zip(profiles, places), 1):
+        kind = (profile.get("kind") or "unrecognised").ljust(kind_w)
+        line = _menu_row(i, profile["name"].ljust(name_w), [kind, place],
+                         default=i - 1 == default, path=True)
+        notes = _profile_notes(profile)
+        if notes:
+            line += "\n      " + style.brand(f"{style.ARROW} " + ", ".join(notes))
+        lines.append(line)
+    note = f"{len(profiles)} found" + (f" in {folder}" if folder else "")
+    picked = profiles[_menu("Which profile?", note, lines, default)]
+    print(_skip_hint(picked["name"], f"--profile {shlex.quote(picked['name'])}"))
+    return picked
 
 
 def paint(enabled=None):
@@ -1231,30 +1314,29 @@ def _choose_ref(info, prefer, interactive):
     has moved on since the release. A release with nothing newer behind it is
     not a question, and neither is an explicit --commit or --ref.
     """
-    from . import fetch
+    from . import fetch, style
     options = fetch.ref_options(info)
+    newer = style.muted("  The default branch has newer commits than this release; "
+                        "--commit installs those instead.")
     if prefer == "commit" or len(options) < 2 or not fetch.commit_is_newer(info):
         ref, why = fetch.choose_ref(info, prefer)
         if not interactive and len(options) > 1 and fetch.commit_is_newer(info):
-            print("  note: the default branch has newer commits; --commit "
-                  "installs those instead")
+            print(newer)
         return ref, why
     if not interactive:
         ref, why = fetch.choose_ref(info, prefer)
-        print("  note: the default branch has newer commits than this "
-              "release; --commit installs those instead")
+        print(newer)
         return ref, why
 
-    print("\n  The default branch has moved on since the latest release:")
-    for i, option in enumerate(options, 1):
-        marker = "  (Enter)" if i == 1 else ""
-        note = f"  {option['note']}" if option["note"] else ""
-        print(f"    {i}. {option['label']:<28} {option['date']}{note}{marker}")
-    try:
-        raw = input(f"  Install [1-{len(options)}]: ")
-    except EOFError:
-        raw = ""
-    picked = options[_parse_choice(raw, len(options), 0)]
+    label_w = max(len(option["label"]) for option in options)
+    date_w = max(len(option["date"]) for option in options)
+    lines = [_menu_row(i, option["label"].ljust(label_w),
+                       [option["date"].ljust(date_w), option["note"]], default=i == 1)
+             for i, option in enumerate(options, 1)]
+    picked = options[_menu("Which version?", "the default branch has moved on since the "
+                           "latest release", lines, 0)]
+    branch = picked["ref"] == info.get("default_branch")
+    print(_skip_hint(picked["label"], "--commit" if branch else f"--ref {shlex.quote(picked['ref'])}"))
     return picked["ref"], picked["why"]
 
 

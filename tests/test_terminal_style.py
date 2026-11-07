@@ -98,3 +98,66 @@ class ColourScopeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ClipTests(unittest.TestCase):
+    def test_prose_keeps_its_start_and_breaks_between_words(self):
+        self.assertEqual(style.clip("newer than the release — fix tabs", 24), "newer than the release…")
+        self.assertEqual(style.clip("short", 24), "short")
+
+    def test_a_path_keeps_its_tail_and_drops_whole_folders(self):
+        path = "~/Library/Application Support/Firefox/Profiles/k3x9.default-release"
+        self.assertEqual(style.clip(path, 40, path=True), "…/Firefox/Profiles/k3x9.default-release")
+        self.assertLessEqual(len(style.clip(path, 12, path=True)), 12)
+
+
+class MenuTests(unittest.TestCase):
+    """Every numbered question reads the same: heading, rows, `Which one?`."""
+
+    BUILDS = [{"label": "stable", "path": "/Applications/Firefox.app/Contents/MacOS/firefox"},
+              {"label": "nightly",
+               "path": "/Applications/Firefox Nightly.app/Contents/MacOS/firefox"}]
+
+    def ask(self, func, answer, *args):
+        prompts, out = [], []
+        style.set_colour(False)
+        try:
+            with mock.patch("builtins.input", lambda p: prompts.append(p) or answer), \
+                    mock.patch("builtins.print", lambda *a, **k: out.append(" ".join(map(str, a)))), \
+                    mock.patch.dict(os.environ, {"COLUMNS": "80"}):
+                result = func(*args)
+        finally:
+            style.set_colour(None)
+        return result, "\n".join(out).splitlines(), prompts
+
+    def test_firefox_menu_matches_the_profile_menu(self):
+        with mock.patch.object(cli.core, "discover_firefoxes", return_value=self.BUILDS), \
+                mock.patch.object(cli.core, "firefox_version",
+                                  side_effect=lambda p: "157.0a1" if "Nightly" in p else "155.0.1"), \
+                mock.patch.object(cli.sys.stdin, "isatty", return_value=True), \
+                mock.patch.object(cli.sys.stdout, "isatty", return_value=True), \
+                mock.patch.dict(os.environ, {"CI": "", "FIREFOX_BIN": ""}):
+            path, lines, prompts = self.ask(cli.choose_firefox, "2", None)
+        self.assertEqual(path, self.BUILDS[1]["path"])
+        self.assertEqual(prompts, ["  Which one? 1-2 [1] "])
+        # Both builds live in /Applications, so the heading names it once.
+        self.assertIn("  Which Gecko build?  2 installed in /Applications", lines)
+        rows = [l for l in lines if re.match(r"\s+\d\. ", l)]
+        self.assertEqual(rows[0], "   1. stable   155.0.1  Firefox.app  (Enter)")
+        self.assertEqual(rows[1].index("157.0a1"), rows[0].index("155.0.1"))
+        self.assertIn("  using nightly  --firefox nightly skips this question", lines)
+
+    def test_release_menu_cuts_a_long_note_instead_of_wrapping(self):
+        info = {"release": {"tag": "v2.1", "date": "2025-03-02T10:00:00Z"},
+                "default_branch": "main",
+                "commit": {"date": "2026-10-30T10:00:00Z", "message": "fix tabs " * 20}}
+        (ref, _why), lines, prompts = self.ask(cli._choose_ref, "", info, None, True)
+        self.assertEqual(ref, "v2.1")
+        self.assertIn("  using release v2.1  --ref v2.1 skips this question", lines)
+        self.assertEqual(prompts, ["  Which one? 1-2 [1] "])
+        rows = [l for l in lines if re.match(r"\s+\d\. ", l)]
+        self.assertEqual(len(rows), 2)
+        for row in rows:
+            self.assertLessEqual(len(row), 79)
+        self.assertTrue(rows[1].endswith("…"))
+        self.assertTrue(rows[0].endswith("(Enter)"))

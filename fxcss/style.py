@@ -126,6 +126,26 @@ def plural(count, word, many=None):
     return f"{count:,} {many}"
 
 
+def clip(text, width, path=False):
+    """Cut to `width` columns, keeping the end that carries the meaning.
+
+    Prose keeps its start and breaks between words. A path keeps its tail
+    (the .app, the profile folder) and drops whole folders from the front.
+    """
+    if len(text) <= width:
+        return text
+    if path:
+        parts = text.split("/")
+        while len(parts) > 1 and len(ELLIPSIS) + 1 + len("/".join(parts)) > width:
+            parts.pop(0)
+        out = f"{ELLIPSIS}/{'/'.join(parts)}"
+        return out if len(out) <= width else ELLIPSIS + text[-(width - len(ELLIPSIS)):]
+    cut = text[:width - len(ELLIPSIS)]
+    if " " in cut[width // 2:]:
+        cut = cut[:cut.rindex(" ")]
+    return cut.rstrip(" ·—,;:") + ELLIPSIS
+
+
 def short_path(path):
     """Home-relative, because the interesting part of a path is its tail."""
     try:
@@ -158,7 +178,9 @@ def heading_line(text, note=None, indent=2, on=None):
     """A section title: bold, sentence case, an optional dim note after it."""
     line = f"{' ' * indent}{heading(text, on=on)}"
     if note:
-        line += f"  {muted(note, on=on)}"
+        # A note that would run past the edge goes under the title instead.
+        fits = indent + len(text) + 2 + len(note) < term_width()
+        line += f"  {muted(note, on=on)}" if fits else f"\n{' ' * indent}{muted(note, on=on)}"
     return line
 
 
