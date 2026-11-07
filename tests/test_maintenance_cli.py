@@ -403,7 +403,14 @@ class ChecklistTests(unittest.TestCase):
             mentioned = [i for i in items if "mentioned in the README" in i["item"]][0]
             self.assertIn("browser.tabs.allow_transparent_browser", mentioned["evidence"])
             self.assertFalse(checklist.complete(items))
-            lines = checklist.render(items)
+            # Colour off: in a real terminal the heading is bold, and the
+            # codes would sit in front of the words this looks for.
+            from fxcss import style
+            style.set_colour(False)
+            try:
+                lines = checklist.render(items)
+            finally:
+                style.set_colour(None)
             self.assertTrue(lines[0].strip().lower().startswith("setup beyond the files"))
             applied = checklist.build(repo, repo, applied_pref_files=["user.js"])
             self.assertEqual([i["state"] for i in applied if i["item"].startswith("preferences in user.js")],
