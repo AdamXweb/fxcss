@@ -124,7 +124,8 @@ class MenuTests(unittest.TestCase):
         try:
             with mock.patch("builtins.input", lambda p: prompts.append(p) or answer), \
                     mock.patch("builtins.print", lambda *a, **k: out.append(" ".join(map(str, a)))), \
-                    mock.patch.dict(os.environ, {"COLUMNS": "80"}):
+                    mock.patch.dict(os.environ, {"COLUMNS": "80", "FXCSS_PLAIN_PROMPTS": "1"}), \
+                    mock.patch.object(style, "term_width", return_value=80):
                 result = func(*args)
         finally:
             style.set_colour(None)

@@ -236,26 +236,38 @@ list of hashed directory names — and installing into the wrong one looks
 exactly like the theme not working:
 
 ```
-Several Firefox profiles exist:
-  1. default-release        [Release]              …/Profiles/8f2b1a.default-release  (Enter)
-  2. dev-edition-default    [Developer Edition]    …/Profiles/c41d9e.dev-edition-default
-  3. work                   [unrecognised]         …/Profiles/7ab3.work
+  Which profile?  3 found in ~/Library/Application Support/Firefox/Profiles
+›  1. default-release      Release            8f2b1a.default-release  (Enter)
+   2. dev-edition-default  Developer Edition  c41d9e.dev-edition-default
+   3. work                 unrecognised       7ab3.work
+
+  Which one? ↑↓ or 1-3 [1]
 ```
 
 The label comes from the directory suffix Firefox itself assigns, so a profile
-you named yourself reads `[unrecognised]` rather than being guessed at.
+you named yourself reads `unrecognised` rather than being guessed at.
 
 Run it without `--with` and it offers the theme's optional stylesheets rather
 than leaving you to find them in the repository:
 
 ```
-  This theme ships optional stylesheets:
-    1. compact-tabs
-    2. theme-dracula
-    …
-    Numbers separated by commas, `all`, or Enter for none.
-  Include:
+  Optional stylesheets  30 · pick any
+  ›  1. compact-tabs       11. theme-dracula     21. tabs-below-url
+     2✓ hide-sidebar-icon  12. theme-nord        22. urlbar-centred
+     …
+
+  Include which? ↑↓←→ and space to tick, or e.g. 1,3 or all [2]
 ```
+
+Every numbered question answers to the keyboard at a terminal. ↑ and ↓ move
+the `›` (← and → cross columns), Space ticks a stylesheet, Enter takes the
+answer and Esc stops. Typing the number works as it always has, and moves the
+pointer as you type. Through a pipe, in CI, with `TERM=dumb` or in a terminal
+narrower than 60 columns, the question is a plain typed prompt; set
+`FXCSS_PLAIN_PROMPTS=1` to keep it that way everywhere, for example for a
+screen reader that copes badly with lines redrawn in place. Each question
+ends by naming the option that skips it next time (`--profile`, `--with`,
+`--firefox`, `--subpath`, `--ref` or `--commit`).
 
 #### Options that cancel each other out
 
