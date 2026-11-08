@@ -1502,7 +1502,7 @@ text.
 For a custom workflow, the core capture-and-compare steps are:
 
 ```yaml
-- run: pip install "fxcss[images]==0.24.0"
+- run: pip install "fxcss[images]==0.25.0"
 - run: fxcss shot --theme base --out shots/base
 - run: fxcss shot --theme head --out shots/head
 - run: fxcss compare --base shots/base --head shots/head --out out/ --platform ${{ runner.os }}
@@ -1657,7 +1657,7 @@ the [releases page](https://github.com/AdamXweb/fxcss/releases) has the latest.
 CI runners' Pythons are not externally managed, so plain pip is fine there:
 
 ```bash
-pip install "fxcss[images]==0.24.0"
+pip install "fxcss[images]==0.25.0"
 ```
 
 Upgrade an existing pipx installation with `pipx upgrade fxcss`.
@@ -1864,7 +1864,37 @@ workflow tests also use Node and bash when they are installed, and skip
 otherwise. Offline release orchestration tests execute the workflow scripts
 with stubbed pip, sleep and gh commands to check tag validation, the PyPI
 installability retry gate and website dispatch without network access. They
-also check that publication still requires CI and the built-distribution checks.
+also check that publication still requires CI and the built-distribution checks,
+and run the release rules, tagging and the pin update against local Git
+repositories.
+
+### Releasing fxcss
+
+A release is one pull request. Title it **Prepare vX.Y.Z** and change
+`__version__` in `fxcss/__init__.py` to X.Y.Z. Merging it does the rest:
+
+1. **Release** tags the merge commit `vX.Y.Z` and starts **Publish** on that tag.
+2. **Publish** runs CI, checks the built packages, uploads them to PyPI and
+   waits until pip can install the new version.
+3. Publish then moves the README's `fxcss==` pins to the new version, refreshes
+   fxcss.com and creates the GitHub release with generated notes. You can edit
+   the notes afterwards.
+
+Only a release pull request may change `__version__`. The **Release version**
+check fails any other pull request that does, and Release won't tag a version
+that didn't come from one. While features land, leave the version at the
+latest release and write "X.Y.Z or later" in the README where a feature needs
+the next one.
+
+To release the version that is already on main, run Release by hand:
+
+```bash
+gh workflow run release.yml --ref main
+```
+
+If Publish fails, re-run it from the Actions tab. If the fix needs a code
+change, merge the fix, delete the tag with `git push origin :refs/tags/vX.Y.Z`,
+then run Release by hand.
 
 ## How this was built
 

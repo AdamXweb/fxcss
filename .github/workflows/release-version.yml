@@ -1,0 +1,30 @@
+name: Release version
+
+# Merging a change to fxcss.__version__ releases that version (see the Release
+# workflow), so only a release pull request may make one. Its title must say
+# "Prepare vX.Y.Z" for the new version, the version must increase, and it must
+# not already be tagged. Pull requests that leave the version alone pass.
+#
+# It also runs when a pull request is retitled, so fixing the title clears it.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Check the version change
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Check the version change
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: python3 scripts/release.py check-pr "$BASE_SHA"

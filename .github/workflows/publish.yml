@@ -1,10 +1,14 @@
 name: Publish
 
 # Publishes to PyPI when a version tag is pushed, so people can
-# `pipx install fxcss` instead of cloning.
+# `pipx install fxcss` instead of cloning. The Release workflow tags a release
+# when its "Prepare vX.Y.Z" pull request merges and starts this run on the tag.
 #
 # Both tag pushes and manual runs must pass the same unit and Firefox smoke
 # tests as pull requests. A tag must also match the built package's version.
+#
+# Once PyPI serves the release, the follow-up job moves the README's pins to
+# it, refreshes fxcss.com and creates the GitHub release if there isn't one.
 #
 # It uses PyPI Trusted Publishing, so there is no API token to store. Configure
 # the publisher once at https://pypi.org/manage/account/publishing/ with:
@@ -28,6 +32,8 @@ jobs:
     # try to publish to the upstream project's name.
     if: github.repository == 'AdamXweb/fxcss'
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -58,6 +64,9 @@ jobs:
                                f"package version {version!r}; expected v{version}")
           print(f"Validated fxcss {version} ({ref_type}: {ref_name})")
           PY
+      - name: Record the version
+        id: version
+        run: echo "version=$(basename dist/*.whl | cut -d- -f2)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v7
         with:
           name: dist
@@ -105,3 +114,61 @@ jobs:
           done
           echo "::error::fxcss==$version still not installable 10 minutes after upload — do not bump pins off this run"
           exit 1
+
+  # Runs only after the gate above, so nothing here advertises an install that
+  # fails. A push made with GITHUB_TOKEN starts no workflow, so this starts the
+  # website refresh itself rather than relying on Website docs. The later
+  # steps still run if an earlier one fails; the job then fails to say so.
+  follow-up:
+    needs: [build, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write   # push the pin update and create the release
+      actions: write    # start Refresh docs
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - name: Move the README pins
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          python3 scripts/release.py bump-pins "$VERSION" README.md
+          if git diff --quiet -- README.md; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -q -m "Update the README pins to fxcss $VERSION" -- README.md
+          for _ in 1 2 3; do
+            if git push origin HEAD:main; then
+              echo "::notice title=README pins::Moved to fxcss $VERSION ($(git rev-parse --short HEAD))."
+              exit 0
+            fi
+            git pull -q --rebase origin main
+          done
+          echo "::error title=README pins::Could not push the pin update to main."
+          exit 1
+      - name: Refresh the website
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run refresh-docs.yml --repo "$GITHUB_REPOSITORY" --ref website
+      - name: Create the GitHub release
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "v$VERSION already has a release."
+            exit 0
+          fi
+          # --target only applies when the tag doesn't exist yet: a manual run
+          # from a branch then tags the commit it published.
+          gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --title "v$VERSION" --generate-notes
+          echo "::notice title=GitHub release::Created v$VERSION. Edit its notes on the releases page."
