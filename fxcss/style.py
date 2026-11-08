@@ -279,18 +279,19 @@ def _column_layout(labels, indent, gap, width):
     return [labels], [max(len(s) for s in labels)], len(labels)
 
 
-def _numbered(items):
-    digits = len(str(len(items)))
-    return [f"{i:>{digits}}. {name}" for i, name in enumerate(items, 1)]
+def _numbered(items, first=1, digits=None):
+    digits = digits or len(str(first + len(items) - 1))
+    return [f"{i:>{digits}}. {name}" for i, name in enumerate(items, first)]
 
 
-def column_rows(items, indent=4, gap=3, width=None, numbered=False):
+def column_rows(items, indent=4, gap=3, width=None, numbered=False, first=1, digits=None):
     """How many rows `columns` would use: the step for moving across a column."""
-    labels = _numbered(list(items)) if numbered else list(items)
+    labels = _numbered(list(items), first, digits) if numbered else list(items)
     return _column_layout(labels, indent, gap, width or term_width())[2] if labels else 0
 
 
-def columns(items, indent=4, gap=3, width=None, numbered=False, pointer=None, ticked=None):
+def columns(items, indent=4, gap=3, width=None, numbered=False, pointer=None, ticked=None,
+            first=1, digits=None):
     """Names packed into as many columns as fit, filled top to bottom.
 
     Each column is as wide as its own longest entry, and the gutter between
@@ -298,17 +299,20 @@ def columns(items, indent=4, gap=3, width=None, numbered=False, pointer=None, ti
 
     For a menu answered with the arrow keys, `pointer` is the index the `›`
     stands at (it sits in the gutter, so the layout never shifts) and
-    `ticked` the indices whose `.` has become a `✓`.
+    `ticked` the indices whose `.` has become a `✓`. Both count from 0
+    within `items`; `first` is the number shown for the first of them, and
+    `digits` the width the numbers are padded to, so that groups numbered
+    straight through (see `column_groups`) line up with each other.
     """
     width = width or term_width()
     names = list(items)
-    labels = _numbered(names) if numbered else list(names)
+    digits = digits or len(str(first + len(names) - 1))
+    labels = _numbered(names, first, digits) if numbered else list(names)
     if not labels:
         return []
     cols, widths, nrows = _column_layout(labels, indent, gap, width)
     marked = numbered and (pointer is not None or ticked)
     ticked = set(ticked or ())
-    digits = len(str(len(names)))
     out = []
     for r in range(nrows):
         line = ""
@@ -326,11 +330,53 @@ def columns(items, indent=4, gap=3, width=None, numbered=False, pointer=None, ti
                 elif index in ticked:
                     name = strong(name)
                 mark = good(TICK) if index in ticked else "."
-                cell = (f"{index + 1:>{digits}}{mark} {name}"
+                cell = (f"{first + index:>{digits}}{mark} {name}"
                         + " " * (widths[c] - len(col[r])))
             line += gutter + cell
         out.append(line.rstrip())
     return out
+
+
+def column_groups(names, groups=None, indent=4, gap=3, width=None, pointer=None, ticked=None,
+                  numbered=True):
+    """`columns` in titled groups, numbered straight through.
+
+    `groups` is [(title, count)] in the order of `names`; None, or a single
+    untitled group, is the plain grid. A blank line and the title, muted and
+    in line with the names, start every group. `pointer` and `ticked` count
+    across all of `names`, as the numbers do.
+    """
+    names = list(names)
+    groups = groups or [(None, len(names))]
+    digits = len(str(len(names)))
+    ticked = set(ticked or ())
+    out, start = [], 0
+    for title, count in groups:
+        if title:
+            out += ([""] if out else []) + [" " * indent + muted(title)]
+        end = start + count
+        out += columns(names[start:end], indent, gap, width, numbered=numbered,
+                       pointer=pointer - start if pointer is not None and start <= pointer < end
+                       else None,
+                       ticked={i - start for i in ticked if start <= i < end},
+                       first=start + 1, digits=digits)
+        start = end
+    return out
+
+
+def group_spans(names, groups=None, indent=4, gap=3, width=None):
+    """[(start, count, rows)] for each of `column_groups`' groups: where the
+    group begins in `names`, how many it holds, and its column height (the
+    step ←→ take inside it)."""
+    names = list(names)
+    groups = groups or [(None, len(names))]
+    digits = len(str(len(names)))
+    spans, start = [], 0
+    for _, count in groups:
+        spans.append((start, count, column_rows(names[start:start + count], indent, gap, width,
+                                                numbered=True, first=start + 1, digits=digits)))
+        start += count
+    return spans
 
 
 def ask(question, choices=None, default=None, indent=2, on=None):

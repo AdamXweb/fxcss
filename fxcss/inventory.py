@@ -60,6 +60,18 @@ HOOK_STEM_RE = re.compile(r"(custom|settings|local|overrides?|mine|my[-_])", re.
 OPTION_DIRS = ("custom", "optional", "options", "extras", "variants",
                "tweaks", "presets")
 
+# Optional sheets named as colour schemes, so the install menu can show them
+# apart from the tweaks. A name is a convention, not a fact, which is why
+# fxcss.sheets measures clashes rather than reading names; grouping a menu is
+# only presentation, and a sheet put in the wrong group is still offered,
+# numbered and checked the same way. Where store themes ship colour schemes as
+# files, they are named like this: `theme-nord`, or after the palette itself.
+SCHEME_PREFIXES = ("theme-", "theme_")
+PALETTES = frozenset({
+    "ayu", "catppuccin", "dracula", "everforest", "frappe", "gruvbox", "kanagawa",
+    "latte", "macchiato", "mocha", "monokai", "nightfox", "nightowl", "nord",
+    "onedark", "rosepine", "solarized", "tokyonight"})
+
 # A bound on how much of a theme is read: the biggest real theme in the
 # 132-entry catalogue has a few hundred stylesheets.
 MAX_SHEETS = 4000
@@ -177,6 +189,22 @@ def _relative(path, chrome):
 def _is_hook(resolved):
     name = Path(resolved).name.lower()
     return name in HOOK_NAMES or bool(HOOK_STEM_RE.search(Path(resolved).stem))
+
+
+def is_colour_scheme(name):
+    """Whether an optional sheet's name reads as a colour scheme.
+
+    `name` is a file name or stem. True for the `theme-` prefix, or when any
+    word of the name, or two adjacent words run together (`rose-pine`,
+    `one-dark`), is a palette in PALETTES.
+    """
+    stem = str(name).lower()
+    stem = stem[:-4] if stem.endswith(".css") else stem
+    if stem.startswith(SCHEME_PREFIXES):
+        return True
+    words = [w for w in re.split(r"[-_. ]+", stem) if w]
+    pairs = [a + b for a, b in zip(words, words[1:])]
+    return any(w in PALETTES for w in words + pairs)
 
 
 def _is_option_slot(resolved, option_names):

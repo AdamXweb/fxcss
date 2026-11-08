@@ -673,11 +673,12 @@ def cmd_try(args):
             print(line)
 
         if facts["variants"]:
-            names = [v.stem for v in facts["variants"]]
+            shown, groups = _sheet_groups(facts["variants"])
+            names = [v.stem for v in shown]
             print()
             print(style.heading_line("Optional stylesheets",
                                      f"{len(names)} {style.DOT} layer any on with --with name,name"))
-            for line in style.columns(names, indent=4):
+            for line in style.column_groups(names, groups, indent=4, numbered=False):
                 print(line)
         if checklist_items := _checklist_items(plan["repo_root"], theme_root, plan, []):
             print()
@@ -1270,18 +1271,37 @@ def _sheet_conflicts(chosen, indent="  "):
     return found
 
 
+def _sheet_groups(variants):
+    """The stylesheet menu's order and groups: (sheets, [(title, count)] or None).
+
+    Tweaks first, then colour schemes, when a theme ships both; any other
+    theme gets the single list it always had, in the order it was found.
+    """
+    from . import inventory
+    schemes = [v for v in variants if inventory.is_colour_scheme(v.stem)]
+    tweaks = [v for v in variants if not inventory.is_colour_scheme(v.stem)]
+    if not schemes or not tweaks:
+        return list(variants), None
+    return tweaks + schemes, [("Tweaks", len(tweaks)), ("Colour schemes", len(schemes))]
+
+
 def _choose_sheets(variants, interactive):
     """Offer a theme's optional stylesheets, when there is a human to ask.
 
     Only reachable when --with was not given: an explicit flag is an answer
     and asking again would be rude. Silence (no terminal, or CI) means none,
     which is what installing without --with has always done.
+
+    The menu may group the sheets (see `_sheet_groups`) and numbers them in
+    the order shown; what is returned keeps the theme's own order, which is
+    the order they are imported in.
     """
     if not interactive or not variants:
         return []
     from . import prompt, style
-    names = [sheet.stem for sheet in variants]
-    grid = style.columns(names, indent=4, numbered=True)
+    shown, groups = _sheet_groups(variants)
+    names = [sheet.stem for sheet in shown]
+    grid = style.column_groups(names, groups, indent=4)
     # The arrow keys and Space tick sheets at a terminal that can redraw the
     # grid; typing the numbers works there too, and is all there is elsewhere.
     arrows = prompt.arrows_ok(len(grid) + 2)
@@ -1304,7 +1324,8 @@ def _choose_sheets(variants, interactive):
         # about the text, and the grid has scrolled up behind the warnings.
         if arrows and attempt == 0:
             raw = prompt.pick_many(names, "Include which?", "e.g. 1,3 or all",
-                                   lambda text: scan_selection(text, len(names))[0])
+                                   lambda text: scan_selection(text, len(names))[0],
+                                   groups=groups)
         else:
             try:
                 raw = input(style.ask("Include which?", "e.g. 1,3 or all", "none"))
@@ -1315,7 +1336,8 @@ def _choose_sheets(variants, interactive):
         if attempt and not raw.strip():
             break
         indices, ignored = scan_selection(raw, len(variants))
-        chosen = [variants[i] for i in indices]
+        picked = {shown[i] for i in indices}
+        chosen = [sheet for sheet in variants if sheet in picked]
         for token, why in ignored:
             # repr() so an escape sequence is shown rather than replayed at
             # the terminal -- seeing the \x1b is the whole diagnosis.

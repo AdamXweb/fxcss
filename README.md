@@ -252,12 +252,25 @@ than leaving you to find them in the repository:
 
 ```
   Optional stylesheets  30 · pick any
-  ›  1. compact-tabs       11. theme-dracula     21. tabs-below-url
-     2✓ hide-sidebar-icon  12. theme-nord        22. urlbar-centred
+    Tweaks
+     1✓ compact-tabs     5. increase-contrast    9. tabs-swapclose
+     2. enabletabview    6. noidentity          10. windows-swapclose
      …
 
-  Include which? ↑↓←→ and space to tick, or e.g. 1,3 or all [2]
+    Colour schemes
+    11. theme-ayu-mirage             21. theme-material-ocean
+    …
+    15. theme-catppuccin-mocha     › 25✓ theme-nord
+    …
+
+  Include which? ↑↓←→ and space to tick, or e.g. 1,3 or all [1,25]
 ```
+
+When a theme ships both, colour schemes (named `theme-…`, or after a palette
+such as `nord` or `catppuccin-mocha`) are listed apart from the tweaks; any
+other theme gets one list. The grouping is only how the menu reads: the
+sheets are numbered straight through, and what you pick is imported in the
+theme's own order.
 
 Every numbered question answers to the keyboard at a terminal. ↑ and ↓ move
 the `›` (← and → cross columns), Space ticks a stylesheet, Enter takes the
