@@ -29,6 +29,7 @@ import os
 import re
 from pathlib import Path
 from urllib.parse import unquote
+from .style import plural as _pl, agree as _agree
 
 # The stylesheets Firefox loads from chrome/ by name, with the documents
 # each one reaches.
@@ -330,7 +331,7 @@ def scan(chrome_dir, entries=None, option_names=None):
         shown = ", ".join(f"{e['source']} → {e['target']}" for e in inventory["unresolved"][:4])
         more = len(inventory["unresolved"]) - 4
         inventory["reasons"].append(
-            f"{len(inventory['unresolved'])} required import(s) resolve to nothing: "
+            f"{_pl(len(inventory['unresolved']), 'required import')} {_agree(len(inventory['unresolved']), 'resolve', 'resolves')} to nothing: "
             f"{shown}{f', … and {more} more' if more > 0 else ''}")
     return inventory
 
@@ -436,10 +437,10 @@ def summary(inventory):
         parts.append(f"{content_only} web-content")
     if both:
         parts.append(f"{both} shared")
-    lines.append(f"{len(sheets)} stylesheet(s) load" + (f" ({', '.join(parts)})" if parts else ""))
+    lines.append(f"{_pl(len(sheets), 'stylesheet')} {_agree(len(sheets), 'load', 'loads')}" + (f" ({', '.join(parts)})" if parts else ""))
     if inventory["conditional"]:
-        lines.append(f"{len(inventory['conditional'])} conditional import(s) "
-                     "point at files not shipped (off unless their pref/media applies)")
+        lines.append(f"{_pl(len(inventory['conditional']), 'conditional import')} "
+                     f"{_agree(len(inventory['conditional']), 'point', 'points')} at files not shipped (off unless their pref/media applies)")
     if inventory["hooks"]:
         names = ", ".join(sorted({Path(e["resolved"]).name for e in inventory["hooks"]}))
         lines.append(f"user hook(s) not shipped, as intended: {names}")

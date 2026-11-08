@@ -30,6 +30,7 @@ already -- and archive downloads are the first thing GitHub rate-limits.
 import hashlib
 import re
 from pathlib import Path
+from .style import plural as _pl
 
 # What a theme's chrome/ can hold that names where it came from. Checked in
 # this order: a clone knows its own origin, everything else is a mention.
@@ -247,7 +248,7 @@ def exact(result):
 def describe(result):
     """One line: what this profile holds, in terms of that version."""
     if exact(result):
-        extra = (f", plus {len(result['extra'])} file(s) not in it"
+        extra = (f", plus {_pl(len(result['extra']), 'file')} not in it"
                  if result["extra"] else "")
         eol = " (line endings differ, contents do not)" if result["eol"] else ""
         return f"exactly {result['ref']}{extra}{eol}"

@@ -75,7 +75,7 @@ class FlatThemeLifecycleTests(unittest.TestCase):
         self.assertEqual(manifest["source"]["path"], str(self.repo.resolve()))
         prefs = (self.profile / "user.js").read_text()
         self.assertIn('user_pref("browser.tabs.a", true);', prefs)
-        self.assertIn("applied   preferences in user.js", out)
+        self.assertIn("automatic  2 prefs in user.js", out)
 
         # Unchanged source: no update announced.
         code, out, _ = run_cli("upgrade", "--profile", str(self.profile), "--check")
@@ -203,7 +203,7 @@ class EditionSelectionTests(unittest.TestCase):
     def test_try_info_reports_plan_and_checklist(self):
         code, out, _ = run_cli("try", str(self.repo), "--info", "--subpath", "1.Normal")
         self.assertEqual(code, 0)
-        self.assertIn("theme: 1.Normal", out)
+        self.assertIn("at 1.Normal", out)
         self.assertIn("other editions here", out)
 
 
@@ -403,8 +403,15 @@ class ChecklistTests(unittest.TestCase):
             mentioned = [i for i in items if "mentioned in the README" in i["item"]][0]
             self.assertIn("browser.tabs.allow_transparent_browser", mentioned["evidence"])
             self.assertFalse(checklist.complete(items))
-            lines = checklist.render(items)
-            self.assertTrue(lines[0].strip().startswith("setup beyond the files"))
+            # Colour off: in a real terminal the heading is bold, and the
+            # codes would sit in front of the words this looks for.
+            from fxcss import style
+            style.set_colour(False)
+            try:
+                lines = checklist.render(items)
+            finally:
+                style.set_colour(None)
+            self.assertTrue(lines[0].strip().lower().startswith("setup beyond the files"))
             applied = checklist.build(repo, repo, applied_pref_files=["user.js"])
             self.assertEqual([i["state"] for i in applied if i["item"].startswith("preferences in user.js")],
                              ["applied"])

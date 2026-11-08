@@ -30,6 +30,7 @@ pair it passes is safe; it reports what it can prove.
 
 import re
 from pathlib import Path
+from .style import plural as _pl
 
 # One sheet being ~entirely overridden by another is what "alternatives"
 # means. Below this they are reported as overlapping, which is ordinary --
@@ -277,4 +278,4 @@ def describe(report):
                 f"it makes is also made by {other}, which sets them "
                 "differently")
     return (f"{report['a']} and {report['b']} disagree on "
-            f"{report['conflicting']} declaration(s); the later one wins those")
+            f"{_pl(report['conflicting'], 'declaration')}; the later one wins those")
