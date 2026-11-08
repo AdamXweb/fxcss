@@ -242,9 +242,13 @@ class StopTests(unittest.TestCase):
         def interrupted(args):
             raise KeyboardInterrupt
         err = io.StringIO()
+        # doctor reads the theme in the working directory before it runs,
+        # and a checkout with a build/ copy in it holds two: the interrupt
+        # under test would never be reached. Skip that step.
         with mock.patch.object(cli, "cmd_doctor", interrupted), \
+                mock.patch.object(cli, "_resolve_layouts", lambda args: None), \
                 mock.patch.object(sys, "stderr", err):
-            self.assertEqual(cli.main(["doctor"]), 130)
+            self.assertEqual(cli.main(["doctor"]), 130, err.getvalue())
         self.assertIn("Stopped.", err.getvalue())
 
 
