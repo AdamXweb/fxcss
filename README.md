@@ -272,7 +272,20 @@ other theme gets one list. The grouping is only how the menu reads: the
 sheets are numbered straight through, and what you pick is imported in the
 theme's own order. "Pick one" appears when every pair of the theme's colour
 schemes clashes in the way described below, so installing any two of them
-would be refused.
+would be refused. Pick two anyway and the menu asks which one to keep:
+
+```
+  Keep which colour scheme?  both set the same 110 colours; only one can take effect
+   1. theme-catppuccin-mocha  ██ #11111b  ██ #cdd6f4  ██ #cba6f7  ██ #6c7086
+›  2. theme-nord              ██ #242933  ██ #eceff4  ██ #88c0d0  ██ #5e81ac  (Enter)
+
+  Which one? ↑↓ or 1-2 [2]
+```
+
+Each row shows the colours that sheet would set, most-used first, as a
+swatch in that colour and its hex code (just the hex code where the terminal
+cannot show the colour). Enter keeps the one that loads last, which is the one
+that would have won anyway.
 
 Every numbered question answers to the keyboard at a terminal. ↑ and ↓ move
 the `›` (← and → cross columns), Space ticks a stylesheet, Enter takes the

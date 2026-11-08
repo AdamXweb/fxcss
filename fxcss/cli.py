@@ -1295,7 +1295,78 @@ def _sheet_groups(variants):
     return tweaks + schemes, [("Tweaks", len(tweaks)), (title, len(schemes))]
 
 
-def _choose_sheets(variants, interactive):
+def _keep_one(chosen):
+    """Ask which of each set of clashing sheets to keep; returns the rest.
+
+    A set is the worst-clashing pair plus any other chosen sheet that clashes
+    with all of them, so three colour schemes are one question, not three.
+    Each sheet is shown with the colours it would set (a swatch and its hex
+    code), and Enter keeps the one that loads last -- the one that would have
+    won anyway. Asked again until nothing chosen clashes.
+    """
+    from . import inventory, sheets as sheets_mod, style
+    chosen = list(chosen)
+    while True:
+        reports = sheets_mod.conflicts(chosen)
+        if not reports:
+            return chosen
+        pairs = {frozenset((r["a"], r["b"])) for r in reports}
+        first = reports[0]
+        group = [first["a"], first["b"]]
+        for sheet in chosen:
+            if sheet.stem not in group and all(frozenset((sheet.stem, g)) in pairs
+                                               for g in group):
+                group.append(sheet.stem)
+        members = [sheet for sheet in chosen if sheet.stem in group]
+        if len(members) < 2:            # two sheets share a stem: nothing to ask
+            return chosen
+
+        values = [v for decls in sheets_mod.contested(members).values() for v in decls.values()]
+        what = "colour" if sum(map(sheets_mod.is_colour, values)) * 2 > len(values) else "property"
+        kind = sheets_mod.verdict(first)
+        if kind == "subsumed":
+            loser = sheets_mod.overridden(first)
+            other = first["b"] if loser == first["a"] else first["a"]
+            note = f"{loser} changes nothing alongside {other}"
+        elif kind == "alternatives":
+            note = (f"{'both' if len(members) == 2 else 'all'} set the same "
+                    f"{style.plural(first['shared'], what)}; only one can take effect")
+        else:
+            note = (f"they set {style.plural(first['conflicting'], what)} differently; "
+                    "the later one wins those")
+        noun = ("colour scheme" if all(inventory.is_colour_scheme(m.stem) for m in members)
+                else "stylesheet")
+
+        colours = sheets_mod.palettes(members)
+        name_width = max(len(m.stem) for m in members)
+        hex_width = max((len(c) for cs in colours.values() for c in cs), default=0)
+        # Each colour is "  ██ #1e1e2e" (or just the hex where a terminal
+        # cannot show the block), as many as fit beside the longest name.
+        cell = 2 + (len(style.BLOCK) + 1 if style.swatch("#000") else 0) + hex_width
+        room = style.term_width() - 1 - len("  00. ") - name_width - len("  (Enter)")
+        fits = min(4, max(0, room // cell)) if hex_width else 0
+        shown = max(min(fits, len(c)) for c in colours.values())
+        width = len("  00. ") + name_width + shown * cell
+
+        def row(i, current, pointer):
+            sheet = members[i]
+            lead = f"{style.brand(style.POINTER) if pointer else ' '} {i + 1:>2}. "
+            title = style.brand(sheet.stem) if pointer else style.strong(sheet.stem)
+            line = lead + title + " " * (name_width - len(sheet.stem))
+            for colour in colours[sheet][:fits]:
+                mark = style.swatch(colour)
+                line += "  " + (mark + " " if mark else "") + style.muted(colour.ljust(hex_width))
+            if not current:
+                return line.rstrip()
+            line += " " * (width - len(style._visible(line)))
+            return f"{line}  {style.muted('(Enter)')}"
+
+        pick = _menu(f"Keep which {noun}?", note, len(members), row, len(members) - 1)
+        dropped = {m for i, m in enumerate(members) if i != pick}
+        chosen = [sheet for sheet in chosen if sheet not in dropped]
+
+
+def _choose_sheets(variants, interactive, force=False):
     """Offer a theme's optional stylesheets, when there is a human to ask.
 
     Only reachable when --with was not given: an explicit flag is an answer
@@ -1304,7 +1375,9 @@ def _choose_sheets(variants, interactive):
 
     The menu may group the sheets (see `_sheet_groups`) and numbers them in
     the order shown; what is returned keeps the theme's own order, which is
-    the order they are imported in.
+    the order they are imported in. Sheets that cancel each other out are
+    settled by asking which to keep, unless `force` (install's --force) says
+    to install them anyway.
     """
     if not interactive or not variants:
         return []
@@ -1322,13 +1395,10 @@ def _choose_sheets(variants, interactive):
         for line in grid:
             print(line)
         print()
-    # `all` is offered above and is right for most themes, but wrong for one
-    # with a family of alternatives in it -- so a picked set is checked and
-    # the question asked again, rather than the answer being refused.
-    #
-    # Rejected tokens get the same treatment. Dropping them quietly is how a
-    # stray escape sequence in the line turned "20, 4" into sheet 4 alone.
-    chosen, clashing = [], []
+    # Rejected tokens get the question asked again. Dropping them quietly is
+    # how a stray escape sequence in the line turned "20, 4" into sheet 4
+    # alone.
+    chosen = []
     for attempt in range(3):
         # A retry is typed: the question it asks ("retype the whole list") is
         # about the text, and the grid has scrolled up behind the warnings.
@@ -1352,22 +1422,23 @@ def _choose_sheets(variants, interactive):
             # repr() so an escape sequence is shown rather than replayed at
             # the terminal -- seeing the \x1b is the whole diagnosis.
             print(style.warn(f"    {style.BANG} ignored {token!r}: {why}"))
-        clashing = [r for r in _sheet_conflicts(chosen, indent="    ")
-                    if r["conflicting"]]
-        if attempt == 2 or (not clashing and not ignored):
+        if attempt == 2 or not ignored:
             break
-        if clashing:
-            print("\n    Pick one of each pair — the rest would have no effect.")
-        else:
-            print(f"    That is {len(chosen)} of the "
-                  f"{len(indices) + len(ignored)} you asked for. Retype the "
-                  "whole list, or Enter to keep it.")
-    # A set that still clashes is refused by the caller, so naming the
-    # --with that repeats it would only send someone round again.
-    if chosen and not clashing:
+        print(f"    That is {len(chosen)} of the "
+              f"{len(indices) + len(ignored)} you asked for. Retype the "
+              "whole list, or Enter to keep it.")
+    # `all` is offered above and is right for most themes, but wrong for one
+    # with a family of alternatives in it. Only one of such a family can take
+    # effect, so which one is the question, rather than retyping the list.
+    # --force has already answered it: install them all, but say what clashes.
+    clashing = force and [r for r in _sheet_conflicts(chosen, indent="    ")
+                          if r["conflicting"]]
+    if not force:
+        chosen = _keep_one(chosen)
+    if chosen:
         stems = [s.stem for s in chosen]
-        print(_skip_hint(", ".join(stems), f"--with {shlex.quote(','.join(stems))}",
-                         verb="including"))
+        option = f"--with {shlex.quote(','.join(stems))}" + (" --force" if clashing else "")
+        print(_skip_hint(", ".join(stems), option, verb="including"))
     return chosen
 
 
@@ -1470,11 +1541,11 @@ def cmd_install(args):
                 return 2
             blocking = [r for r in _sheet_conflicts(chosen) if r["conflicting"]]
         else:
-            chosen = _choose_sheets(facts["variants"], interactive)
-            # The menu can return its last selection on Enter, EOF or
-            # exhausted retries. Validate that answer just like an explicit
-            # --with list; the menu has already shown each clash, under the
-            # answer that caused it, so it is measured here without a reprint.
+            chosen = _choose_sheets(facts["variants"], interactive, force=args.force)
+            # The menu asks which of a clashing set to keep, so it should
+            # never hand one back without --force. Validate its answer like
+            # an explicit --with list all the same; any clash it found it has
+            # already shown, so this measures without a reprint.
             from . import sheets as sheets_mod
             blocking = [r for r in sheets_mod.conflicts(chosen) if r["conflicting"]]
         if blocking and not args.force:

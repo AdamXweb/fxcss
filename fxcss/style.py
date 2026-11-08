@@ -4,7 +4,9 @@ Colour is decoration on top of text that already reads plainly. Every helper
 returns the same words with colour off (piped output, NO_COLOR, --no-colour),
 so nothing depends on a colour to carry its meaning. Only the 16 ANSI colours
 plus bold and dim are used: the user's terminal theme picks the shades, which
-is what keeps one palette readable on light and dark backgrounds alike.
+is what keeps one palette readable on light and dark backgrounds alike. The
+one exception is `swatch`, which previews a theme's own colours: those are
+the point of showing it, and the hex code beside it says the same in text.
 
 Roles, not colours, are what the rest of the code asks for:
 
@@ -49,11 +51,11 @@ def _utf8():
 if _utf8():
     TICK, BANG, CROSS, ARROW, DOT, BULLET, ELLIPSIS, SEP = (
         "✓", "!", "✗", "→", "·", "●", "…", "—")
-    POINTER, UPDOWN, ARROWS = "›", "↑↓", "↑↓←→"
+    POINTER, UPDOWN, ARROWS, BLOCK = "›", "↑↓", "↑↓←→", "██"
 else:  # pragma: no cover - depends on the console
     TICK, BANG, CROSS, ARROW, DOT, BULLET, ELLIPSIS, SEP = (
         "ok", "!", "x", "->", "-", "*", "...", "-")
-    POINTER, UPDOWN, ARROWS = ">", "up/down", "arrows"
+    POINTER, UPDOWN, ARROWS, BLOCK = ">", "up/down", "arrows", "##"
 
 
 def set_colour(on):
@@ -75,6 +77,51 @@ def colour_on(stream=None):
         return bool(stream.isatty())
     except (AttributeError, ValueError):
         return False
+
+
+def colour_depth():
+    """What a colour preview can use here: 24 (any colour), 8 (the 256-colour
+    palette, which nearly every terminal has) or 0 (none: no colour at all)."""
+    if not colour_on():
+        return 0
+    if os.environ.get("COLORTERM", "").lower() in ("truecolor", "24bit"):
+        return 24
+    return 8 if "256" in os.environ.get("TERM", "") else 0
+
+
+def rgb(hex_colour):
+    """(r, g, b) for #rgb, #rgba, #rrggbb or #rrggbbaa; alpha is dropped."""
+    digits = hex_colour.lstrip("#")
+    if len(digits) in (3, 4):
+        digits = "".join(c * 2 for c in digits[:3])
+    return tuple(int(digits[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _nearest_256(rgb):
+    """The closest of xterm's 6x6x6 colour cube and its 24 greys."""
+    levels = (0, 95, 135, 175, 215, 255)
+    cube = [min(range(6), key=lambda i: abs(levels[i] - c)) for c in rgb]
+    cube_rgb = tuple(levels[i] for i in cube)
+    grey = min(range(24), key=lambda i: abs(8 + 10 * i - sum(rgb) / 3))
+    grey_rgb = (8 + 10 * grey,) * 3
+
+    def distance(other):
+        return sum((a - b) ** 2 for a, b in zip(rgb, other))
+    if distance(grey_rgb) < distance(cube_rgb):
+        return 232 + grey
+    return 16 + 36 * cube[0] + 6 * cube[1] + cube[2]
+
+
+def swatch(hex_colour):
+    """A block of `hex_colour` (#rgb or #rrggbb, alpha ignored), or "" where
+    the terminal cannot show one. Always two columns wide when shown."""
+    depth = colour_depth()
+    if not depth:
+        return ""
+    red, green, blue = rgb(hex_colour)
+    code = (f"38;2;{red};{green};{blue}" if depth == 24
+            else f"38;5;{_nearest_256((red, green, blue))}")
+    return f"\033[{code}m{BLOCK}\033[0m"
 
 
 def sgr(text, *names, on=None):
