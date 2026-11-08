@@ -257,7 +257,7 @@ than leaving you to find them in the repository:
      2. enabletabview    6. noidentity          10. windows-swapclose
      …
 
-    Colour schemes
+    Colour schemes · pick one
     11. theme-ayu-mirage             21. theme-material-ocean
     …
     15. theme-catppuccin-mocha     › 25✓ theme-nord
@@ -270,7 +270,9 @@ When a theme ships both, colour schemes (named `theme-…`, or after a palette
 such as `nord` or `catppuccin-mocha`) are listed apart from the tweaks; any
 other theme gets one list. The grouping is only how the menu reads: the
 sheets are numbered straight through, and what you pick is imported in the
-theme's own order.
+theme's own order. "Pick one" appears when every pair of the theme's colour
+schemes clashes in the way described below, so installing any two of them
+would be refused.
 
 Every numbered question answers to the keyboard at a terminal. ↑ and ↓ move
 the `›` (← and → cross columns), Space ticks a stylesheet, Enter takes the

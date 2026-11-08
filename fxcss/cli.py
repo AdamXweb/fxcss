@@ -1259,11 +1259,13 @@ def _sheet_conflicts(chosen, indent="  "):
     do about it differs. An empty list means nothing measurable was found,
     which is not the same as proof that a combination works: see fxcss.sheets.
     """
-    from . import sheets as sheets_mod
+    from . import sheets as sheets_mod, style
 
     found = sheets_mod.conflicts(chosen)
     for report in found:
-        print(f"\n{indent}{sheets_mod.describe(report)}")
+        print()
+        for line in style.wrap(sheets_mod.describe(report), indent=len(indent)):
+            print(line)
         for example in report["examples"][:2]:
             print(f"{indent}  {example['selector']} {{ "
                   f"{example['property']}: {example['a']} }}  vs  "
@@ -1276,13 +1278,21 @@ def _sheet_groups(variants):
 
     Tweaks first, then colour schemes, when a theme ships both; any other
     theme gets the single list it always had, in the order it was found.
+
+    The colour schemes' title says "pick one" when every pair of them clashes
+    -- measured, as install measures before refusing a pair, not assumed from
+    the names -- so nobody has to pick two to find out.
     """
-    from . import inventory
+    from . import inventory, sheets, style
     schemes = [v for v in variants if inventory.is_colour_scheme(v.stem)]
     tweaks = [v for v in variants if not inventory.is_colour_scheme(v.stem)]
     if not schemes or not tweaks:
         return list(variants), None
-    return tweaks + schemes, [("Tweaks", len(tweaks)), ("Colour schemes", len(schemes))]
+    title = "Colour schemes"
+    pairs = len(schemes) * (len(schemes) - 1) // 2
+    if pairs and len(sheets.conflicts(schemes)) == pairs:
+        title += f" {style.DOT} pick one"
+    return tweaks + schemes, [("Tweaks", len(tweaks)), (title, len(schemes))]
 
 
 def _choose_sheets(variants, interactive):
@@ -1318,7 +1328,7 @@ def _choose_sheets(variants, interactive):
     #
     # Rejected tokens get the same treatment. Dropping them quietly is how a
     # stray escape sequence in the line turned "20, 4" into sheet 4 alone.
-    chosen = []
+    chosen, clashing = [], []
     for attempt in range(3):
         # A retry is typed: the question it asks ("retype the whole list") is
         # about the text, and the grid has scrolled up behind the warnings.
@@ -1352,7 +1362,9 @@ def _choose_sheets(variants, interactive):
             print(f"    That is {len(chosen)} of the "
                   f"{len(indices) + len(ignored)} you asked for. Retype the "
                   "whole list, or Enter to keep it.")
-    if chosen:
+    # A set that still clashes is refused by the caller, so naming the
+    # --with that repeats it would only send someone round again.
+    if chosen and not clashing:
         stems = [s.stem for s in chosen]
         print(_skip_hint(", ".join(stems), f"--with {shlex.quote(','.join(stems))}",
                          verb="including"))
@@ -1456,12 +1468,15 @@ def cmd_install(args):
             chosen = _match_sheets(args.with_sheets, facts)
             if chosen is None:
                 return 2
+            blocking = [r for r in _sheet_conflicts(chosen) if r["conflicting"]]
         else:
             chosen = _choose_sheets(facts["variants"], interactive)
-
-        # The menu can return its last selection on Enter, EOF or exhausted
-        # retries. Validate that answer just like an explicit --with list.
-        blocking = [r for r in _sheet_conflicts(chosen) if r["conflicting"]]
+            # The menu can return its last selection on Enter, EOF or
+            # exhausted retries. Validate that answer just like an explicit
+            # --with list; the menu has already shown each clash, under the
+            # answer that caused it, so it is measured here without a reprint.
+            from . import sheets as sheets_mod
+            blocking = [r for r in sheets_mod.conflicts(chosen) if r["conflicting"]]
         if blocking and not args.force:
             print("\n  Refusing to install stylesheets that cancel each "
                   "other out — only one\n  of them would have any effect, "
