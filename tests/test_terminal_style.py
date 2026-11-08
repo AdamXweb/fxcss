@@ -3,6 +3,7 @@
 import os
 import re
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from fxcss import cli, style
@@ -124,7 +125,8 @@ class MenuTests(unittest.TestCase):
         try:
             with mock.patch("builtins.input", lambda p: prompts.append(p) or answer), \
                     mock.patch("builtins.print", lambda *a, **k: out.append(" ".join(map(str, a)))), \
-                    mock.patch.dict(os.environ, {"COLUMNS": "80"}):
+                    mock.patch.dict(os.environ, {"COLUMNS": "80", "FXCSS_PLAIN_PROMPTS": "1"}), \
+                    mock.patch.object(style, "term_width", return_value=80):
                 result = func(*args)
         finally:
             style.set_colour(None)
@@ -140,8 +142,9 @@ class MenuTests(unittest.TestCase):
             path, lines, prompts = self.ask(cli.choose_firefox, "2", None)
         self.assertEqual(path, self.BUILDS[1]["path"])
         self.assertEqual(prompts, ["  Which one? 1-2 [1] "])
-        # Both builds live in /Applications, so the heading names it once.
-        self.assertIn("  Which Gecko build?  2 installed in /Applications", lines)
+        # Both builds live in /Applications, so the heading names it once
+        # (with the platform's separator, a backslash on Windows).
+        self.assertIn(f"  Which Gecko build?  2 installed in {Path('/Applications')}", lines)
         rows = [l for l in lines if re.match(r"\s+\d\. ", l)]
         self.assertEqual(rows[0], "   1. stable   155.0.1  Firefox.app  (Enter)")
         self.assertEqual(rows[1].index("157.0a1"), rows[0].index("155.0.1"))

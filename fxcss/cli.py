@@ -262,59 +262,70 @@ def _parse_choice(raw, count, default):
     return index if 0 <= index < count else default
 
 
-def _menu(question, note, lines, default):
+def _menu(question, note, count, row, default):
     """A numbered question, asked the same way by every command.
 
-    A bold heading with a dim note, one line per choice (rendered by the
-    caller, the default marked), then `Which one? 1-N [d]`. Enter takes the
-    default, and so does anything unusable. Returns a zero-based index.
+    A bold heading with a dim note, one line per choice, then `Which one?
+    1-N [d]`. Enter takes the default, and so does anything unusable.
+    `row(i, current, pointer)` draws choice i, `current` being the one Enter
+    takes. At a terminal that can redraw, the arrow keys move a pointer over
+    the rows as well; the typed answer works either way. Returns an index.
     """
-    from . import style
+    from . import prompt, style
     print()
     print(style.heading_line(question, note))
-    for line in lines:
-        print(line)
+    height = sum(row(i, False, False).count("\n") + 1 for i in range(count)) + 2
+    if prompt.arrows_ok(height):
+        return prompt.pick_one(count, default, row)
+    for i in range(count):
+        print(row(i, current=i == default, pointer=False))
     print()
     try:
-        raw = input(style.ask("Which one?", f"1-{len(lines)}", str(default + 1)))
+        raw = input(style.ask("Which one?", f"1-{count}", str(default + 1)))
     except EOFError:
         raw = ""
-    return _parse_choice(raw, len(lines), default)
+    return _parse_choice(raw, count, default)
 
 
-def _menu_row(number, name, cells=(), default=False, path=False):
+def _menu_row(number, name, cells=(), default=False, path=False, pointer=False):
     """One choice: its number, the name in bold, then dim detail.
 
     The last cell is cut to the terminal rather than wrapped back under the
     number, so every choice stays on one line and the numbers stay a column;
     `path` says it is a path, which keeps its tail. A last cell with too
     little room left to say anything is left out rather than cut to a stub.
+    Room for `(Enter)` is kept on every row, because with the arrow keys the
+    marker moves, and a row must not change length as it passes.
+
+    `pointer` puts the `›` in the margin and the name in the brand colour:
+    the choice the arrow keys are on.
     """
     from . import style
-    lead = f"  {number:>2}. "
+    lead = f"{style.brand(style.POINTER) if pointer else ' '} {number:>2}. "
+    width = len(f"  {number:>2}. ")
     cells = [c for c in cells if c]
-    tail = "  (Enter)" if default else ""
     if cells:
-        used = len(lead) + len(name) + sum(len(c) + 2 for c in cells[:-1]) + 2 + len(tail)
+        used = width + len(name) + sum(len(c) + 2 for c in cells[:-1]) + 2 + len("  (Enter)")
         room = style.term_width() - 1 - used
         if room < 16:
             cells.pop()
         else:
             cells[-1] = style.clip(cells[-1], room, path=path)
-    line = lead + style.strong(name) + "".join(f"  {style.muted(c)}" for c in cells)
+    title = style.brand(name) if pointer else style.strong(name)
+    line = lead + title + "".join(f"  {style.muted(c)}" for c in cells)
     return line + (f"  {style.muted('(Enter)')}" if default else "")
 
 
-def _skip_hint(value, option):
+def _skip_hint(value, option, verb="using"):
     """`using nightly  --firefox nightly skips this question`, after a menu.
 
     Every menu ends this way: what was picked, and the option that picks it
     next time, so a question answered once need never be asked again.
     """
     from . import style
-    used = f"  {style.muted('using')} {style.strong(value)}"
+    used = f"  {style.muted(verb)} {style.strong(value)}"
     hint = f"{style.cmd(option)}{style.muted(' skips this question')}"
-    if len(f"  using {value}  {option} skips this question") < style.term_width():
+    if len(f"  {verb} {value}  {option} skips this question") < style.term_width():
         return f"{used}  {hint}"
     return f"{used}\n  {hint}"
 
@@ -355,11 +366,13 @@ def choose_firefox(explicit):
     label_w = max(len(build["label"]) for build in builds)
     version_w = max(len(v) for v in versions)
     folder, places = _shared_parent([style.short_path(_app_bundle(b["path"])) for b in builds])
-    lines = [_menu_row(i, build["label"].ljust(label_w), [version.ljust(version_w), place],
-                       default=i - 1 == default, path=True)
-             for i, (build, version, place) in enumerate(zip(builds, versions, places), 1)]
+    def row(i, current, pointer):
+        return _menu_row(i + 1, builds[i]["label"].ljust(label_w),
+                         [versions[i].ljust(version_w), places[i]],
+                         default=current, pointer=pointer, path=True)
+
     note = f"{len(builds)} installed" + (f" in {folder}" if folder else "")
-    picked = builds[_menu("Which Gecko build?", note, lines, default)]
+    picked = builds[_menu("Which Gecko build?", note, len(builds), row, default)]
     print(_skip_hint(picked["label"], f"--firefox {picked['label']}"))
     print()
     return picked["path"]
@@ -460,10 +473,12 @@ def _plan_source(repo_root, args, interactive, workdir, remote=False, quiet=Fals
             parts.append((key, about.replace("; ", f" {style.DOT} ")
                           + (f"  [{warning}" if bracket else "")))
         key_w = max(len(key) for key, _ in parts)
-        lines = [_menu_row(i, key.ljust(key_w), [about], default=i == 1)
-                 for i, (key, about) in enumerate(parts, 1)]
+        def row(i, current, pointer):
+            key, about = parts[i]
+            return _menu_row(i + 1, key.ljust(key_w), [about], default=current, pointer=pointer)
+
         chosen = candidates[_menu("Which theme?", f"this repository holds {len(candidates)}",
-                                  lines, 0)]
+                                  len(candidates), row, 0)]
         print(_skip_hint(chosen["key"], f"--subpath {shlex.quote(chosen['key'])}"))
         plan = layout.discover(repo_root, subpath=chosen["key"], entry=entry,
                                workdir=workdir / "layout")
@@ -1161,17 +1176,18 @@ def _choose_profile(explicit, interactive, prefer=None):
     name_w = max(len(p["name"]) for p in profiles)
     kind_w = max(len(p.get("kind") or "unrecognised") for p in profiles)
     folder, places = _shared_parent([_short_path(p["path"]) for p in profiles])
-    lines = []
-    for i, (profile, place) in enumerate(zip(profiles, places), 1):
-        kind = (profile.get("kind") or "unrecognised").ljust(kind_w)
-        line = _menu_row(i, profile["name"].ljust(name_w), [kind, place],
-                         default=i - 1 == default, path=True)
-        notes = _profile_notes(profile)
-        if notes:
-            line += "\n      " + style.brand(f"{style.ARROW} " + ", ".join(notes))
-        lines.append(line)
+    notes = [_profile_notes(profile) for profile in profiles]
+
+    def row(i, current, pointer):
+        kind = (profiles[i].get("kind") or "unrecognised").ljust(kind_w)
+        line = _menu_row(i + 1, profiles[i]["name"].ljust(name_w), [kind, places[i]],
+                         default=current, pointer=pointer, path=True)
+        if notes[i]:
+            line += "\n      " + style.brand(f"{style.ARROW} " + ", ".join(notes[i]))
+        return line
+
     note = f"{len(profiles)} found" + (f" in {folder}" if folder else "")
-    picked = profiles[_menu("Which profile?", note, lines, default)]
+    picked = profiles[_menu("Which profile?", note, len(profiles), row, default)]
     print(_skip_hint(picked["name"], f"--profile {shlex.quote(picked['name'])}"))
     return picked
 
@@ -1263,13 +1279,19 @@ def _choose_sheets(variants, interactive):
     """
     if not interactive or not variants:
         return []
-    from . import style
+    from . import prompt, style
+    names = [sheet.stem for sheet in variants]
+    grid = style.columns(names, indent=4, numbered=True)
+    # The arrow keys and Space tick sheets at a terminal that can redraw the
+    # grid; typing the numbers works there too, and is all there is elsewhere.
+    arrows = prompt.arrows_ok(len(grid) + 2)
     print()
-    print(style.heading_line("Optional stylesheets",
-                             f"{len(variants)} {style.DOT} pick any by number"))
-    for line in style.columns([sheet.stem for sheet in variants], indent=4, numbered=True):
-        print(line)
-    print()
+    print(style.heading_line("Optional stylesheets", f"{len(variants)} {style.DOT} "
+                             + ("pick any" if arrows else "pick any by number")))
+    if not arrows:
+        for line in grid:
+            print(line)
+        print()
     # `all` is offered above and is right for most themes, but wrong for one
     # with a family of alternatives in it -- so a picked set is checked and
     # the question asked again, rather than the answer being refused.
@@ -1278,10 +1300,16 @@ def _choose_sheets(variants, interactive):
     # stray escape sequence in the line turned "20, 4" into sheet 4 alone.
     chosen = []
     for attempt in range(3):
-        try:
-            raw = input(style.ask("Include which?", "e.g. 1,3 or all", "none"))
-        except EOFError:
-            raw = ""
+        # A retry is typed: the question it asks ("retype the whole list") is
+        # about the text, and the grid has scrolled up behind the warnings.
+        if arrows and attempt == 0:
+            raw = prompt.pick_many(names, "Include which?", "e.g. 1,3 or all",
+                                   lambda text: scan_selection(text, len(names))[0])
+        else:
+            try:
+                raw = input(style.ask("Include which?", "e.g. 1,3 or all", "none"))
+            except EOFError:
+                raw = ""
         # Empty means "none" the first time and "keep what you read" on a
         # retry, so accepting a partial answer never costs the whole list.
         if attempt and not raw.strip():
@@ -1303,7 +1331,9 @@ def _choose_sheets(variants, interactive):
                   f"{len(indices) + len(ignored)} you asked for. Retype the "
                   "whole list, or Enter to keep it.")
     if chosen:
-        print(f"  {style.muted('including')} {style.strong(', '.join(s.stem for s in chosen))}")
+        stems = [s.stem for s in chosen]
+        print(_skip_hint(", ".join(stems), f"--with {shlex.quote(','.join(stems))}",
+                         verb="including"))
     return chosen
 
 
@@ -1330,11 +1360,14 @@ def _choose_ref(info, prefer, interactive):
 
     label_w = max(len(option["label"]) for option in options)
     date_w = max(len(option["date"]) for option in options)
-    lines = [_menu_row(i, option["label"].ljust(label_w),
-                       [option["date"].ljust(date_w), option["note"]], default=i == 1)
-             for i, option in enumerate(options, 1)]
+    def row(i, current, pointer):
+        option = options[i]
+        return _menu_row(i + 1, option["label"].ljust(label_w),
+                         [option["date"].ljust(date_w), option["note"]],
+                         default=current, pointer=pointer)
+
     picked = options[_menu("Which version?", "the default branch has moved on since the "
-                           "latest release", lines, 0)]
+                           "latest release", len(options), row, 0)]
     branch = picked["ref"] == info.get("default_branch")
     print(_skip_hint(picked["label"], "--commit" if branch else f"--ref {shlex.quote(picked['ref'])}"))
     return picked["ref"], picked["why"]
@@ -3262,6 +3295,13 @@ def main(argv=None):
     try:
         _resolve_layouts(args)
         return args.func(args)
+    except KeyboardInterrupt:
+        # Ctrl+C, or Esc at a menu: stop where we are, without a traceback.
+        # Commands that need tidying up (a browser to close) do it in their
+        # own finally blocks on the way here.
+        from . import style
+        print(f"\n  {style.muted('Stopped.')}", file=sys.stderr)
+        return 130
     except LayoutError as exc:
         print(f"\nerror: {exc}", file=sys.stderr)
         return 2

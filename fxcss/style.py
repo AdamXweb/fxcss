@@ -49,9 +49,11 @@ def _utf8():
 if _utf8():
     TICK, BANG, CROSS, ARROW, DOT, BULLET, ELLIPSIS, SEP = (
         "✓", "!", "✗", "→", "·", "●", "…", "—")
+    POINTER, UPDOWN, ARROWS = "›", "↑↓", "↑↓←→"
 else:  # pragma: no cover - depends on the console
     TICK, BANG, CROSS, ARROW, DOT, BULLET, ELLIPSIS, SEP = (
         "ok", "!", "x", "->", "-", "*", "...", "-")
+    POINTER, UPDOWN, ARROWS = ">", "up/down", "arrows"
 
 
 def set_colour(on):
@@ -266,33 +268,68 @@ def check(state, text, detail=None, indent=2, on=None):
     return out
 
 
-def columns(items, indent=4, gap=3, width=None, numbered=False):
-    """Names packed into as many columns as fit, filled top to bottom.
-
-    Each column is as wide as its own longest entry, and the gutter between
-    columns is the same everywhere, so no pair of columns runs together.
-    """
-    width = width or term_width()
-    labels = list(items)
-    if numbered:
-        digits = len(str(len(labels)))
-        labels = [f"{i:>{digits}}. {name}" for i, name in enumerate(labels, 1)]
-    if not labels:
-        return []
+def _column_layout(labels, indent, gap, width):
     for ncols in range(min(len(labels), 8), 0, -1):
         nrows = -(-len(labels) // ncols)
         cols = [labels[c * nrows:(c + 1) * nrows] for c in range(ncols)]
         cols = [c for c in cols if c]
         widths = [max(len(s) for s in col) for col in cols]
         if indent + sum(widths) + gap * (len(cols) - 1) <= width - 1 or ncols == 1:
-            break
+            return cols, widths, nrows
+    return [labels], [max(len(s) for s in labels)], len(labels)
+
+
+def _numbered(items):
+    digits = len(str(len(items)))
+    return [f"{i:>{digits}}. {name}" for i, name in enumerate(items, 1)]
+
+
+def column_rows(items, indent=4, gap=3, width=None, numbered=False):
+    """How many rows `columns` would use: the step for moving across a column."""
+    labels = _numbered(list(items)) if numbered else list(items)
+    return _column_layout(labels, indent, gap, width or term_width())[2] if labels else 0
+
+
+def columns(items, indent=4, gap=3, width=None, numbered=False, pointer=None, ticked=None):
+    """Names packed into as many columns as fit, filled top to bottom.
+
+    Each column is as wide as its own longest entry, and the gutter between
+    columns is the same everywhere, so no pair of columns runs together.
+
+    For a menu answered with the arrow keys, `pointer` is the index the `›`
+    stands at (it sits in the gutter, so the layout never shifts) and
+    `ticked` the indices whose `.` has become a `✓`.
+    """
+    width = width or term_width()
+    names = list(items)
+    labels = _numbered(names) if numbered else list(names)
+    if not labels:
+        return []
+    cols, widths, nrows = _column_layout(labels, indent, gap, width)
+    marked = numbered and (pointer is not None or ticked)
+    ticked = set(ticked or ())
+    digits = len(str(len(names)))
     out = []
     for r in range(nrows):
-        cells = []
+        line = ""
         for c, col in enumerate(cols):
-            if r < len(col):
-                cells.append(col[r].ljust(widths[c]))
-        out.append(" " * indent + (" " * gap).join(cells).rstrip())
+            if r >= len(col):
+                continue
+            gutter = " " * (indent if c == 0 else gap)
+            cell = col[r].ljust(widths[c])
+            if marked:
+                index = c * nrows + r
+                name = names[index]
+                if index == pointer:
+                    gutter = gutter[:-2] + brand(POINTER) + " "
+                    name = brand(name)
+                elif index in ticked:
+                    name = strong(name)
+                mark = good(TICK) if index in ticked else "."
+                cell = (f"{index + 1:>{digits}}{mark} {name}"
+                        + " " * (widths[c] - len(col[r])))
+            line += gutter + cell
+        out.append(line.rstrip())
     return out
 
 
