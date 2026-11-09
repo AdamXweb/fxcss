@@ -3,17 +3,15 @@ name: Website docs
 # fxcss.com's documentation is generated from this README, and its homepage
 # shows the released version. The site lives on the `website` branch, whose
 # Refresh docs workflow regenerates it from main, checks it and publishes it.
-# This starts that workflow whenever one of its inputs changes:
-#   - a release reaches PyPI (Publish succeeded, including its
-#     installability gate), which moves the version;
-#   - README.md changes on main, such as the pin update after a release.
+# This starts that workflow whenever README.md changes on main.
+#
+# After a release, Publish starts it instead, once PyPI serves the new version
+# and the README's pins have moved to it. That pin update is pushed with
+# GITHUB_TOKEN, which starts no workflow, so it doesn't run this one too.
 # The refresh skips a version PyPI doesn't serve yet, so README changes merged
 # between a release's prep and its upload don't advertise it early.
 
 on:
-  workflow_run:
-    workflows: [Publish]
-    types: [completed]
   push:
     branches: [main]
     paths: [README.md]
@@ -23,9 +21,7 @@ permissions:
 
 jobs:
   refresh:
-    if: >-
-      github.repository == 'AdamXweb/fxcss' &&
-      (github.event_name == 'push' || github.event.workflow_run.conclusion == 'success')
+    if: github.repository == 'AdamXweb/fxcss'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

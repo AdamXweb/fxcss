@@ -1,0 +1,75 @@
+name: Release
+
+# Tags a release when its "Prepare vX.Y.Z" pull request merges, then starts
+# Publish on that tag. Publish uploads to PyPI, waits until the release is
+# installable, then moves the README's pins, refreshes fxcss.com and creates
+# the GitHub release.
+#
+# A tag pushed with GITHUB_TOKEN starts no workflow, so this starts Publish
+# itself. The Release version check stops other pull requests from changing
+# __version__; if one is merged anyway, this run fails instead of releasing it.
+#
+# Run it by hand to release the version already on main:
+#   gh workflow run release.yml --ref main
+
+on:
+  push:
+    branches: [main]
+    paths: [fxcss/__init__.py]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    if: github.repository == 'AdamXweb/fxcss' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write        # push the tag
+      actions: write         # start Publish
+      pull-requests: read    # find the pull request this commit came from
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Find the release pull request
+        id: pr
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          title=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" \
+            --jq '[.[] | select(.merged_at != null)][0].title // ""')
+          printf 'Pull request: %s\n' "${title:-none}"
+          # A pull request title is a single line.
+          printf 'title=%s\n' "$title" >> "$GITHUB_OUTPUT"
+      - name: Decide whether to release
+        id: plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_TITLE: ${{ steps.pr.outputs.title }}
+        run: python3 scripts/release.py plan
+      - name: Tag the release
+        if: steps.plan.outputs.release == 'yes'
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          git tag "v$VERSION" "$GITHUB_SHA"
+          git push origin "refs/tags/v$VERSION"
+      - name: Start Publish on the tag
+        if: steps.plan.outputs.release == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh workflow run publish.yml --repo "$GITHUB_REPOSITORY" --ref "v$VERSION"
+          echo "::notice title=Release::Tagged v$VERSION and started Publish."
