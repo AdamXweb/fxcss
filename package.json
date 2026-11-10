@@ -8,9 +8,9 @@
   "scripts": {
     "dev": "vinext dev",
     "build": "vinext build",
-    "start": "wrangler dev --config dist/server/wrangler.json",
-    "deploy": "wrangler deploy --config dist/server/wrangler.json --domain fxcss.com --domain www.fxcss.com",
-    "lint": "oxlint app components hooks lib scripts tests proxy.ts next.config.ts vite.config.ts playwright.config.ts",
+    "start": "wrangler dev --config wrangler.static.jsonc",
+    "deploy": "wrangler deploy --config wrangler.static.jsonc --domain fxcss.com --domain www.fxcss.com",
+    "lint": "oxlint app components hooks lib scripts tests next.config.ts vite.config.ts playwright.config.ts",
     "format": "oxfmt",
     "content": "node scripts/build-content.mjs",
     "predev": "npm run content",
@@ -35,7 +35,6 @@
     "vinext": "1.0.1"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "1.63.1",
     "@cloudflare/workers-types": "5.20261006.1",
     "@playwright/test": "1.64.1",
     "@tailwindcss/postcss": "4.2.1",
@@ -60,9 +59,7 @@
     "satori": {
       "fflate": "0.7.5"
     },
-    "miniflare": {
-      "undici": "7.30.1"
-    },
+    "undici": "7.30.1",
     "@ts-morph/common": {
       "minimatch": "11.0.3"
     }

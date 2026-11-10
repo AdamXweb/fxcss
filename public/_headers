@@ -1,11 +1,20 @@
-# Static files are served before the Worker runs, so they take their security
-# headers from here; proxy.ts sets the same headers for pages.
+# Every page and file takes its security headers from here. Pages are built
+# ahead of time, so they cannot carry a per-request script nonce, and the
+# framework's page data is delivered as inline scripts. The policy allows inline
+# scripts and still limits where scripts can load from.
 /*
   Strict-Transport-Security: max-age=31536000; includeSubDomains
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()
   X-Frame-Options: DENY
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://scripts.simpleanalyticscdn.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://queue.simpleanalyticscdn.com; font-src 'self'; connect-src 'self' https://queue.simpleanalyticscdn.com; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'
+
+/robots.txt
+  Cache-Control: public, max-age=3600
+
+/sitemap.xml
+  Cache-Control: public, max-age=3600
 
 /install.sh
   Content-Type: text/plain; charset=utf-8
@@ -13,9 +22,10 @@
   X-Robots-Tag: noindex
 
 # The catalogue is a static page that fxcss generated. It needs only its own
-# inline script and styles and its own images.
+# inline script and styles and its own images, so it replaces the policy above.
 /catalogue/*
   Cache-Control: public, max-age=3600
+  ! Content-Security-Policy
   Content-Security-Policy: default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
 
 # These filenames change whenever their content changes.
@@ -35,10 +45,8 @@
 /evidence/*
   Cache-Control: public, max-age=3600
 
-# Uptime probe: Blackbox fetches /ratchet every minute. A static file is
-# answered before the Worker runs, so the probe costs no CPU (a homepage probe
-# renders the page each time). Typed and uncached here so every probe reaches
-# the asset store, not an edge cache.
+# Uptime probe: Blackbox fetches /ratchet every minute. Typed and uncached here
+# so every probe reaches the asset store, not an edge cache.
 /ratchet
   Content-Type: text/plain; charset=utf-8
   Cache-Control: no-cache, max-age=0, must-revalidate

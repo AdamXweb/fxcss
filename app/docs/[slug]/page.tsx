@@ -6,6 +6,10 @@ import content from "../../../content/docs.json";
 import { DocArticle } from "../../components/doc-article";
 import { Comparison, AppearancePreview } from "../../components/comparison";
 import { shareCard } from "../../../lib/share-card";
+export const dynamicParams = false;
+export function generateStaticParams() {
+  return content.pages.map((page) => ({ slug: page.slug }));
+}
 export async function generateMetadata({
   params,
 }: {

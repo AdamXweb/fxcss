@@ -1,6 +1,4 @@
 import type { Metadata } from "next";
-import { headers } from "next/headers";
-import { CSPProvider } from "@base-ui/react/csp-provider";
 import { OutboundClickTracking } from "./components/outbound-click-tracking";
 import { EasterEggs } from "./components/easter-eggs";
 import { SleepyFavicon } from "./components/sleepy-favicon";
@@ -26,26 +24,21 @@ export const metadata: Metadata = {
     description: "Make Firefox your own. Try themes, edit CSS live, and keep every detail working.",
   }),
 };
-export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const policy = (await headers()).get("content-security-policy");
-  const nonce = policy?.match(/'nonce-([^']+)'/)?.[1];
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body>
         <a className="skip-link" href="#main">
           Skip to content
         </a>
-        <CSPProvider nonce={nonce}>
-          <EasterEggs>
-            <SleepyFavicon />
-            <RouteAnnouncer />
-            {children}
-          </EasterEggs>
-        </CSPProvider>
+        <EasterEggs>
+          <SleepyFavicon />
+          <RouteAnnouncer />
+          {children}
+        </EasterEggs>
         <OutboundClickTracking />
         <script
           async
-          nonce={nonce}
           src="https://scripts.simpleanalyticscdn.com/latest.js"
         />
       </body>

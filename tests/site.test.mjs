@@ -273,7 +273,7 @@ test('the website data page names every outside service and storage use', () => 
   };
   const hosts = new Set(
     [
-      ...`${read('../proxy.ts')}\n${read('../app/layout.tsx')}`.matchAll(
+      ...`${read('../public/_headers')}\n${read('../app/layout.tsx')}`.matchAll(
         /https:\/\/([a-z0-9.-]+)/g,
       ),
     ].map((m) => m[1]),
@@ -294,7 +294,7 @@ test('the website data page names every outside service and storage use', () => 
       .filter((file) => /\.(tsx?|m?js)$/.test(file))
       .map((file) => `../${dir}/${file}`),
   );
-  for (const file of [...code, '../proxy.ts']) {
+  for (const file of code) {
     const source = read(file).toString();
     assert.doesNotMatch(
       source,
@@ -314,7 +314,13 @@ test('the website data page names every outside service and storage use', () => 
     read('../app/components/site-chrome.tsx').toString(),
     /<Link href="\/open">Website data<\/Link>/,
   );
-  assert.match(read('../app/sitemap.xml/route.ts').toString(), /"\/open"/);
+  assert.match(read('../scripts/build-content.mjs').toString(), /'\/open'/);
+  // /open says this; the deploy config is what makes it true.
+  assert.ok(page.includes('turned off Cloudflare Workers Logs for this site.'));
+  assert.match(
+    read('../wrangler.static.jsonc').toString(),
+    /"observability": \{ "enabled": false \}/,
+  );
 });
 
 test('pages and static files send the same security headers', () => {
@@ -325,15 +331,15 @@ test('pages and static files send the same security headers', () => {
     'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
     'Referrer-Policy': 'strict-origin-when-cross-origin',
   };
-  // Static files are served before the Worker, from public/_headers.
   const rules = read('../public/_headers').toString();
   const all = rules.match(/^\/\*\n((?:[ \t]+\S.*\n?)+)/m)?.[1] ?? '';
   for (const [name, value] of Object.entries(expected))
     assert.ok(all.includes(`${name}: ${value}`), `public/_headers /*: ${name}`);
-  const proxy = read('../proxy.ts').toString();
-  for (const [name, value] of Object.entries(expected))
-    assert.ok(proxy.includes(`'${name}': '${value}'`), `proxy.ts: ${name}`);
-  assert.ok(proxy.includes(`"frame-ancestors 'none'"`), 'proxy.ts: framing');
+  assert.ok(all.includes("frame-ancestors 'none'"), 'public/_headers /*: framing');
+  // Headers from matching rules add up, so the catalogue must remove the
+  // site-wide policy before it sets its own.
+  const catalogue = rules.match(/^\/catalogue\/\*\n((?:[ \t]+\S.*\n?)+)/m)?.[1] ?? '';
+  assert.ok(catalogue.includes('! Content-Security-Policy\n'), 'public/_headers /catalogue/*');
   // The docs sidebar cannot collapse, so Ctrl/Cmd+B stays with the browser.
   assert.doesNotMatch(
     read('../components/ui/sidebar.tsx').toString(),
@@ -393,15 +399,17 @@ test('links in running text are underlined', () => {
     assert.match(block, /text-decoration: underline/, selector);
   }
 });
-test('the Worker answers only on fxcss.com and uploads no repository metadata', () => {
+test('the site runs no code, answers only on fxcss.com and uploads no repository metadata', () => {
   // A dashboard-only change is undone by the next deploy, so both flags live
-  // in the config the build emits. The custom domains carry the zone's WAF,
-  // HSTS and Access; a workers.dev or preview URL does not.
-  const config = read('../vite.config.ts').toString();
-  for (const line of ['workers_dev: false,', 'preview_urls: false,'])
-    assert.ok(config.includes(line), `vite.config.ts: ${line}`);
-  // Wrangler uploads everything in dist/client except what .assetsignore
-  // lists, and the Cloudflare Vite plugin prepends public/.assetsignore to it.
+  // in the deploy config. The custom domains carry the zone's WAF, HSTS and
+  // Access; a workers.dev or preview URL does not.
+  const config = read('../wrangler.static.jsonc').toString();
+  for (const line of ['"workers_dev": false,', '"preview_urls": false,'])
+    assert.ok(config.includes(line), `wrangler.static.jsonc: ${line}`);
+  // A script here would put pages back behind the per-request CPU limit.
+  assert.doesNotMatch(config, /^\s*"main":/m, 'wrangler.static.jsonc: no script');
+  assert.match(config, /"not_found_handling": "404-page"/);
+  // Wrangler uploads everything in dist/client except what .assetsignore lists.
   const patterns = read('../public/.assetsignore')
     .toString()
     .split('\n')
@@ -409,6 +417,7 @@ test('the Worker answers only on fxcss.com and uploads no repository metadata', 
     .filter((line) => line && !line.startsWith('#'));
   for (const pattern of [
     '.git/',
+    '.vite/',
     '.wrangler/',
     '.DS_Store',
     '.env*',
@@ -425,16 +434,10 @@ test('the Worker answers only on fxcss.com and uploads no repository metadata', 
     !patterns.some((pattern) => pattern.includes('.well-known')),
     'public/.assetsignore: .well-known/ must stay public',
   );
-  // After `just build`, the emitted config and assets directory carry both.
-  const built = new URL('../dist/server/wrangler.json', import.meta.url);
+  // After `just build`, the assets directory carries the same list.
+  const built = new URL('../dist/client/.assetsignore', import.meta.url);
   if (fs.existsSync(built)) {
-    const emitted = JSON.parse(fs.readFileSync(built));
-    assert.equal(emitted.workers_dev, false, 'dist/server/wrangler.json');
-    assert.equal(emitted.preview_urls, false, 'dist/server/wrangler.json');
-    const ignore = fs
-      .readFileSync(new URL(`${emitted.assets.directory}/.assetsignore`, built))
-      .toString()
-      .split('\n');
+    const ignore = fs.readFileSync(built).toString().split('\n');
     for (const pattern of patterns)
       assert.ok(
         ignore.includes(pattern),
@@ -444,9 +447,8 @@ test('the Worker answers only on fxcss.com and uploads no repository metadata', 
 });
 
 test('the uptime probe is a static file with its own headers', () => {
-  // Blackbox fetches /ratchet every minute. Served before the Worker runs it
-  // costs no CPU, which a homepage probe does not; public/_headers types it
-  // and keeps it uncached so every probe reaches the asset store.
+  // Blackbox fetches /ratchet every minute; public/_headers types it and keeps
+  // it uncached so every probe reaches the asset store.
   assert.equal(read('../public/ratchet').toString().trim(), 'clank');
   const headers = read('../public/_headers').toString();
   const rule = headers.match(/^\/ratchet\n((?:[ \t]+\S.*\n?)+)/m)?.[1] ?? '';

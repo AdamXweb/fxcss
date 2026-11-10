@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 const base = process.argv[2] || 'http://127.0.0.1:4318';
+// The live domain has firewall rules that a local server does not.
+const behindFirewall = new URL(base).hostname === 'fxcss.com';
 const data = JSON.parse(
   await fs.readFile(new URL('../content/docs.json', import.meta.url)),
 );
@@ -140,20 +142,22 @@ for (const route of routes) {
     csp.includes('https://queue.simpleanalyticscdn.com'),
     `${route}: analytics collection allowed by CSP`,
   );
-  const nonce = csp.match(/'nonce-([^']+)'/)?.[1];
-  assert.ok(nonce, `${route}: script nonce`);
+  assert.ok(
+    csp.includes("script-src 'self' 'unsafe-inline' https://scripts.simpleanalyticscdn.com;"),
+    `${route}: scripts limited to this site and analytics`,
+  );
   assert.match(
     html,
     /<script\b[^>]*src="https:\/\/scripts\.simpleanalyticscdn\.com\/latest\.js"[^>]*>/,
     `${route}: Simple Analytics script`,
   );
-  for (const match of html.matchAll(/<script\b([^>]*)>/g)) {
-    assert.ok(
-      match[1].includes(`nonce="${nonce}"`),
-      `${route}: script without matching nonce`,
-    );
-  }
   assert.doesNotMatch(html, /\beval\(/, `${route}: eval in production markup`);
+  // Pages are files now: a deploy must reach readers without waiting on a cache.
+  assert.match(
+    response.headers.get('cache-control') || '',
+    /max-age=0/,
+    `${route}: HTML revalidates`,
+  );
   assert.match(
     html,
     /<a\b[^>]*href="\/open"[^>]*>Website data<\/a>/,
@@ -209,6 +213,13 @@ for (const userAgent of [
   for (const slug of ['watch', 'commands']) {
     const route = `/docs/${slug}`;
     const response = await fetch(new URL(route, base), { headers: { 'User-Agent': userAgent } });
+    // These names are refused from addresses that are not the real crawler's,
+    // which includes wherever this script runs.
+    if (behindFirewall && /Googlebot|GPTBot/.test(userAgent)) {
+      assert.equal(response.status, 403, `${route}: unverified ${userAgent}`);
+      await response.body?.cancel();
+      continue;
+    }
     assert.equal(response.status, 200, `${route}: ${userAgent}`);
     const doc = data.pages.find((page) => page.slug === slug);
     assertHeadMetadata(await response.text(), `${route}: ${userAgent}`, {
@@ -291,10 +302,16 @@ for (const route of [
 }
 // Finder and tool metadata never reaches the site: wrangler skips what
 // dist/client/.assetsignore lists, so these fall through to the not-found page.
+// On the live domain the firewall refuses them before they reach the site.
 // (.assetsignore itself is not checked: wrangler dev answers it with an empty
-// 200 locally, while production answers 404.)
+// 200 locally, while production does not serve it.)
 for (const route of ['/.DS_Store', '/wrangler.json']) {
   const response = await fetch(new URL(route, base));
+  if (behindFirewall) {
+    assert.equal(response.status, 403, `${route}: must be refused`);
+    await response.body?.cancel();
+    continue;
+  }
   assert.equal(response.status, 404, `${route}: must not be served`);
   assertSecurityHeaders(response, route);
 }
@@ -323,8 +340,12 @@ assert.equal(
   await installer.text(),
   await fs.readFile(new URL('../public/install.sh', import.meta.url), 'utf8'),
 );
-// The uptime probe is a static file: no Worker CPU per fetch, typed and
-// uncached by public/_headers.
+// Moving between pages in the browser fetches each page's data file.
+const pageData = await fetch(new URL('/docs/compare.txt', base));
+assert.equal(pageData.status, 200, 'page data for client navigation');
+assertSecurityHeaders(pageData, 'page data for client navigation');
+await pageData.body?.cancel();
+// The uptime probe is typed and uncached by public/_headers.
 const probe = await fetch(new URL('/ratchet', base), { redirect: 'manual' });
 assert.equal(probe.status, 200, 'uptime probe');
 assert.equal((await probe.text()).trim(), 'clank', 'uptime probe body');

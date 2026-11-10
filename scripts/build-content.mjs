@@ -256,7 +256,19 @@ await fs.writeFile(
   path.join(site, 'content/docs.json'),
   JSON.stringify(output, null, 2) + '\n',
 );
-// A content-hashed asset can be cached independently of the nonce-bearing HTML.
+// The site is static files, so the sitemap is one too. It follows the pages.
+const sitemapEntries = [
+  '/',
+  '/docs',
+  '/docs/screenshot-evidence',
+  '/open',
+  ...docs.map((page) => `/docs/${page.slug}`),
+].map((route) => `<url><loc>https://fxcss.com${route}</loc></url>`);
+await fs.writeFile(
+  path.join(site, 'public/sitemap.xml'),
+  `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${sitemapEntries.join('')}</urlset>\n`,
+);
+// A content-hashed asset can be cached for a year, unlike the HTML.
 const searchIndex = JSON.stringify(docs.map(({ slug, title, description, chapter, group, search }) =>
   ({ slug, title, description, chapter, group, search }),
 ));

@@ -51,7 +51,7 @@ jobs:
       - run: npm run test:installer
       - run: npm run check:audit
       - run: npm run build
-      - name: Dry-run the Cloudflare Worker deploy
+      - name: Dry-run the Cloudflare deploy
         env:
           WRANGLER_SEND_METRICS: 'false'
         run: npm run deploy -- --dry-run

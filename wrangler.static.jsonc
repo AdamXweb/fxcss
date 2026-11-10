@@ -1,0 +1,24 @@
+// fxcss.com is a set of static files. There is no script here on purpose: with
+// no `main`, Cloudflare answers every request from dist/client without running
+// any code. The fxcss.com and www.fxcss.com custom domains are passed by the
+// deploy script (package.json).
+//
+// Not named wrangler.jsonc: vinext takes that name to mean a Worker build and
+// refuses to run without Cloudflare's build plugin, which this site does not use.
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "fxcss-website",
+  "compatibility_date": "2026-09-30",
+  // Only the custom domains answer: fxcss.com and www.fxcss.com carry the
+  // zone's WAF, HSTS and Access, a workers.dev or preview URL does not.
+  "workers_dev": false,
+  "preview_urls": false,
+  // /open says the site does not use this optional request log; change that
+  // page if you turn it on.
+  "observability": { "enabled": false },
+  "assets": {
+    "directory": "./dist/client",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page"
+  }
+}
