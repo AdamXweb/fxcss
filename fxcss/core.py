@@ -548,6 +548,16 @@ def _fixture_pages_loaded(state, expected):
                     for tab, (url, title) in zip(state, expected)))
 
 
+def startup_attempts():
+    """How many times a session launches Firefox before giving up.
+
+    Windows can connect Marionette before its first content process is
+    ready. Give that process time, then try a fresh launch if it stalls --
+    and one launch more there, where a second stall in a row is not rare.
+    """
+    return 3 if sys.platform == "win32" else 2
+
+
 class Session:
     """A running Firefox with a themed profile and a Marionette connection."""
 
@@ -569,9 +579,7 @@ class Session:
         self._window_ready = False
 
     def __enter__(self):
-        # Windows can connect Marionette before its first content process is
-        # ready. Give that process time, then try a fresh launch if it stalls.
-        attempts = 3 if sys.platform == "win32" else 2
+        attempts = startup_attempts()
         try:
             for attempt in range(attempts):
                 self._start_browser()

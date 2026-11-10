@@ -84,8 +84,12 @@ def main():
     with delayed_document() as url, BrokenFirstProcess(
             theme, core.find_firefox(),
             extra_prefs='user_pref("intl.l10n.pseudo", "bidi");\n') as session:
-        assert len(session.browser_pids) == 2, session.browser_pids
-        assert session.browser_pids[0] != session.browser_pids[1], session.browser_pids
+        # The first launch is broken on purpose, so there is always a second.
+        # A later one may stall for real, as Windows runners sometimes do, and
+        # the session is then entitled to every launch it allows itself.
+        launches = len(session.browser_pids)
+        assert 2 <= launches <= core.startup_attempts(), session.browser_pids
+        assert len(set(session.browser_pids)) == launches, session.browser_pids
         session.urls["docs.html"] = url
         # Reproduce the operation that failed indefinitely on Windows CI. The
         # original browser must never be navigated, even if it looks ready.
