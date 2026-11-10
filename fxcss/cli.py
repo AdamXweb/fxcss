@@ -256,8 +256,8 @@ def _install_signal_handlers():
 
 
 PILLOW_HINT = (
-    "error: `fxcss {cmd}` needs Pillow, which the base install leaves out.\n"
-    "  pipx:  pipx inject fxcss pillow      (or reinstall: pipx install \"fxcss[images]\")\n"
+    "error: `fxcss {cmd}` needs Pillow, which is missing from this environment.\n"
+    "  pipx:  pipx inject fxcss pillow\n"
     "  pip:   pip install pillow")
 
 

@@ -15,11 +15,10 @@ with visual previews and Firefox compatibility checks.
 ## Getting started
 
 You need **Python 3.9+** and an installed **Firefox** on macOS, Windows or
-Linux. Install fxcss with its image tools, then try a theme in a disposable
-profile:
+Linux. Install fxcss, then try a theme in a disposable profile:
 
 ```bash
-pipx install "fxcss[images]"
+pipx install fxcss
 fxcss try AdamXweb/WhiteSurFirefoxThemeMacOS
 ```
 
@@ -568,8 +567,8 @@ a re-fetch of what the manifest says — and diffs them before the confirmation
 prompt, printing where the before/after images landed. It completes the three
 questions an upgrade can answer about a theme with no API: do the selectors
 still exist (`--audit`), has the user edited anything (always checked), and
-what actually changes on screen (`--compare`). Needs Pillow and a local
-Firefox, like `shot`.
+what actually changes on screen (`--compare`). Needs a local Firefox, like
+`shot`.
 
 `--check` changes nothing and answers with its exit code, for cron, launchd or
 CI: **0** up to date, **1** an upgrade is available, **2** it cannot be told
@@ -990,10 +989,10 @@ restyled tab strip, say — leaves it alone:
 | `*-11-settings` | Settings | `about:preferences`, styled by `userContent.css` |
 
 Panels are separate OS windows that Marionette cannot see, so these four are
-taken with a screen capture of the panel's area. That needs Pillow (the
-`fxcss[images]` extra) and briefly brings the capture Firefox to the front. The
-capture is first checked against Marionette's own image of the window; when it
-cannot see Firefox (no screen-recording permission on macOS, a Wayland session,
+taken with a screen capture of the panel's area. That briefly brings the
+capture Firefox to the front. The capture is first checked against Marionette's
+own image of the window; when it cannot see Firefox (no screen-recording
+permission on macOS, a Wayland session,
 another window on top) the panel views are reported as unsupported with that
 reason rather than captured wrong. A Firefox without the search engine button
 skips its two views the same way.
@@ -1724,9 +1723,8 @@ here if something isn't behaving.
 - Python 3.9+
 - Firefox (any recent release; the toolkit finds it automatically on macOS,
   Windows and Linux, or set `FIREFOX_BIN`)
-- Pillow for `catalogue`, `compare`, `check`, `tweaks` and `upgrade --compare`.
-  The `fxcss[images]` extra includes it; add it later with
-  `pipx inject fxcss pillow`. Other commands use the Python standard library.
+- Pillow 10.1 or newer, installed automatically. `catalogue`, `compare`,
+  `check`, `tweaks` and `upgrade --compare` use it.
 
 ### Installation
 
@@ -1734,7 +1732,7 @@ fxcss is [on PyPI](https://pypi.org/project/fxcss/). Install it with **pipx**,
 which gives it its own environment and puts `fxcss` on your PATH:
 
 ```bash
-pipx install "fxcss[images]"
+pipx install fxcss
 ```
 
 No pipx yet? `brew install pipx` (macOS), `sudo apt install pipx` (Debian and
@@ -1747,8 +1745,25 @@ Ubuntu), or `python3 -m pip install --user pipx` elsewhere.
 > application. pip still works fine *inside a virtual environment*:
 >
 > ```bash
-> python3 -m venv ~/.venvs/fxcss && ~/.venvs/fxcss/bin/pip install "fxcss[images]"
+> python3 -m venv ~/.venvs/fxcss && ~/.venvs/fxcss/bin/pip install fxcss
 > ```
+
+On Linux, Pillow comes prebuilt for x86_64 and aarch64, including musl
+distributions such as Alpine. On other CPUs (32-bit x86, RISC-V, ppc64le,
+s390x) or glibc older than 2.27, pip compiles it, so install a compiler and the
+image headers first. On Debian and Ubuntu:
+
+```bash
+sudo apt install gcc libc6-dev python3-dev libjpeg-dev zlib1g-dev libfreetype-dev
+```
+
+If Pillow cannot be built, install fxcss without it in a virtual environment.
+pipx cannot do this. The image commands will say Pillow is missing, and
+everything else works:
+
+```bash
+python3 -m venv ~/.venvs/fxcss && ~/.venvs/fxcss/bin/pip install --no-deps fxcss
+```
 
 For CI, or anywhere a surprise upgrade would be unwelcome, pin the release —
 the [releases page](https://github.com/AdamXweb/fxcss/releases) has the latest.
@@ -1758,7 +1773,9 @@ CI runners' Pythons are not externally managed, so plain pip is fine there:
 pip install "fxcss[images]==0.25.0"
 ```
 
-Upgrade an existing pipx installation with `pipx upgrade fxcss`.
+Pinned installs keep the `[images]` extra so the same line also brings in Pillow
+on older releases. Upgrade an existing pipx installation with
+`pipx upgrade fxcss`.
 
 ### Upgrading to 0.22
 
@@ -1900,7 +1917,7 @@ To work on fxcss itself, clone and install it in an editable environment:
 
 ```bash
 git clone https://github.com/AdamXweb/fxcss.git
-cd fxcss && python3 -m pip install -e ".[images]"
+cd fxcss && python3 -m pip install -e .
 ```
 
 And if you would rather install nothing at all, the repo runs as-is:
@@ -1934,17 +1951,17 @@ and enable **compatibility** to include all four channels. Normal PR CI runs
 Stable and ESR; the additional channels are optional for manual runs.
 
 Package publishing is gated on CI and checks of the exact wheel and source
-archive being published. Clean environments outside the checkout test the
-base install, optional image dependencies, generated workflows and profile
-compatibility with the latest released fxcss. Package checks run on all three
-operating systems with Python 3.9 and 3.14; the release tag must also match the
+archive being published. Clean environments outside the checkout test an
+install without dependencies, a normal install with Pillow, generated workflows
+and profile compatibility with the latest released fxcss. Package checks run on
+all three operating systems with Python 3.9 and 3.14; the release tag must also match the
 built package version. These are fxcss's own checks; `init` generates the theme
 repository workflows described above.
 
 Run the checks locally with:
 
 ```bash
-python3 -m pip install -e ".[images]"    # the unit tests need Pillow
+python3 -m pip install -e .         # includes Pillow, which the unit tests need
 python3 -m unittest discover -s tests -v
 python3 -m tests.smoke_themes       # requires Firefox and a display
 python3 -m tests.smoke_variants     # requires Firefox and a display
@@ -1954,10 +1971,9 @@ python3 scripts/package_smoke.py --dist dist  # downloads the released package a
 ```
 
 The unit tests cover `compare`, `catalogue` and the other image commands, so
-they need Pillow: install the `[images]` extra as above rather than the bare
-package, or the image tests error instead of being skipped. If `pip install`
-refuses with `externally-managed-environment`, create a virtual environment
-first (`python3 -m venv .venv && . .venv/bin/activate`). The publisher
+they need Pillow: without the install above, the image tests error instead of
+being skipped. If `pip install` refuses with `externally-managed-environment`,
+create a virtual environment first (`python3 -m venv .venv && . .venv/bin/activate`). The publisher
 workflow tests also use Node and bash when they are installed, and skip
 otherwise. Offline release orchestration tests execute the workflow scripts
 with stubbed pip, sleep and gh commands to check tag validation, the PyPI
