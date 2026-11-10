@@ -136,11 +136,12 @@ HELP
   "$pipx_cmd" --version >/dev/null || fail 'The pipx command is unavailable. Fix pipx, then rerun setup.'
   if "$pipx_cmd" runpip fxcss show fxcss >/dev/null 2>&1; then
     say 'Using your existing pipx installation of fxcss.'
-    if ! "$pipx_cmd" runpip fxcss show Pillow >/dev/null 2>&1; then
-      "$pipx_cmd" inject fxcss 'pillow>=10.1' || fail 'Could not add the image tools to fxcss.'
-    fi
   else
-    "$pipx_cmd" install 'fxcss[images]' || fail 'Could not install fxcss. Check the error above and retry.'
+    "$pipx_cmd" install fxcss || fail 'Could not install fxcss. Check the error above and retry.'
+  fi
+  # fxcss 0.26 and later bring Pillow with them; older releases need it added.
+  if ! "$pipx_cmd" runpip fxcss show Pillow >/dev/null 2>&1; then
+    "$pipx_cmd" inject fxcss 'pillow>=10.1' || fail 'Could not add the image tools to fxcss.'
   fi
   local app_bin fxcss_cmd
   app_bin=$("$pipx_cmd" environment --value PIPX_BIN_DIR) || fail 'Could not locate the installed fxcss command.'

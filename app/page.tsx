@@ -166,7 +166,7 @@ export default function Home() {
           <div>
             <CopyCommand command={INSTALL} />
             <p className="setup-caption">
-              Already have pipx? <code>{'pipx install "fxcss[images]"'}</code>
+              Already have pipx? <code>pipx install fxcss</code>
             </p>
             <Link
               className="text-link"

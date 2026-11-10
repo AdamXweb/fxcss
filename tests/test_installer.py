@@ -23,6 +23,7 @@ with open(env['SETUP_TEST_LOG'], 'a') as out:
     out.write(json.dumps([name, *args]) + '\n')
 apps = pathlib.Path(env['PIPX_BIN_DIR'])
 state = pathlib.Path(env['SETUP_TEST_STATE'])
+pillow = state.with_name(state.name + '-pillow')
 def executable(path):
     path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(env['SETUP_TEST_STUB'], path)
@@ -49,13 +50,16 @@ if name == 'pipx':
     if args[:1] == ['environment']: print(str(apps)); done()
     if args[:3] == ['runpip', 'fxcss', 'show']:
         if args[3] == 'fxcss': done(0 if env.get('SETUP_TEST_INSTALLED') or state.exists() else 1)
-        done(0 if env.get('SETUP_TEST_PILLOW') or state.exists() else 1)
+        done(0 if env.get('SETUP_TEST_PILLOW') or pillow.exists() else 1)
     if args[:1] == ['install']:
         if env.get('SETUP_TEST_INSTALL_FAIL'): done(1)
         if args[1] == 'pipx': executable(apps / 'pipx')
-        else: state.touch(); executable(apps / 'fxcss')
+        else:
+            state.touch(); executable(apps / 'fxcss')
+            # Releases before 0.26 did not depend on Pillow.
+            if not env.get('SETUP_TEST_OLD_RELEASE'): pillow.touch()
         done()
-    if args[:1] == ['inject']: state.touch(); done()
+    if args[:1] == ['inject']: pillow.touch(); done()
     if args == ['ensurepath']: done(int(env.get('SETUP_TEST_PATH_FAIL', '0')))
 print('Unexpected stub invocation', name, args, file=sys.stderr)
 done(99)
@@ -126,9 +130,19 @@ class InstallerTests(unittest.TestCase):
                 result = self.run_setup('--yes', '--intent', intent)
                 self.assert_success(result)
                 self.assertIn(command, result.stdout)
-        self.assertIn(['pipx', 'install', 'fxcss[images]'], self.calls())
+        self.assertIn(['pipx', 'install', 'fxcss'], self.calls())
         self.assertIn(['pipx', 'ensurepath'], self.calls())
+        self.assertFalse(any(c[1] == 'inject' for c in self.calls() if c[0] == 'pipx'))
         self.assertTrue(all(call == ['fxcss', '--version'] for call in self.calls() if call[0] == 'fxcss'))
+
+    def test_new_install_of_a_release_without_pillow_gets_the_image_tools(self):
+        self.env['SETUP_TEST_OLD_RELEASE'] = '1'
+        self.assert_success(self.run_setup('--yes'))
+        calls = self.calls()
+        self.assertIn(['pipx', 'install', 'fxcss'], calls)
+        self.assertIn(['pipx', 'inject', 'fxcss', 'pillow>=10.1'], calls)
+        self.assertLess(calls.index(['pipx', 'install', 'fxcss']),
+                        calls.index(['pipx', 'inject', 'fxcss', 'pillow>=10.1']))
 
     def test_existing_install_is_preserved_and_missing_images_added(self):
         self.env['SETUP_TEST_INSTALLED'] = '1'
@@ -146,7 +160,7 @@ class InstallerTests(unittest.TestCase):
         self.assert_success(self.run_setup('--yes'))
         self.assertTrue((self.apps / 'pipx').exists())
         self.assertTrue(any(c[:3] == ['pipx', 'install', 'pipx'] for c in self.calls()))
-        self.assertIn(['pipx', 'install', 'fxcss[images]'], self.calls())
+        self.assertIn(['pipx', 'install', 'fxcss'], self.calls())
         self.assertEqual(list(self.tmp.iterdir()), [])
 
     def test_homebrew_installs_pipx_on_macos(self):
@@ -224,7 +238,7 @@ class InstallerTests(unittest.TestCase):
         status, output = self.run_piped([('Choose [1]:', '2'), ('Continue? [Y/n]:', 'y')])
         self.assertEqual(status, 0, output)
         self.assertIn('fxcss new my-theme', output)
-        self.assertIn(['pipx', 'install', 'fxcss[images]'], self.calls())
+        self.assertIn(['pipx', 'install', 'fxcss'], self.calls())
 
     def test_cancel_from_piped_menu_does_not_install(self):
         status, output = self.run_piped([('Choose [1]:', '0')])
