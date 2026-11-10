@@ -68,7 +68,7 @@ The site deploys from this `website` branch. From a fresh clone (`git clone --br
 
 ## Installer behavior
 
-The installer asks for a starting point, confirms its installation plan, bootstraps pipx when necessary, installs `fxcss[images]`, verifies the executable, and runs `pipx ensurepath`. It prints the chosen next steps without launching Firefox or creating theme files. Re-running it preserves an existing pipx-managed fxcss version and adds Pillow only if missing. Update existing fxcss explicitly with `pipx upgrade fxcss`.
+The installer asks for a starting point, confirms its installation plan, bootstraps pipx when necessary, installs `fxcss`, verifies the executable, and runs `pipx ensurepath`. It prints the chosen next steps without launching Firefox or creating theme files. Re-running it preserves an existing pipx-managed fxcss version. Pillow comes with fxcss 0.26 and later; the installer adds it to an older installation that lacks it. Update existing fxcss explicitly with `pipx upgrade fxcss`.
 
 On macOS, missing pipx is installed through an existing Homebrew installation. Otherwise setup uses Python 3.10+ and venv to bootstrap a persistent pipx-managed pipx installation. It cleans up only its own temporary bootstrap directory. Missing Python or venv produces recovery instructions; the installer does not install an operating-system package manager, run as root, or bypass Python's system-package protections.
 

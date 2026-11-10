@@ -133,18 +133,22 @@ export default function WebsiteData() {
             the website’s services see what you do with it.
           </p>
           <p>
-            fxcss itself connects only to GitHub, and only when you ask it to
-            work with a theme stored there: <code>fxcss try</code>,{' '}
+            fxcss itself connects to the internet only when you ask it to
+            fetch something. <code>fxcss try</code>,{' '}
             <code>fxcss install</code> and <code>fxcss upgrade</code> download
-            the theme, and <code>fxcss adopt</code> and{' '}
-            <code>fxcss profiles --check</code> look up its versions. It never
+            a theme from the site that hosts it: GitHub, Codeberg, git.gay or
+            GitLab. <code>fxcss adopt</code> and{' '}
+            <code>fxcss profiles --check</code> look up the theme’s versions
+            on the same site. <code>fxcss support</code> downloads Firefox
+            releases from Mozilla to compare a theme against. fxcss never
             checks for its own updates, and it turns off Firefox’s data
             reporting in the temporary profiles it creates.
           </p>
           <p>
             The setup script installs fxcss from the Python Package Index (PyPI)
-            using pipx, a tool that installs Python programs. GitHub and PyPI
-            handle those downloads under{' '}
+            using pipx, a tool that installs Python programs. Each of those
+            sites handles its downloads under its own privacy policy, such
+            as{' '}
             <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">
               GitHub’s privacy statement
             </a>{' '}

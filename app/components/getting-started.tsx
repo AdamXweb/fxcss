@@ -61,7 +61,7 @@ function InstallStep({ journey }: { journey: Journey }) {
           <div>
             <h3>Manual · pipx already installed</h3>
             <p>Use pipx directly on macOS, Linux, or Windows.</p>
-            <CopyCommand command={'pipx install "fxcss[images]"'} />
+            <CopyCommand command="pipx install fxcss" />
             <Link href="/docs/installation">
               Need pipx first? See installation options
             </Link>

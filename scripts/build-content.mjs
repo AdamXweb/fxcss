@@ -113,7 +113,7 @@ const docs = [];
 // These reference pages start with a list/table rather than introductory
 // prose. Keep their summaries specific to the recorded source content.
 const descriptionOverrides = {
-  requirements: 'Run fxcss with Python 3.9+ and Firefox on macOS, Windows or Linux. Add Pillow for image commands with the fxcss[images] extra.',
+  requirements: 'Run fxcss with Python 3.9+ and Firefox on macOS, Windows or Linux. Pillow, which the image commands use, is installed with it.',
   commands: 'Find fxcss commands for trying and installing Firefox themes, live CSS editing, screenshots, compatibility checks, and troubleshooting.',
 };
 for (const page of pages) {

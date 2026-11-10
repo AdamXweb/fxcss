@@ -1610,7 +1610,7 @@
       "title": "Requirements",
       "chapter": "Troubleshooting and configuration",
       "group": "guide",
-      "description": "Run fxcss with Python 3.9+ and Firefox on macOS, Windows or Linux. Add Pillow for image commands with the fxcss[images] extra.",
+      "description": "Run fxcss with Python 3.9+ and Firefox on macOS, Windows or Linux. Pillow, which the image commands use, is installed with it.",
       "html": "<ul>\n<li id=\"passage-1\">Python 3.9+</li><li id=\"passage-2\">Firefox (any recent release; the toolkit finds it automatically on macOS,\nWindows and Linux, or set <code>FIREFOX_BIN</code>)</li><li id=\"passage-3\">Pillow for <code>catalogue</code>, <code>compare</code>, <code>check</code>, <code>tweaks</code> and <code>upgrade --compare</code>.\nThe <code>fxcss[images]</code> extra includes it; add it later with\n<code>pipx inject fxcss pillow</code>. Other commands use the Python standard library.</li></ul>\n",
       "codes": [],
       "headings": [],
