@@ -86,7 +86,7 @@ jobs:
           # Python 3.9 is unavailable on Ubuntu 26.04; preserve the supported floor.
           - { os: ubuntu-24.04, python: '3.9', label: py3.9 }
           - { os: ubuntu-latest, python: '3.12', label: py3.12 }
-          # The oldest Pillow the images extra accepts, so an image API newer
+          # The oldest Pillow fxcss accepts, so an image API newer
           # than that floor fails here rather than for a theme author.
           - { os: ubuntu-latest, python: '3.12', label: 'py3.12, Pillow 10.1.0', pillow: '10.1.0' }
           - { os: ubuntu-latest, python: '3.14', label: py3.14 }

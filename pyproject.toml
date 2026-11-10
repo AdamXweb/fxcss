@@ -19,12 +19,15 @@ classifiers = [
   "Topic :: Software Development :: Testing",
 ]
 
-# The core (watch, pick, inspect, doctor, shot) is standard library only.
-# Pillow is needed for image work: catalogue and compare.
-dependencies = []
+# Pillow does the image work: catalogue, compare, check, tweaks and
+# upgrade --compare. Everything else still imports it lazily, so a checkout
+# run without installing, or a --no-deps install, keeps working.
+dependencies = ["pillow>=10.1"]
 
 [project.optional-dependencies]
-images = ["pillow>=10.1"]
+# Empty on purpose: Pillow used to live here, and `fxcss[images]` must keep
+# installing for existing commands, scripts and generated workflows.
+images = []
 
 [project.scripts]
 fxcss = "fxcss.cli:main"

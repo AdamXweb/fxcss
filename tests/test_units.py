@@ -1528,11 +1528,14 @@ class MenuChoiceTests(unittest.TestCase):
 
 
 class PillowFreeCoreTests(unittest.TestCase):
-    """The base install must never touch PIL outside the three image commands.
+    """Commands that do no image work must never touch PIL.
+
+    Pillow is a required dependency, but fxcss still runs without it: from a
+    checkout that was never installed, or after `pip install --no-deps`.
 
     This exact regression shipped once: css_references lived in catalogue.py,
     whose module header imports PIL, so `fxcss pick` crashed for anyone
-    installed without the [images] extra.
+    without Pillow.
     """
 
     def run_blocked(self, code):

@@ -1,7 +1,8 @@
 """Test built distributions in clean environments, outside the source checkout.
 
-No third-party test dependencies are required. The images stage installs the
-wheel's declared extra. The upgrade stage starts with the latest PyPI release.
+No third-party test dependencies are required. The base stage installs the
+wheel without dependencies and the images stage installs it with them. The
+upgrade stage starts with the latest PyPI release.
 """
 import argparse
 import hashlib
@@ -125,9 +126,12 @@ def main():
             print(run([python, script, "--stage", stage, "--root", root, "--wheel", wheel], root, env), flush=True)
         pip("install", "--no-deps", wheel)
         check("base")
-        # Extras are resolved from artifact metadata, not a hand-maintained dependency list.
-        pip("install", f"{wheel}[images]")
+        # Dependencies are resolved from artifact metadata, not a hand-maintained list.
+        pip("install", wheel)
         check("images")
+        # Existing install commands name this extra, so it must stay declared.
+        output = pip("install", f"{wheel}[images]")
+        assert "does not provide the extra" not in output, output
         pip("uninstall", "-y", "fxcss")
         pip("install", "--no-cache-dir", "fxcss")
         check("previous")

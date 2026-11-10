@@ -14,7 +14,7 @@ from tests import smoke_capture_states as smoke
 
 try:
     from PIL import Image
-except ImportError:  # pragma: no cover - the images extra is optional
+except ImportError:  # pragma: no cover - a bare checkout can run without Pillow
     Image = None
 
 REPO = Path(__file__).resolve().parents[1]
@@ -85,7 +85,7 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertEqual(len(floor), 1, entries)
         self.assertIn("python: '3.12'", floor[0])
         self.assertIn("ubuntu", floor[0])
-        # Pinned to exactly the floor the images extra declares.
+        # Pinned to exactly the floor pyproject declares.
         dependency, = re.findall(r'"pillow>=([\d.]+)"', (REPO / "pyproject.toml").read_text())
         pinned = re.search(r"pillow: '([\d.]+)'", floor[0])[1]
 
