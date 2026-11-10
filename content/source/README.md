@@ -15,11 +15,10 @@ with visual previews and Firefox compatibility checks.
 ## Getting started
 
 You need **Python 3.9+** and an installed **Firefox** on macOS, Windows or
-Linux. Install fxcss with its image tools, then try a theme in a disposable
-profile:
+Linux. Install fxcss, then try a theme in a disposable profile:
 
 ```bash
-pipx install "fxcss[images]"
+pipx install fxcss
 fxcss try AdamXweb/WhiteSurFirefoxThemeMacOS
 ```
 
@@ -85,40 +84,100 @@ is never touched — close the window and nothing remains.
 It reports what it found before doing anything:
 
 ```
-  adamxweb/whitesurfirefoxthememacos  ★614  MIT
-    MacOS Big Sur like theme for Firefox on MacOS & Windows.
-    latest release   v1.6.3  (2025-07-26)
-    latest commit    b10c574  (2025-07-26)  Merge pull request #167 …
+  fxcss try  AdamXweb/WhiteSurFirefoxThemeMacOS
 
-  fetching release v1.6.3 …
-  theme found at the repository root  (39 stylesheets, 134 KB)
+  AdamXweb/WhiteSurFirefoxThemeMacOS  ★619  MIT
+    MacOS Big Sur like theme for Firefox on MacOS & Windows. Make your Firefox look like Safari.
+    latest release   v2.1.0  (2026-10-28)
+    latest commit    68f8699  (2026-11-10)  fix: align the toolbar and close the tab bar gap …
 
-  This theme ships install.sh. fxcss does not run it —
-  it installs the files itself, which is all those scripts do.
+  fetching release v2.1.0 …
 
-  Options its README documents:
-    -c     Left hand side tab close button
-    -p     Makes tabs height compact like current Safari
+  layout      chrome/ at the repository root  72 stylesheets, 377 KB
+  loads       35 stylesheets  29 browser-window, 2 web-content, 4 shared
+  user hook   customChrome.css  not shipped, as intended
+  installer   install.sh  fxcss copies the files itself and never runs it
+
+  Optional stylesheets  30 · layer any on with --with name,name
+    Tweaks
+    compact-tabs    hideextension   increase-contrast   singletabhidden   tabs-swapclose
+    enabletabview   highlight-tab   noidentity          standard-urlbar   windows-swapclose
+
+    Colour schemes · pick one
+    theme-ayu-mirage             theme-github-dark          theme-nord
+    theme-catppuccin-frappe      theme-gruvbox-dark         theme-one-dark
     …
 
-  Optional stylesheets you can layer on with --with:
-    compact-tabs, hideextension, noidentity, tabs-swapclose, …
+  Setup beyond the files  1 automatic · 3 to check
+    ✓ automatic  3 prefs in configuration/user.js  in fxcss's own block
+    ! check      Firefox's native vertical tabs
+                 a setting in Firefox's own sidebar options
+    …
+
+  README install flags  as the README words them, for its own script; fxcss never runs it
+    -c  Left hand side tab close button          -v         Re-enables the tabview button
+    -p  Makes tabs height compact like…          -t <name>  Colour theme (see Colour themes below)
+    …
 ```
 
 Releases are preferred over branch tips, since that is what the author blessed;
 `--commit` takes the latest commit instead, and `--ref` takes any tag, branch or
-SHA. `--with name,name` layers on the theme's optional stylesheets so you can see
-a variant without hunting through install flags. `--shot dir` captures the
-standard screenshots instead of opening a window, and `--keep dir` leaves the
-download behind so you can start editing it with `watch`.
+SHA. A browser URL for a branch or folder
+(`https://github.com/owner/theme/tree/photon-style/themes/one`) is read as
+meaning that branch and that folder, and the branch is then *tracked* rather
+than pinned. `--with name,name` layers on the theme's optional stylesheets so
+you can see a variant without hunting through install flags. `--shot dir`
+captures the standard screenshots instead of opening a window, and `--keep dir`
+leaves the download behind so you can start editing it with `watch`.
 
-#### Private repositories and local folders
+#### How the theme is found
+
+Theme repositories are laid out in more ways than `chrome/userChrome.css`.
+`try`, `install` and `upgrade` share one *plan* for reading a source tree, and
+say which layout they found:
+
+| Layout | Example | What happens |
+| --- | --- | --- |
+| `chrome/userChrome.css` at the root | WhiteSur Safari, ShyFox | Used where it is. |
+| `userChrome.css` at the root, parts beside it | ArcWTF, Foxlim, the GNOME theme | The folder *is* `chrome/`; documentation, licences, screenshots and install scripts are left out unless a stylesheet refers to them. |
+| Only `userContent.css` | GlassyFox | Installed as a content-only theme; the browser window is left alone. |
+| One theme in a subfolder | `firefox/chrome/…`, `NewFox/profile/chrome/…` | Found, and the folder recorded so upgrades read the same place. |
+| Several themes side by side | `1.Normal/`, `2.WithTST/`; Simplify's colour families | A real choice: a menu at a terminal, otherwise an error listing the `--subpath` values. Folders that look historical (`old/`, `Old Versions/`, screenshots) or belong to Thunderbird are listed but not chosen. |
+| `src/userChrome-<edition>.css` files | WhiteSur | Named editions, chosen with `--subpath src/userChrome-WhiteSur.css`; a sibling `common/` folder is merged in the way the theme's installer does, by copying. |
+| A committed `chrome.zip` | Win 7 Aero | Unpacked as data within size limits and read like any other tree. `.rar`/`.7z` are reported as unsupported with the reason. |
+| No entry stylesheet at all | Brave-Fox, Firefox-Onebar | Unsupported, naming the sheets a README might tell you to `@import`; `--entry path.css` generates a `userChrome.css` that imports one. |
+
+The planner never selects a directory outside the download, and nothing from
+the download is executed: a theme whose entry sheet imports files the source
+does not contain (Material Fox's uncompiled `user-chrome.css`) is reported as
+needing a build rather than installed half-empty. `install` stops there unless
+`--force`; `try` only warns.
+
+`try --info` ends with a **setup checklist**: what the theme needs beyond its
+files, read from the files it ships and its README — preference files outside
+`configuration/user.js` (with their pref names), `.uc.js` scripts that need a
+userChrome.js loader, extension settings to import, fonts, forks and platform
+effects. Each item is *required*, *optional* or *unknown*, with the evidence.
+Nothing on it is applied automatically; see `install --prefs` below.
+
+#### Private repositories, other hosts and local folders
 
 A private repository looks exactly like a missing one to anyone who cannot read
 it. fxcss sends `GITHUB_TOKEN` or `GH_TOKEN` when either is set; otherwise, if a
-repository is not publicly visible, it asks the GitHub CLI for its login
-(`gh auth token`) and tries again. So after `gh auth login`, private themes your
-account can read work like public ones. A token also raises GitHub's rate limit.
+repository is not publicly visible or an anonymous request hits GitHub's rate
+limit, it asks the GitHub CLI for its login (`gh auth token`) and tries again.
+So after `gh auth login`, private themes your account can read work like public
+ones and a signed-in person is never told to sign in. The token is only ever
+sent to GitHub's own hosts — never to another host, and never across a redirect
+that leaves GitHub — and never appears in a message.
+
+Themes on **Codeberg**, **git.gay** (and other Forgejo instances listed in
+`fetch.HOSTS`) and **GitLab** can be tried, installed and upgraded from their
+URLs; their public APIs answer the same questions. `adopt` compares against
+GitHub's tree API and says so when it meets another host. A repository that
+has **moved** on GitHub resolves to its new owner/name, is downloaded from
+there (the old name still answers on the API but not on the download host) and
+is recorded under the new name.
 
 A theme that is not on GitHub, or not pushed yet, can be tried from its folder:
 `fxcss try ~/src/my-theme`. The folder is read where it is and never modified;
@@ -158,6 +217,8 @@ profile.
 fxcss install owner/theme                      # into your default profile
 fxcss install owner/theme --with compact-tabs  # optional sheets, permanently
 fxcss install ~/src/my-theme                   # a local checkout works too
+fxcss install owner/theme --subpath 2.WithTST  # one of several editions
+fxcss install owner/theme --prefs user.js      # also a shipped preference file
 fxcss install --list-profiles                  # see what it found first
 ```
 
@@ -190,26 +251,66 @@ list of hashed directory names — and installing into the wrong one looks
 exactly like the theme not working:
 
 ```
-Several Firefox profiles exist:
-  1. default-release        [Release]              …/Profiles/8f2b1a.default-release  (Enter)
-  2. dev-edition-default    [Developer Edition]    …/Profiles/c41d9e.dev-edition-default
-  3. work                   [unrecognised]         …/Profiles/7ab3.work
+  Which profile?  3 found in ~/Library/Application Support/Firefox/Profiles
+›  1. default-release      Release            8f2b1a.default-release  (Enter)
+   2. dev-edition-default  Developer Edition  c41d9e.dev-edition-default
+   3. work                 unrecognised       7ab3.work
+
+  Which one? ↑↓ or 1-3 [1]
 ```
 
 The label comes from the directory suffix Firefox itself assigns, so a profile
-you named yourself reads `[unrecognised]` rather than being guessed at.
+you named yourself reads `unrecognised` rather than being guessed at.
 
 Run it without `--with` and it offers the theme's optional stylesheets rather
 than leaving you to find them in the repository:
 
 ```
-  This theme ships optional stylesheets:
-    1. compact-tabs
-    2. theme-dracula
+  Optional stylesheets  30 · pick any
+    Tweaks
+     1✓ compact-tabs     5. increase-contrast    9. tabs-swapclose
+     2. enabletabview    6. noidentity          10. windows-swapclose
+     …
+
+    Colour schemes · pick one
+    11. theme-ayu-mirage             21. theme-material-ocean
     …
-    Numbers separated by commas, `all`, or Enter for none.
-  Include:
+    15. theme-catppuccin-mocha     › 25✓ theme-nord
+    …
+
+  Include which? ↑↓←→ and space to tick, or e.g. 1,3 or all [1,25]
 ```
+
+When a theme ships both, colour schemes (named `theme-…`, or after a palette
+such as `nord` or `catppuccin-mocha`) are listed apart from the tweaks; any
+other theme gets one list. The grouping is only how the menu reads: the
+sheets are numbered straight through, and what you pick is imported in the
+theme's own order. "Pick one" appears when every pair of the theme's colour
+schemes clashes in the way described below, so installing any two of them
+would be refused. Pick two anyway and the menu asks which one to keep:
+
+```
+  Keep which colour scheme?  both set the same 110 colours; only one can take effect
+   1. theme-catppuccin-mocha  ██ #11111b  ██ #cdd6f4  ██ #cba6f7  ██ #6c7086
+›  2. theme-nord              ██ #242933  ██ #eceff4  ██ #88c0d0  ██ #5e81ac  (Enter)
+
+  Which one? ↑↓ or 1-2 [2]
+```
+
+Each row shows the colours that sheet would set, most-used first, as a
+swatch in that colour and its hex code (just the hex code where the terminal
+cannot show the colour). Enter keeps the one that loads last, which is the one
+that would have won anyway.
+
+Every numbered question answers to the keyboard at a terminal. ↑ and ↓ move
+the `›` (← and → cross columns), Space ticks a stylesheet, Enter takes the
+answer and Esc stops. Typing the number works as it always has, and moves the
+pointer as you type. Through a pipe, in CI, with `TERM=dumb` or in a terminal
+narrower than 60 columns, the question is a plain typed prompt; set
+`FXCSS_PLAIN_PROMPTS=1` to keep it that way everywhere, for example for a
+screen reader that copes badly with lines redrawn in place. Each question
+ends by naming the option that skips it next time (`--profile`, `--with`,
+`--firefox`, `--subpath`, `--ref` or `--commit`).
 
 #### Options that cancel each other out
 
@@ -260,10 +361,11 @@ looking for, and equally the branch can be mid-rewrite, so neither is right to
 assume:
 
 ```
-  The default branch has moved on since the latest release:
-    1. release v2.0                 2025-01-03  what the author last published  (Enter)
-    2. latest commit on master      2026-08-14  newer than the release — fix tab colours
-  Install [1-2]:
+  Which version?  the default branch has moved on since the latest release
+   1. release v2.0             2025-01-03  what the author last published  (Enter)
+   2. latest commit on master  2026-08-14  newer than the release — fix tab colours
+
+  Which one? 1-2 [1]
 ```
 
 Scripts and CI never see any of these prompts: without a terminal the release
@@ -284,9 +386,32 @@ The install is what a theme's install script does, done carefully:
   together with any `configuration/user.js` the theme ships, whose pref names
   are listed before you confirm. Everything outside the block is kept byte
   for byte;
+- shipped preference files elsewhere (a root `user.js`, `config/user.js`,
+  `prefs/recommended.js`) appear on the setup checklist with their pref
+  names and are **not** applied unless you say `--prefs user.js`; then they
+  join the same removable block, as written, and upgrades carry the choice
+  forward (stopping if the file disappears upstream). Nothing is ever applied
+  from README prose or from `-moz-pref()` toggles in the CSS;
 - a manifest (`chrome/fxcss-install.json`) records every file written, its
-  sha256, and where the theme came from — which repo, which ref, and whether
-  that ref was a release or a branch.
+  sha256, where the theme came from — which host, repo and ref, whether that
+  ref was a release or a branch, and the full commit a branch pointed at —
+  plus the layout selected, the preference files applied and each optional
+  sheet's path in the repository.
+
+When several options have the same name, select their repository paths, for
+example `--with custom/tabs.css,optional/tabs.css`. Each retains its identity
+through upgrades. Options loaded after the base get separate dependency trees
+when combined. If two selected files need the same native import slot, or
+would overwrite different contents already there, installation refuses before
+changing the profile, including with `--force`.
+
+Tracked branches are downloaded at the resolved commit SHA, and adoption
+compares that exact tree. If the full SHA cannot be read, fxcss stops instead
+of recording a branch name as a known revision.
+
+Installing over a profile fxcss already manages keeps the files you added
+there active (see [upgrade](#fxcss-upgrade)); installing over a `chrome/`
+folder fxcss did not write moves it aside whole, as the origin backup.
 
 Restart Firefox after installation; it reads `userChrome.css` at startup.
 See [uninstall](#fxcss-uninstall) to remove a theme later.
@@ -313,16 +438,29 @@ guess — it is the same bytes:
 ```console
 $ fxcss adopt AdamXweb/WhiteSurFirefoxThemeMacOS
 
-  profile: default-release  (~/Library/…/8f2h1kqp.default-release)
+  fxcss adopt  default-release
 
-  comparing 148 file(s) against AdamXweb/WhiteSurFirefoxThemeMacOS …
+  profile     default-release
+              ~/Library/Application Support/Firefox/Profiles/8f2h1kqp.default-release
+
+  comparing 148 files against AdamXweb/WhiteSurFirefoxThemeMacOS …
     v2.0.0: 129/135 files match, 6 edited, 7 added
     v1.6.3: 114/132 files match, 18 edited, 10 added
 
   best match: v2.0.0: 129/135 files match, 6 edited, 7 added
   Recorded as that version plus local differences, so an upgrade knows
   not to overwrite them without being told.
+
+  backup      the theme as it is now, kept as chrome.backup-20260817014143
+  yours       7 files that version does not ship, kept as your own across upgrades
+
+  ✓ Recorded 135 files as AdamXweb/WhiteSurFirefoxThemeMacOS@v2.0.0
+  fxcss upgrade can now update it, and fxcss uninstall puts this back.
 ```
+
+Files in `chrome/` that the matched version does not contain are recorded as
+yours, not the theme's: upgrades carry them across and `uninstall` leaves them
+where they are.
 
 Comparison uses GitHub's git-tree API rather than downloading anything, so
 checking ten versions costs ten small requests instead of ten archives — and
@@ -332,7 +470,15 @@ Naming the repository is usually necessary. `adopt` checks `chrome/` for a git
 remote (definitive — someone cloned it there) and for GitHub URLs in the
 theme's own files (a hint worth confirming), but plenty of themes leave no
 trace at all once installed: WhiteSur's `chrome/` contains no URL anywhere.
-That is normal, not a failure, and the message says so.
+That is normal, not a failure, and the message says so. A repository that was
+only *mentioned* — a credit, a palette, an upstream — is recorded only when at
+least half of a version's files match; otherwise `adopt` refuses and asks you
+to name the repository yourself, because recording the wrong project hands
+every later upgrade to it.
+
+A match against a branch records the commit the branch pointed at, not its
+name, so `upgrade --check` straight after adopting an exact branch tip says
+"up to date" instead of announcing the same commit as an update.
 
 **Nothing is installed or replaced.** The `chrome/` already there is *copied*
 to a `chrome.backup-*` and then described, so `uninstall` has somewhere to put
@@ -368,22 +514,23 @@ names:
 ```console
 $ fxcss profiles --check
 
-  Firefox profiles on this machine
+  fxcss profiles
 
-  ● default-release          [Release]
-    ~/Library/Application Support/Firefox/Profiles/8f2h1kqp.default-release
-    theme    AdamXweb/WhiteSurFirefoxThemeMacOS @ v1.0.0
-             installed 2026-08-14 09:12:44  (tracking the release)
-    sheets   theme-nord
-    files    137 file(s), 1 edited since install, 1 added by hand
-    update   v2.0.0 available  — 2026-08-16
+  Firefox profiles
+  2 in ~/Library/Application Support/Firefox/Profiles
 
-    dev-edition-default      [Developer Edition]
-    ~/Library/Application Support/Firefox/Profiles/p93kd0zx.dev-edition-default
-    chrome/  41 file(s), not installed by fxcss
-             `fxcss install` here would back this up first
+  ● default-release      Release            8f2h1kqp.default-release
+      theme      AdamXweb/WhiteSurFirefoxThemeMacOS @ v2.0.0
+      installed  2026-08-14 09:12  tracking the release
+      sheets     theme-nord
+      files      145  ! 1 edited since install, 1 added by hand
+      update     v2.1.0 available  2026-10-28
 
-  ● the profile Firefox opens by default
+    dev-edition-default  Developer Edition  p93kd0zx.dev-edition-default
+      theme      ! installed by hand  chrome/ holds 41 files
+                 fxcss adopt takes it over; fxcss install would replace it, backing it up first
+
+  ● opens by default: the profile Firefox opens on its own
 ```
 
 Three states, kept distinct on purpose: a profile fxcss installed into and can
@@ -392,12 +539,15 @@ profile with no theme at all. Only the first can be described in detail; for
 the second, all fxcss honestly knows is that files are there and that
 installing would move them aside.
 
-`--check` asks GitHub once per theme, not once per profile, and compares like
+`--check` asks the host once per theme, not once per profile, and compares like
 for like: an install tracking releases is measured against the newest tag, one
-tracking a branch against the commit that branch points at now. An install
-pinned with `--ref` reports as pinned rather than as behind. Where the
-manifest predates fxcss recording which of those applied, it says so instead
-of guessing — "up to date" is never printed unless it was actually checked.
+tracking a branch against the commit that branch points at now (a branch other
+than the default is looked up by name). An install pinned with `--ref` reports
+as pinned rather than as behind. A release-tracked install that is current
+while the default branch has moved on says both — and stays on releases;
+`upgrade --commit` is the way to follow the branch instead. Where the manifest
+predates fxcss recording which of those applied, it says so instead of
+guessing — "up to date" is never printed unless it was actually checked.
 
 The same reservation covers local edits: installs from before 0.16 recorded no
 file hashes, so `fxcss profiles` reports them as *not checked for edits*
@@ -419,15 +569,27 @@ fxcss rollback                       # …and back again
 tag, one that followed a branch moves to that branch's current commit, and one
 pinned with `--ref` does not move at all unless you say so.
 
-It stops rather than surprise you, in three places:
+It stops rather than surprise you, in four places:
 
 - **Files you edited yourself.** Every install records a sha256 per file, so
   an upgrade knows which ones you have since changed and refuses to write over
-  them until `--force`. Files you *added* are never touched either way.
+  them until `--force`.
+- **Files you added.** A stylesheet you dropped into `chrome/` — imported
+  from `customChrome.css`, say — is carried into the new tree so it stays
+  *active*, not merely kept in the backup where it would stop applying.
+  `customChrome.css` itself counts as yours once you have written in it, even
+  though fxcss created the empty file. The
+  manifest lists them under `user_files`. If the new version ships a file at
+  the same path with different contents, that is a collision: the upgrade
+  stops before anything moves and lists the paths; `--force` installs the
+  theme's copies and leaves yours in the backup, recorded as `displaced`.
 - **Options that vanished.** If you installed `--with theme-nord` and the new
   version renamed or dropped that sheet, the `@import` would simply stop
   resolving and the option would turn itself off. `upgrade` names the loss and
-  makes you choose instead.
+  makes you choose instead. Sheets are matched by their path in the repository
+  first, so a sheet that only exists inside `chrome/extras/` survives an
+  upgrade as reliably as one in `custom/`. The same goes for preference files
+  chosen with `--prefs`.
 - **Selectors the new version needs and your Firefox lacks** — with `--audit`,
   which runs the same check as [`fxcss audit`](#fxcss-audit) against the
   fetched copy *before* anything is installed.
@@ -438,31 +600,45 @@ a re-fetch of what the manifest says — and diffs them before the confirmation
 prompt, printing where the before/after images landed. It completes the three
 questions an upgrade can answer about a theme with no API: do the selectors
 still exist (`--audit`), has the user edited anything (always checked), and
-what actually changes on screen (`--compare`). Needs Pillow and a local
-Firefox, like `shot`.
+what actually changes on screen (`--compare`). Needs a local Firefox, like
+`shot`.
 
 `--check` changes nothing and answers with its exit code, for cron, launchd or
 CI: **0** up to date, **1** an upgrade is available, **2** it cannot be told
 (no install here, an unreachable repo, or a manifest too old to say what it
-tracked). fxcss deliberately ships no scheduler of its own — this is the piece
-you point yours at.
+tracked). For a theme installed from a local folder there is no upstream to
+ask, so the folder's files are compared with what was installed and "up to
+date" includes the managed preference block. Explicit `--prefs` and `--with`
+choices can also change an installation whose remote revision is current;
+`--check` reports whether that proposed setup differs without applying it.
+fxcss deliberately ships no scheduler of its own —
+this is the piece you point yours at.
+
+The layout selected at install time (`--subpath`, `--entry`) is recorded and
+reused, so a theme taken from `2.WithTST/` is upgraded from `2.WithTST/` and
+one taken from `src/userChrome-WhiteSur.css` from the same edition.
 
 ```console
 $ fxcss upgrade
 
-  profile: default-release  (~/Library/…/8f2h1kqp.default-release)
-  installed: AdamXweb/WhiteSurFirefoxThemeMacOS @ v1.6.3
-  upstream:  v2.0.0  — 2026-08-16
+  fxcss upgrade  default-release
+
+  profile     default-release
+              ~/Library/Application Support/Firefox/Profiles/8f2h1kqp.default-release
+  installed   AdamXweb/WhiteSurFirefoxThemeMacOS @ v1.6.3
+  upstream    v2.0.0  2026-08-16
 
   fetching v2.0.0 …
-  keeping optional sheets: theme-nord
+  layout      chrome/ at the repository root  72 stylesheets, 377 KB
+  loads       35 stylesheets  29 browser-window, 2 web-content, 4 shared
+  sheets      keeping theme-nord
 
   Upgrade to v2.0.0? [Y/n]
 
-  upgraded to v2.0.0
-  the previous version is kept as chrome.backup-20260817014202
+  backup      the previous version, kept as chrome.backup-20260817014202
 
-  Restart Firefox to see it. `fxcss rollback` puts the previous version back.
+  ✓ Upgraded to v2.0.0
+  Restart Firefox to see it; fxcss rollback puts the previous version back.
 ```
 
 ### fxcss rollback
@@ -482,12 +658,19 @@ list can show what each one holds:
 ```console
 $ fxcss rollback --list
 
-  Backups, newest first:
+  fxcss rollback  default-release
 
+  profile     default-release
+              ~/Library/Application Support/Firefox/Profiles/8f2h1kqp.default-release
+  installed   AdamXweb/WhiteSurFirefoxThemeMacOS @ v2.0.0
+
+  Backups  newest first
     chrome.backup-20260817014202
       AdamXweb/WhiteSurFirefoxThemeMacOS@v1.6.3
-    chrome.backup-20260817014143  (the original)
+    chrome.backup-20260817014143  the original
       your own chrome/, from before fxcss
+
+  fxcss rollback --to <name> restores one of these.
 ```
 
 `fxcss rollback` restores the most recent, or `--to <name>` any of them.
@@ -501,7 +684,8 @@ That original is the reason upgrades chain rather than stack blindly. After
 five upgrades the newest backup holds *the theme*, not your files, so the
 manifest carries the original's name forward and `fxcss uninstall` still
 restores what you had before you ever ran fxcss. `--keep N` (default 3) prunes
-older backups; the original is never one of them.
+older backups; the original is never one of them, and neither is any
+`chrome.backup-*` folder that holds no fxcss install record.
 
 ### fxcss uninstall
 
@@ -519,6 +703,15 @@ files so it cannot overwrite your work.
 If the profile originally had no `chrome/`, uninstalling after an upgrade
 returns it to that state when no files need to be kept. Restart Firefox to see
 the result.
+
+A `chrome/` with no manifest in it is yours — what a rollback to the original
+put back, or a theme installed by hand — and `uninstall` leaves it exactly as
+it is, however many backups sit beside it: it removes a leftover fxcss block
+from `user.js` if there is one, lists the backups, and changes nothing else.
+So install → rollback → uninstall ends with your original files in place, and
+running it again does the same. If `chrome/` is absent after an interrupted
+swap or a completed uninstall, `uninstall` leaves that absent state alone too.
+Use `fxcss rollback --to <backup-name>` explicitly to restore a backup.
 
 ## Building and inspecting themes
 
@@ -842,10 +1035,10 @@ restyled tab strip, say — leaves it alone:
 | `*-11-settings` | Settings | `about:preferences`, styled by `userContent.css` |
 
 Panels are separate OS windows that Marionette cannot see, so these four are
-taken with a screen capture of the panel's area. That needs Pillow (the
-`fxcss[images]` extra) and briefly brings the capture Firefox to the front. The
-capture is first checked against Marionette's own image of the window; when it
-cannot see Firefox (no screen-recording permission on macOS, a Wayland session,
+taken with a screen capture of the panel's area. That briefly brings the
+capture Firefox to the front. The capture is first checked against Marionette's
+own image of the window; when it cannot see Firefox (no screen-recording
+permission on macOS, a Wayland session,
 another window on top) the panel views are reported as unsupported with that
 reason rather than captured wrong. A Firefox without the search engine button
 skips its two views the same way.
@@ -1105,20 +1298,21 @@ class your CSS mentions, resolves each against a running Firefox, and shows what
 to change — with the real line from your file and the replacement applied:
 
 ```
-  14 selectors need attention
+  ✗ 14 selectors need attention
 
-  RENAMED  #urlbar-background  →  .urlbar-background
-           same name, now a class rather than an id
+  ✗ RENAMED       #urlbar-background → .urlbar-background
+                  same name, now a class rather than an id
+                  chrome/parts/headerbar-urlbar.css:52
+                  - #urlbar-background {
+                  + .urlbar-background {
 
-    chrome/parts/headerbar-urlbar.css:52
-    - #urlbar-background {
-    + .urlbar-background {
-
-  SIMILAR  #appMenu-fullscreen-button  →  #appMenu-fullscreen-button2  (a guess, not applied)
-           no exact match; closest live name is #appMenu-fullscreen-button2
-
-    chrome/parts/icons.css:198
-      #appMenu-fullscreen-button {
+  ! SIMILAR       #appMenu-fullscreen-button → #appMenu-fullscreen-button2  a guess, not applied
+                  no exact match; closest live name is #appMenu-fullscreen-button2
+                  #appMenu-fullscreen-button2 belongs to browser.xhtml
+                  check what reads that name before using it: a close
+                  spelling can belong to an unrelated element
+                  chrome/parts/icons.css:198
+                    #appMenu-fullscreen-button {
 ```
 
 These examples come from findings in a long-running theme. The
@@ -1196,11 +1390,22 @@ exit for CI; `fxcss-keep` lines are exempt.
 
 #### Unused and unreachable code
 
-`audit` also reports housekeeping, in its own section, separate from breakage:
+`audit` also reports housekeeping, in its own section, separate from breakage.
+It reads the theme through the same stylesheet inventory `install` and
+`upgrade` use: quoted and unquoted `@import url(…)` forms, escaped paths,
+imports behind `-moz-pref()` or media conditions, and the user hooks a theme
+imports without shipping (`customChrome.css`, FlexFox's
+`uc-user-settings.css`). Sheets reached only from `userContent.css` style web
+and extension pages, and their selectors are reported as *other-document*
+rather than as browser-window breakage. When an entry sheet is missing or a
+required import resolves to nothing, the section opens with **INCOMPLETE** and
+the reasons, instead of reading as a clean bill of health.
 
 - **Stylesheets nothing imports.** Files under `chrome/` unreachable by
-  following `@import` from `userChrome.css`. Sheets in a `custom/` or
-  `optional/` folder are excluded — being opt-in is the point of those.
+  following `@import` from `userChrome.css` or `userContent.css`. Sheets in a
+  `custom/`, `optional/`, `extras/` or `tweaks/` folder are excluded — being
+  opt-in is the point of those — and so are conditional imports that are
+  merely switched off.
 - **Custom properties used but never set**, where an unthemed Firefox does not
   provide them either. These are usually typos: the `var()` silently falls back.
 - **Custom properties set but read nowhere.** Reported cautiously — setting
@@ -1232,15 +1437,36 @@ fxcss init --showcase --previews          # also publish screenshots
 fxcss init --watch --showcase --previews  # generate all six workflow files
 ```
 
-`init` writes to `.github/workflows/`. Existing files are preserved unless you
-pass `--force`; review regenerated files before committing, especially if you
-have customised them. Generation pins the installed fxcss version. The preview publisher validates
-variant filenames and PNG headers, including options added by later PRs.
-Updating fxcss locally does not update workflows already in a repository.
+`init` writes to `.github/workflows/` **at the repository root** — found with
+`git rev-parse --show-toplevel` from the theme folder — and points every
+command in them at the theme's folder when that is not the root
+(`fxcss shot --theme 'head/firefox'`). A repository that holds several themes
+needs `--subpath` to say which. Flat and nested layouts both generate previews
+for all repository changes, including dependencies outside the theme folder.
+Named editions and themes that need `--entry` are refused, because the
+generated workflows cannot select them yet; lay the theme out as
+`chrome/userChrome.css` to use the workflows.
+Existing files are preserved unless you pass `--force`; review regenerated
+files before committing, especially if you have customised them. Generation
+pins the installed fxcss version. These layout, trigger and patch-mapping
+changes need fxcss **0.26.0 or later**.
+To try an fxcss commit that is not released yet, use
+`fxcss init --toolkit-ref <full-40-character-fxcss-commit-SHA>`: the generated
+workflows then install that commit directly instead of a PyPI version. `init`
+says so when the copy you are running did not come from PyPI, since a pin to
+an unpublished version cannot install. The preview
+publisher validates variant filenames and PNG headers, including options added
+by later PRs. Updating fxcss locally does not update workflows already in a
+repository.
+
+Audit patches for flat and nested themes address their original files relative
+to the Git root, so the watch workflow can apply them there. Packaged ZIPs and
+assembled editions have no direct source mapping: patch generation refuses
+those layouts; audit the unpacked source folder to prepare a patch instead.
 
 | Feature | Enable with | When it runs | What readers see |
 | --- | --- | --- | --- |
-| PR previews | `init` | All pull request changes; macOS, Windows and Linux. | A comment showing before/after views and highlighted differences, including optional stylesheets. |
+| PR previews | `init` | All pull request changes; macOS, Windows and Linux. | A comment that opens with the Firefox support result, then shows each distinct change once with before/after views and highlighted differences, including optional stylesheets. |
 | Firefox watch | `init --watch` | Weekly on Mondays, or manually; Release, Beta and Nightly on macOS. | Fix PRs or issues for actionable selector findings, plus a separate issue if screenshot capture fails. |
 | README previews | `init --previews` | All repository changes on `main`/`master`, or manually; macOS. | Refreshed standard and variant screenshots plus cropped option comparisons on the `previews` branch. |
 | Release showcase | `init --showcase` | A release is published, or manually; macOS. | Light/dark screenshots against live websites on the `showcase` branch. |
@@ -1251,26 +1477,20 @@ images, fonts and other dependencies can live anywhere in a theme repository.
 This deliberately includes documentation-only edits so dependency-only changes
 outside standard folders cannot silently skip previews.
 Re-run generation and review the changes to update the pinned fxcss version
-or adopt improvements to the workflow templates. New variants are included automatically.
+or adopt improvements to the workflow templates; see
+[Updating generated workflows](#updating-generated-workflows). New variants are
+included automatically unless `FXCSS_VARIANTS` names specific stylesheets.
 
 ### Pull request previews
 
 The default setup writes three cooperating workflows:
 
-1. **Render:** capture the base and proposed theme revisions on each operating
-   system, compare them and upload the images. Matching base captures are
-   cached for later pushes to the same PR.
+1. **Render:** capture the base and proposed theme revisions in the current
+   Firefox release on each operating system, compare them and upload the
+   images. Matching base captures are cached for later pushes to the same PR.
 2. **Publish:** validate the artifacts, publish images to `ci-previews`, and
    create or update the preview comment. Unchanged views remain available as
    full screenshots.
-
-The comment groups the [distinct changes](#distinct-changes) by area of the UI
-and pictures each once, from the first platform that has it. The same change
-on another platform is folded under it, with each platform's views listed and
-linked to their full before-and-after; a change only one platform shows is
-labelled as such. A tab strip restyle that touches every view therefore reads
-as one picture under Tabs rather than one per view per platform. Views a runner
-could not capture are listed as not compared.
 3. **Clean up:** remove a PR's published images when it closes.
 
 Preview comments start once the workflows are on the default branch.
@@ -1280,6 +1500,45 @@ but does not execute PR code.
 
 The preview shows what changed, leaving the reviewer to decide whether it is
 correct. It does not reject a PR simply because the screenshots differ.
+
+#### What the comment shows
+
+The comment opens with the Firefox support result, when
+[that check is enabled](#choosing-what-the-preview-shows). It then groups the
+[distinct changes](#distinct-changes) by area of the UI and pictures each once,
+from the first platform that has it. The same change on another platform is
+folded under it, with each platform's views listed and linked to their full
+before-and-after; a change only one platform shows is labelled as such. A tab
+strip restyle that touches every view therefore reads as one picture under Tabs
+rather than one per view per platform.
+
+Below the changes, each platform has a section for anything that needs a closer
+look:
+
+- Views that exist only in the pull request, such as a newly added optional
+  stylesheet, are shown as new.
+- Views missing from the pull request's captures are flagged, so a reviewer can
+  check whether the view was removed or could not be captured.
+- Views a runner could not capture are listed as not compared.
+- Screenshots or change records that fail the publisher's validation are
+  counted as unreviewed, with a prompt to check the workflow artifacts before
+  approving.
+
+A comment too long for GitHub lists its views without links; every comparison
+is still in the workflow run's artifacts for 14 days.
+
+The comment is published only when the render job succeeds on all three
+platforms. If one fails, the pull request keeps any earlier comment. Re-running
+the failed job or pushing a fix publishes as usual. To publish what the other
+platforms produced for the pull request's latest commit, start the publish
+workflow by hand with the ID from that render run's URL:
+
+```bash
+gh workflow run pr-preview-publish.yml -f run_id=<run-id>
+```
+
+That comment covers only the platforms that finished, and has no Firefox
+support result if the Linux job was the one that failed.
 
 #### Choosing what the preview shows
 
@@ -1295,22 +1554,25 @@ env:
 ```
 
 - `FXCSS_VARIANTS` chooses which optional stylesheets are captured, which also
-  shortens the run. Named stylesheets must exist in both the base branch and
-  the pull request; `all` adapts as sheets are added.
+  shortens the run. Join names with `+` (`compact+dark`) to capture them
+  together. Named stylesheets must exist in both the base branch and the pull
+  request; `all` adapts as sheets are added.
 - `FXCSS_VIEWS` chooses which views are compared and shown, using the
   [`compare --views`](#fxcss-compare) patterns. Every standard view is still
-  captured. The comment notes that a selection is in effect.
+  captured. The comment notes that a selection is in effect. A pattern that
+  matches none of a runner's captures fails that platform's render job, so a
+  pattern naming only panel views can fail where a runner cannot capture them.
 - `FXCSS_MIN_CHANGED_PERCENT` leaves out the image for a view where less than
   that share of pixels changed. The comment still lists each such view with its
   percentage, so a small change is never reported as no change.
-- `FXCSS_OLDEST_FIREFOX` is the oldest Firefox the theme supports. Every
-  comment opens with the [`fxcss support`](#fxcss-support) result for it: a
-  warning when merging drops styling for an older release ("Firefox 157 and
-  earlier, ESR 153 included"), a note when new rules only match newer
-  releases, or one line saying support is unchanged. The Linux job runs the
-  check, caches build indexes between runs, and never fails the preview over
-  it; if it cannot run, the comment says so. The Firefox watch reads the same
-  setting.
+- `FXCSS_OLDEST_FIREFOX` is the oldest Firefox the theme supports. Unless it
+  is empty, each comment opens with the [`fxcss support`](#fxcss-support)
+  result for it: a warning when merging drops styling for an older release
+  ("Firefox 157 and earlier, ESR 153 included"), a note when new rules only
+  match newer releases, or one line saying support is unchanged. The Linux job
+  runs the check, caches build indexes between runs, and never fails the
+  preview over it; if it cannot run, the comment says so. `firefox-watch.yml`
+  has its own copy of this setting, so change both if you edit them by hand.
 
 Set them when generating the workflows, or edit the file directly:
 
@@ -1319,11 +1581,29 @@ fxcss init --variants compact --views 'light-*,variant-*' --min-changed-percent 
   --oldest-firefox 140
 ```
 
-Settings are validated against the theme before anything is written. Pass
-`--force` to replace workflows that already exist; that also resets any
-settings you edited by hand to the values given on the command line. The
-comment wording comes from `pr-preview-publish.yml`, so regenerate both files
-together.
+Settings are validated against the theme before anything is written.
+
+#### Updating generated workflows
+
+Workflows keep the fxcss version and templates they were generated with. A
+repository set up with fxcss 0.24 or earlier therefore has none of the settings
+above, none of the [surfaces outside the window](#surfaces-outside-the-window)
+and no grouping in its comment until it regenerates them. Upgrade fxcss first,
+because generation pins the installed version, then run:
+
+```bash
+fxcss init --force --watch --showcase --previews --oldest-firefox 140
+```
+
+`--force` replaces only the workflows the command asks for, so name each one
+you use. A workflow left out keeps its old fxcss pin and template, along with
+its own copy of `FXCSS_OLDEST_FIREFOX`. Every setting you do not pass returns
+to its default, including values you edited in the file by hand, so repeat them
+on the command line.
+
+The comment wording comes from `pr-preview-publish.yml`, and the publisher
+always runs from the default branch, so merge the regenerated files there
+before expecting the new comment.
 
 ### Watching Firefox for breakage
 
@@ -1367,7 +1647,7 @@ text.
 For a custom workflow, the core capture-and-compare steps are:
 
 ```yaml
-- run: pip install "fxcss[images]==0.24.0"
+- run: pip install "fxcss[images]==0.26.0"
 - run: fxcss shot --theme base --out shots/base
 - run: fxcss shot --theme head --out shots/head
 - run: fxcss compare --base shots/base --head shots/head --out out/ --platform ${{ runner.os }}
@@ -1484,16 +1764,17 @@ fxcss doctor
 Reports your Firefox version, whether `userChrome.css` is enabled, whether
 context menus are themeable on your platform, how many stylesheets your theme
 has — and **every Gecko build installed on the machine**, with versions. Start
-here if something isn't behaving.
+here if something isn't behaving. Run outside a theme folder, it reports on
+Firefox alone, so it also works as a first check straight after installing
+fxcss.
 
 ### Requirements
 
 - Python 3.9+
 - Firefox (any recent release; the toolkit finds it automatically on macOS,
   Windows and Linux, or set `FIREFOX_BIN`)
-- Pillow for `catalogue`, `compare`, `check`, `tweaks` and `upgrade --compare`.
-  The `fxcss[images]` extra includes it; add it later with
-  `pipx inject fxcss pillow`. Other commands use the Python standard library.
+- Pillow 10.1 or newer, installed automatically. `catalogue`, `compare`,
+  `check`, `tweaks` and `upgrade --compare` use it.
 
 ### Installation
 
@@ -1501,7 +1782,7 @@ fxcss is [on PyPI](https://pypi.org/project/fxcss/). Install it with **pipx**,
 which gives it its own environment and puts `fxcss` on your PATH:
 
 ```bash
-pipx install "fxcss[images]"
+pipx install fxcss
 ```
 
 No pipx yet? `brew install pipx` (macOS), `sudo apt install pipx` (Debian and
@@ -1514,18 +1795,37 @@ Ubuntu), or `python3 -m pip install --user pipx` elsewhere.
 > application. pip still works fine *inside a virtual environment*:
 >
 > ```bash
-> python3 -m venv ~/.venvs/fxcss && ~/.venvs/fxcss/bin/pip install "fxcss[images]"
+> python3 -m venv ~/.venvs/fxcss && ~/.venvs/fxcss/bin/pip install fxcss
 > ```
+
+On Linux, Pillow comes prebuilt for x86_64 and aarch64, including musl
+distributions such as Alpine. On other CPUs (32-bit x86, RISC-V, ppc64le,
+s390x) or glibc older than 2.27, pip compiles it, so install a compiler and the
+image headers first. On Debian and Ubuntu:
+
+```bash
+sudo apt install gcc libc6-dev python3-dev libjpeg-dev zlib1g-dev libfreetype-dev
+```
+
+If Pillow cannot be built, install fxcss without it in a virtual environment.
+pipx cannot do this. The image commands will say Pillow is missing, and
+everything else works:
+
+```bash
+python3 -m venv ~/.venvs/fxcss && ~/.venvs/fxcss/bin/pip install --no-deps fxcss
+```
 
 For CI, or anywhere a surprise upgrade would be unwelcome, pin the release —
 the [releases page](https://github.com/AdamXweb/fxcss/releases) has the latest.
 CI runners' Pythons are not externally managed, so plain pip is fine there:
 
 ```bash
-pip install "fxcss[images]==0.24.0"
+pip install "fxcss[images]==0.26.0"
 ```
 
-Upgrade an existing pipx installation with `pipx upgrade fxcss`.
+Pinned installs keep the `[images]` extra so the same line also brings in Pillow
+on older releases. Upgrade an existing pipx installation with
+`pipx upgrade fxcss`.
 
 ### Upgrading to 0.22
 
@@ -1667,7 +1967,7 @@ To work on fxcss itself, clone and install it in an editable environment:
 
 ```bash
 git clone https://github.com/AdamXweb/fxcss.git
-cd fxcss && python3 -m pip install -e ".[images]"
+cd fxcss && python3 -m pip install -e .
 ```
 
 And if you would rather install nothing at all, the repo runs as-is:
@@ -1701,17 +2001,17 @@ and enable **compatibility** to include all four channels. Normal PR CI runs
 Stable and ESR; the additional channels are optional for manual runs.
 
 Package publishing is gated on CI and checks of the exact wheel and source
-archive being published. Clean environments outside the checkout test the
-base install, optional image dependencies, generated workflows and profile
-compatibility with the latest released fxcss. Package checks run on all three
-operating systems with Python 3.9 and 3.14; the release tag must also match the
+archive being published. Clean environments outside the checkout test an
+install without dependencies, a normal install with Pillow, generated workflows
+and profile compatibility with the latest released fxcss. Package checks run on
+all three operating systems with Python 3.9 and 3.14; the release tag must also match the
 built package version. These are fxcss's own checks; `init` generates the theme
 repository workflows described above.
 
 Run the checks locally with:
 
 ```bash
-python3 -m pip install -e ".[images]"    # the unit tests need Pillow
+python3 -m pip install -e .         # includes Pillow, which the unit tests need
 python3 -m unittest discover -s tests -v
 python3 -m tests.smoke_themes       # requires Firefox and a display
 python3 -m tests.smoke_variants     # requires Firefox and a display
@@ -1721,15 +2021,44 @@ python3 scripts/package_smoke.py --dist dist  # downloads the released package a
 ```
 
 The unit tests cover `compare`, `catalogue` and the other image commands, so
-they need Pillow: install the `[images]` extra as above rather than the bare
-package, or the image tests error instead of being skipped. If `pip install`
-refuses with `externally-managed-environment`, create a virtual environment
-first (`python3 -m venv .venv && . .venv/bin/activate`). The publisher
+they need Pillow: without the install above, the image tests error instead of
+being skipped. If `pip install` refuses with `externally-managed-environment`,
+create a virtual environment first (`python3 -m venv .venv && . .venv/bin/activate`). The publisher
 workflow tests also use Node and bash when they are installed, and skip
 otherwise. Offline release orchestration tests execute the workflow scripts
 with stubbed pip, sleep and gh commands to check tag validation, the PyPI
 installability retry gate and website dispatch without network access. They
-also check that publication still requires CI and the built-distribution checks.
+also check that publication still requires CI and the built-distribution checks,
+and run the release rules, tagging and the pin update against local Git
+repositories.
+
+### Releasing fxcss
+
+A release is one pull request. Title it **Prepare vX.Y.Z** and change
+`__version__` in `fxcss/__init__.py` to X.Y.Z. Merging it does the rest:
+
+1. **Release** tags the merge commit `vX.Y.Z` and starts **Publish** on that tag.
+2. **Publish** runs CI, checks the built packages, uploads them to PyPI and
+   waits until pip can install the new version.
+3. Publish then moves the README's `fxcss==` pins to the new version, refreshes
+   fxcss.com and creates the GitHub release with generated notes. You can edit
+   the notes afterwards.
+
+Only a release pull request may change `__version__`. The **Release version**
+check fails any other pull request that does, and Release won't tag a version
+that didn't come from one. While features land, leave the version at the
+latest release and write "X.Y.Z or later" in the README where a feature needs
+the next one.
+
+To release the version that is already on main, run Release by hand:
+
+```bash
+gh workflow run release.yml --ref main
+```
+
+If Publish fails, re-run it from the Actions tab. If the fix needs a code
+change, merge the fix, delete the tag with `git push origin :refs/tags/vX.Y.Z`,
+then run Release by hand.
 
 ## How this was built
 
