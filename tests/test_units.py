@@ -473,6 +473,8 @@ class FlagLineTests(unittest.TestCase):
     def test_try_info_aligns_flags_with_arguments(self):
         import contextlib
         import io
+        import os
+        from unittest import mock
         from fxcss import cli
         with tempfile.TemporaryDirectory() as td:
             (Path(td) / "chrome").mkdir()
@@ -481,7 +483,8 @@ class FlagLineTests(unittest.TestCase):
                 "- `-c` Left hand side tab close button\n"
                 "- `-t <name>` Colour theme (see Colour themes below)\n")
             buffer = io.StringIO()
-            with contextlib.redirect_stdout(buffer):
+            with contextlib.redirect_stdout(buffer), \
+                    mock.patch.dict(os.environ, {"NO_COLOR": "1"}):
                 code = cli.main(["try", td, "--info"])
         out = buffer.getvalue()
         self.assertEqual(code, 0)
@@ -2488,10 +2491,10 @@ class DriftTests(unittest.TestCase):
                 "/* edited by hand */\n", encoding="utf-8")
             (profile / "chrome" / "mine.css").write_text("#a{}\n",
                                                          encoding="utf-8")
-            (profile / "chrome" / "customChrome.css").unlink()
+            (profile / "chrome" / "WhiteSur" / "theme.css").unlink()
             got = drift(profile)
             self.assertEqual(got["modified"], ["chrome/userChrome.css"])
-            self.assertEqual(got["missing"], ["chrome/customChrome.css"])
+            self.assertEqual(got["missing"], ["chrome/WhiteSur/theme.css"])
             self.assertEqual(got["extra"], ["chrome/mine.css"])
 
     def test_the_manifest_itself_is_not_an_addition(self):
@@ -2807,8 +2810,12 @@ class RollbackTests(unittest.TestCase):
 class PruneBackupsTests(unittest.TestCase):
 
     def _stack(self, profile, count):
+        """Backups of themes fxcss installed: each holds that install's manifest."""
         for i in range(count):
-            (profile / f"chrome.backup-2026081412000{i}").mkdir(parents=True)
+            backup = profile / f"chrome.backup-2026081412000{i}"
+            backup.mkdir(parents=True)
+            (backup / "fxcss-install.json").write_text(
+                json.dumps({"theme": f"o/n@v{i}"}), encoding="utf-8")
 
     def test_keeps_the_newest_and_never_the_protected_one(self):
         from fxcss.install import prune_backups
@@ -4215,6 +4222,52 @@ class DevToolsOnlyPropertyTests(unittest.TestCase):
         self.assertIn("only DevTools declares it", text)
 
 
+class UnusedReportWordingTests(unittest.TestCase):
+    """The closing section of the audit, when there is little to put in it."""
+
+    EMPTY = {"orphans": [], "unused_properties": [], "stale_overrides": [],
+             "devtools_only": [], "missing_properties": []}
+
+    def report(self, **found):
+        import contextlib
+        import io
+        from fxcss import audit
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            audit.report_unused(dict(self.EMPTY, **found), colour=False, context=[])
+        return out.getvalue()
+
+    MISSING = [{"name": "--gone", "file": "chrome/userChrome.css", "line": 4}]
+
+    def test_no_heading_over_nothing(self):
+        text = self.report(missing_properties=self.MISSING)
+        self.assertIn("UNDEFINED", text)
+        self.assertNotIn("Unused and unreachable", text)
+
+    def test_the_heading_stays_over_a_finding(self):
+        text = self.report(missing_properties=self.MISSING, orphans=["chrome/old.css"])
+        self.assertLess(text.index("Unused and unreachable"), text.index("NOT IMPORTED"))
+
+    def test_the_heading_stays_over_the_all_clear(self):
+        text = self.report()
+        self.assertLess(text.index("Unused and unreachable"), text.index("Nothing unused found."))
+
+    def test_one_of_a_thing_is_singular(self):
+        import contextlib
+        import io
+        from fxcss import audit
+        rows = [{"count": 1, "kind": "token", "text": "x"},
+                {"count": 1, "kind": "property", "text": "y"},
+                {"count": 2, "kind": "file", "text": "z"}]
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            audit.print_context(rows, False, False)
+        text = " ".join(out.getvalue().split())      # it wraps in a narrow terminal
+        self.assertIn("1 token out of reach", text)
+        self.assertIn("1 property skipped", text)
+        self.assertIn("2 files left out", text)
+
+
 class KeepPragmaTests(unittest.TestCase):
     """`/* fxcss-keep */` on a declaration line exempts that property.
 
@@ -4450,6 +4503,30 @@ class ProfilesListingTests(unittest.TestCase):
         self.assertNotIn("Pass --check", text)
 
 
+class ConfirmPromptTests(unittest.TestCase):
+    """A yes/no question sits at the indent of the lines above it.
+
+    The upgrade and adopt questions open with a blank line, and the newline
+    was counted as indent: they sat one column to the right of everything.
+    """
+
+    def asked(self, question):
+        from unittest import mock
+        from fxcss import cli, style
+        style.set_colour(False)
+        self.addCleanup(style.set_colour, None)
+        with mock.patch("builtins.input", return_value="") as prompt:
+            self.assertTrue(cli._confirm(question, True, False))
+        return prompt.call_args[0][0]
+
+    def test_a_leading_blank_line_is_not_indent(self):
+        self.assertEqual(self.asked("\n  Upgrade to v2?"), "\n  Upgrade to v2? [Y/n] ")
+
+    def test_the_indent_given_is_the_indent_used(self):
+        self.assertEqual(self.asked("  Roll back to this?"), "  Roll back to this? [Y/n] ")
+        self.assertEqual(self.asked("    Deeper?"), "    Deeper? [Y/n] ")
+
+
 class SubcommandUsageTests(unittest.TestCase):
     """Every subcommand introduces itself as `fxcss <name>`.
 
@@ -4473,9 +4550,13 @@ class SubcommandUsageTests(unittest.TestCase):
     def test_an_error_says_which_command_it_came_from(self):
         import contextlib
         import io
+        import os
+        from unittest import mock
         from fxcss import cli
         err = io.StringIO()
-        with self.assertRaises(SystemExit), contextlib.redirect_stderr(err):
+        # NO_COLOR: from Python 3.14 argparse colours its own usage line.
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(err), \
+                mock.patch.dict(os.environ, {"NO_COLOR": "1"}):
             cli.build_parser().parse_args(["new"])
         self.assertIn("usage: fxcss new ", err.getvalue())
         self.assertIn("fxcss new: error:", err.getvalue())

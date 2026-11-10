@@ -78,9 +78,70 @@ def colour_on(stream=None):
         return True
     stream = stream or sys.stdout
     try:
-        return bool(stream.isatty())
+        if not stream.isatty():
+            return False
     except (AttributeError, ValueError):
         return False
+    # An older Windows console prints the codes as text until it is told to
+    # act on them, and one that cannot be told gets none.
+    return windows_vt(stream) if os.name == "nt" else True
+
+
+_vt = {}
+
+
+def windows_vt(stream=None):  # pragma: no cover - needs a Windows console
+    """Let a Windows console act on colour and cursor codes; False if it will not."""
+    handle_id = -12 if stream is sys.stderr else -11
+    if handle_id not in _vt:
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.GetStdHandle(handle_id)
+            mode = ctypes.c_uint32()
+            _vt[handle_id] = bool(
+                kernel32.GetConsoleMode(handle, ctypes.byref(mode))
+                and kernel32.SetConsoleMode(handle, mode.value | 0x0004))
+        except (AttributeError, OSError):
+            _vt[handle_id] = False
+    return _vt[handle_id]
+
+
+# What a console that cannot show a character gets in its place. Report text
+# is written once, for every terminal; only the last step knows the encoding.
+_STAND_INS = {"→": "->", "←": "<-", "↑": "^", "↓": "v", "…": "...", "—": "-", "–": "-",
+              "·": "-", "●": "*", "✓": "ok", "✗": "x", "›": ">", "█": "#",
+              "‘": "'", "’": "'", "“": '"', "”": '"', "\u00a0": " "}
+
+
+def _stand_in(error):
+    if not isinstance(error, UnicodeEncodeError):
+        raise error
+    text = error.object[error.start:error.end]
+    return "".join(_STAND_INS.get(ch, "?") for ch in text), error.end
+
+
+def tolerant_output(streams=None):
+    """Never let a character the console cannot encode stop a command.
+
+    Piped output on Windows is written in the system code page, which has no
+    arrow, tick or bullet. Printing one raised UnicodeEncodeError halfway
+    through a report. Give those streams the nearest ASCII instead; a stream
+    someone has already set an error mode for is left as they set it.
+    """
+    import codecs
+    codecs.register_error("fxcss-stand-in", _stand_in)
+    for stream in streams or (sys.stdout, sys.stderr):
+        encoding = (getattr(stream, "encoding", None) or "").lower()
+        # stderr starts out on backslashreplace, which never raises but
+        # prints `\u2192` in the middle of a sentence.
+        default = "backslashreplace" if stream is sys.stderr else "strict"
+        if "utf" in encoding or getattr(stream, "errors", None) != default:
+            continue
+        try:
+            stream.reconfigure(errors="fxcss-stand-in")
+        except (AttributeError, ValueError, OSError):
+            pass
 
 
 def colour_depth():

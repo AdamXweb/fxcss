@@ -732,8 +732,7 @@ def print_context(rows, show_all, on, hint=None):
         for kind, label in _KINDS:
             group = [r for r in rows if r.get("kind") == kind]
             if group:
-                noun = label.split()[0]
-                parts.append(f"{sum(r['count'] for r in group):,} {noun} {short[kind]}")
+                parts.append(f"{style.plural(sum(r['count'] for r in group), kind)} {short[kind]}")
         parts += [f"{r['count']:,} {r['text']}" for r in rows
                   if r.get("kind") not in dict(_KINDS)]
         for line in style.rows([("not counted", f" {style.DOT} ".join(parts) + "  (--all explains)")],
@@ -1117,12 +1116,17 @@ def report_unused(unused, colour=True, show_all=False, context=None):
                      "is what this Firefox provides", width=name_width)
         print()
 
-    print(style.heading_line("Unused and unreachable",
-                             "housekeeping, not breakage: nothing here stops the theme working",
-                             on=on))
     notes = [] if context is None else context
-
     analysis = unused.get("analysis") or {}
+    # A heading only over something: with undefined properties and nothing
+    # else, it used to stand alone above the closing lines.
+    if (total == 0 or len(unused["missing_properties"]) < total
+            or not analysis.get("complete", True)):
+        print(style.heading_line("Unused and unreachable",
+                                 "housekeeping, not breakage: nothing here stops the theme working",
+                                 on=on))
+        print()
+
     if analysis and not analysis.get("complete", True):
         print(_status("INCOMPLETE", "warn", on)
               + "the import graph could not be read in full, so the findings")
@@ -1150,7 +1154,6 @@ def report_unused(unused, colour=True, show_all=False, context=None):
                       "short": "content-only stylesheet" if n == 1 else "content-only stylesheets",
                       "text": ("stylesheet that loads" if n == 1 else "stylesheets that load")
                               + " only through userContent.css, for web and extension pages"})
-    print()
 
     if unused["orphans"]:
         print(_status("NOT IMPORTED", "warn", on)

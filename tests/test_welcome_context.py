@@ -192,6 +192,69 @@ class DoctorRowTests(unittest.TestCase):
         self.assertIn("155.0.1 on ⌘ macOS", style._visible(out.getvalue()))
 
 
+class DoctorWithoutAThemeTests(unittest.TestCase):
+    """`fxcss doctor` is the first thing the installer says to run.
+
+    Run before there is a theme, it stopped with "no userChrome.css or
+    userContent.css anywhere" and said nothing about Firefox at all.
+    """
+
+    INFO = {"version": "158.0", "os": "Darwin", "buildID": "20261007",
+            "outer": [1280, 480], "dpr": 1, "legacyStylesheets": True,
+            "nativeContextMenus": {}}
+
+    def doctor(self, files=()):
+        session = mock.MagicMock()
+        session.__enter__.return_value.info.return_value = self.INFO
+        seen = {}
+
+        def opened(root, firefox, **kwargs):
+            seen["root"] = Path(root)
+            seen["sheet"] = (Path(root) / "chrome" / "userChrome.css").is_file()
+            return session
+
+        out = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch("fxcss.cli.choose_firefox", return_value="/x/firefox"), \
+                mock.patch("fxcss.cli.core.Session", side_effect=opened), \
+                mock.patch("fxcss.cli.core.discover_firefoxes", return_value=[]), \
+                mock.patch.dict("os.environ", {"NO_COLOR": "1"}), \
+                contextlib.redirect_stdout(out):
+            for name in files:
+                target = Path(tmp) / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("#nav-bar { }\n")
+            code = cli.main(["doctor", "--theme", tmp])
+            seen["own"] = seen["root"].resolve() == Path(tmp).resolve()
+        return code, out.getvalue(), seen
+
+    def test_an_empty_folder_still_gets_the_firefox_checks(self):
+        code, text, seen = self.doctor()
+        self.assertEqual(code, 0)
+        self.assertIn("theme    none in this folder", text)
+        self.assertIn("userChrome.css loading is enabled", text)
+        self.assertIn("No theme in this folder", text)
+        self.assertIn("Ready to theme", text)
+        self.assertIn("New here?", text)
+        self.assertNotIn("to fix", text)
+        # The session ran on a blank stand-in, not on the folder.
+        self.assertTrue(seen["sheet"])
+        self.assertFalse(seen["own"])
+
+    def test_loose_stylesheets_that_are_not_a_theme_are_reported_not_fatal(self):
+        code, text, _ = self.doctor(["notes/tabs.css"])
+        self.assertEqual(code, 0)
+        self.assertIn("No theme in this folder", text)
+
+    def test_a_theme_is_checked_as_before(self):
+        code, text, seen = self.doctor(["chrome/userChrome.css"])
+        self.assertEqual(code, 0)
+        self.assertIn("theme    1 stylesheet, under 1 KB", text)
+        self.assertIn("chrome/userChrome.css is in place", text)
+        self.assertNotIn("New here?", text)
+        self.assertTrue(seen["own"])
+
+
 class BuildIdentityTests(unittest.TestCase):
     def build(self, *folders, body="[App]\nName=Firefox\nVersion=155.0.1\n"):
         tmp = tempfile.TemporaryDirectory()
