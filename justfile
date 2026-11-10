@@ -15,7 +15,7 @@
 
 set shell := ["bash", "-uc"]
 
-wrangler_config := "dist/server/wrangler.json"
+built_page := "dist/client/index.html"
 local_url := "http://127.0.0.1:4318"
 public_url := "https://fxcss.com"
 
@@ -38,10 +38,10 @@ _installed:
 _logged-in: _installed
     @npx wrangler whoami 2>&1 | grep -q "not authenticated" && { echo "▸ Not signed in to wrangler — run 'just login' first"; exit 1; } || true
 
-# wrangler's own error for a missing config is an ENOENT that reads as a broken
-# build rather than a skipped one.
+# Without a build, wrangler complains about the assets directory, which reads
+# as a broken config rather than a skipped build.
 _built: _installed
-    @test -f {{wrangler_config}} || { echo "▸ {{wrangler_config}} missing — run 'just build' first"; exit 1; }
+    @test -f {{built_page}} || { echo "▸ {{built_page}} missing — run 'just build' first"; exit 1; }
 
 # The Website CI checks before the build: documentation, types, lint, tests,
 # the installer, and the dependency audit (scripts/audit.mjs).
@@ -60,18 +60,18 @@ check: _installed
 dev: _installed
     npm run dev -- --host 127.0.0.1 --port 4317
 
-[doc("Build the Worker into dist/")]
+[doc("Build every page into dist/client")]
 build: _installed
     npm run build
-    @echo "▸ Built. Config at {{wrangler_config}}"
+    @echo "▸ Built. Pages are in dist/client"
 
 # Install browsers once with `npx playwright install chromium firefox`.
-[doc("Run browser interaction checks against the built Worker")]
+[doc("Run browser interaction checks against the built site")]
 browser: _built
     npm run test:browser
 
-# The built Worker under wrangler (workerd), the same runtime as production.
-[doc("Serve the built Worker on http://127.0.0.1:4318")]
+# The built site under wrangler (workerd), the same runtime as production.
+[doc("Serve the built site on http://127.0.0.1:4318")]
 preview: _built
     npm start -- --ip 127.0.0.1 --port 4318
 
@@ -89,7 +89,7 @@ verify url=local_url: _installed
 
 # Proves the config, the custom domains and the assets are coherent without
 # uploading anything, and needs no login. CI runs it on every change.
-[doc("wrangler deploy --dry-run against the built config")]
+[doc("wrangler deploy --dry-run against the built site")]
 dry-run: _built
     npm run deploy -- --dry-run
 
@@ -100,22 +100,17 @@ login: _installed
 # Creates the fxcss-website Worker the first time and attaches fxcss.com and
 # www.fxcss.com (the deploy script passes both domains). Cloudflare adds their
 # DNS records and certificates; do not create them by hand.
-[doc("Upload the built Worker and attach fxcss.com")]
+[doc("Upload the built site and attach fxcss.com")]
 deploy: _built _logged-in
     npm run deploy
 
 # The whole sequence, in the only order that works.
 [doc("First deploy: check → build → dry-run → deploy")]
 first-deploy: check build dry-run deploy
-    @echo "▸ Deployed. Two zone settings cover static files such as /install.sh, which are served before the Worker runs:"
+    @echo "▸ Deployed. Only two zone settings redirect plain HTTP and www, so both must be on:"
     @echo "    SSL/TLS → Edge Certificates → Always Use HTTPS"
     @echo "    Rules → Redirect Rules → 'Redirect from WWW to root'"
     @echo "▸ Then: just verify {{public_url}}"
-
-# Live logs from the deployed Worker. Ctrl-C to stop.
-[doc("Stream the deployed Worker's logs")]
-tail: _built _logged-in
-    npx wrangler tail --config {{wrangler_config}} --format pretty
 
 # The documentation pages are generated from main's README. This refreshes
 # the recorded copy in content/source from a checkout of main; commit the

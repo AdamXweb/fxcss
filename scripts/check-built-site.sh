@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Serves the built Worker under wrangler (workerd, the production runtime) and
+# Serves the built site under wrangler (workerd, the production runtime) and
 # runs the production checks against it. Website CI and the Refresh docs
 # workflow both run this after `npm run build`; locally, `just preview` and
 # `just verify` do the same in two terminals.

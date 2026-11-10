@@ -4,9 +4,11 @@
 
 The source and production build are prepared for `https://fxcss.com`. They include the interactive shell installer at `/install.sh`, canonical page URLs, `/sitemap.xml`, and `/robots.txt`. The installer is a public static asset with a plain-text content type, revalidation on every request, and no sign-in requirement in the application.
 
-The site runs as a Cloudflare Worker named `fxcss-website`. `vite.config.ts` holds its configuration (the name, the compatibility date and Workers Logs), and the `deploy` script in `package.json` attaches the `fxcss.com` and `www.fxcss.com` custom domains. Only those domains answer: the config sets `workers_dev` and `preview_urls` to false, so there is no `workers.dev` or preview URL outside the zone's WAF, HSTS and Access, and a dashboard-only switch would be undone by the next deploy. `public/.assetsignore` lists what wrangler must never upload as a static file (Finder's `.DS_Store`, `.env*` files, the wrangler config, repository metadata); the build prepends it to `dist/client/.assetsignore`, which wrangler reads. Never list `.well-known/` there: `security.txt` stays public. It has no database, storage or secrets. `npm run build` writes the Worker (`dist/server/index.js`), its static files (`dist/client/`) and the generated `dist/server/wrangler.json`, and `npm run deploy` publishes them. Don't edit the generated file; change `vite.config.ts` and rebuild.
+The site is a set of static files served by Cloudflare under the Worker name `fxcss-website`. No site code runs per request: `npm run build` writes every page to `dist/client/` as HTML, and each page's data for in-browser navigation as a matching `.txt` file. `wrangler.static.jsonc` holds the configuration, with no `main` script on purpose, and the `deploy` script in `package.json` attaches the `fxcss.com` and `www.fxcss.com` custom domains. Keep the config's name: vinext reads a file called `wrangler.jsonc` as a Worker build and refuses to run without Cloudflare's build plugin. Only the custom domains answer: the config sets `workers_dev` and `preview_urls` to false, so there is no `workers.dev` or preview URL outside the zone's WAF, HSTS and Access, and a dashboard-only switch would be undone by the next deploy. `public/.assetsignore` lists what wrangler must never upload as a static file (Finder's `.DS_Store`, `.env*` files, the wrangler config, repository metadata). Never list `.well-known/` there: `security.txt` stays public. The site has no database, storage or secrets.
 
-The application configuration is the source of truth for the Worker and its custom domains. Verify the current deployment and DNS with the checks below; a repository checkout does not establish their live state.
+The redirects for old addresses are in `public/_redirects`, and every security header is in `public/_headers`. A page can't read the request, so a feature that needs per-request data doesn't fit this setup: `/docs?path=` is read in the browser for that reason.
+
+The application configuration is the source of truth for the site and its custom domains. Verify the current deployment and DNS with the checks below; a repository checkout does not establish their live state.
 
 ## Launch sequence
 
@@ -43,7 +45,7 @@ The site deploys from this `website` branch. From a fresh clone (`git clone --br
    - build command `npm ci && npm run build`;
    - deploy command `npm run deploy`.
 
-4. Turn on two zone settings. The Worker's `proxy.ts` sends plain HTTP and `www` page requests to `https://fxcss.com`, but static files such as `/install.sh` are served before the Worker runs, so the zone has to cover them:
+4. Turn on two zone settings. Nothing in the site redirects plain HTTP or `www`, so without these `www.fxcss.com` serves a duplicate copy of the site:
    - **SSL/TLS → Edge Certificates → Always Use HTTPS.**
    - A redirect rule from `www.fxcss.com/*` to `https://fxcss.com/${1}`, keeping the query string. In the dashboard: Rules → Redirect Rules, with the "Redirect from WWW to root" template.
 
@@ -73,6 +75,6 @@ On macOS, missing pipx is installed through an existing Homebrew installation. O
 
 ## Caching policy
 
-HTML deliberately sends `private, no-store`: every render has a fresh CSP script nonce, which must agree with the response policy. Keep that policy when changing page delivery. A hash-based policy would require separate validation of framework-generated inline scripts; it is not needed to cache static files.
+HTML uses Cloudflare's default for static files, `public, max-age=0, must-revalidate`, so a deploy reaches readers on their next page load. Pages are the same bytes for everyone, so they can't carry a per-request script nonce. The Content Security Policy in `public/_headers` allows inline scripts, which the framework's page data needs, and limits where scripts can load from.
 
-`public/_headers` gives content-hashed `/_next/static/*` chunks and `/search/*` indexes one year of immutable caching. Unversioned images, media, evidence and catalogue files get a one-hour browser cache. The installer still revalidates on every request. `scripts/check-site.mjs` checks these headers against the built Worker; verify them again at the live edge after deployment because zone rules can override them.
+`public/_headers` gives content-hashed `/_next/static/*` chunks and `/search/*` indexes one year of immutable caching. Unversioned images, media, evidence and catalogue files get a one-hour browser cache, as do `robots.txt` and `sitemap.xml`. The installer still revalidates on every request. `scripts/check-site.mjs` checks these headers against the built site; verify them again at the live edge after deployment because zone rules can override them.

@@ -10,6 +10,10 @@ test.beforeEach(async ({ context, page }) => {
   });
   browserErrors = [];
   page.on('pageerror', (error) => browserErrors.push(error.message));
+  page.on('console', (message) => {
+    if (/Content.Security.Policy/i.test(message.text()))
+      browserErrors.push(message.text());
+  });
 });
 test.afterEach(() =>
   expect(browserErrors, 'uncaught browser errors').toEqual([]),
@@ -39,6 +43,28 @@ test('game completion opens the Build journey', async ({ page }) => {
   ).toHaveAttribute('aria-selected', 'true');
   await page.getByRole('tab', { name: 'Maintain a theme' }).click();
   await expect(page).toHaveURL(/\/docs\?path=maintain$/);
+});
+
+test('a shared Getting started link opens the tab it names', async ({ page }) => {
+  await page.goto('/docs?path=maintain');
+  await expect(
+    page.getByRole('tab', { name: 'Maintain a theme' }),
+  ).toHaveAttribute('aria-selected', 'true');
+  await expect(page).toHaveURL(/\/docs\?path=maintain$/);
+});
+
+test('moving between pages does not reload the document', async ({ page }) => {
+  await page.goto('/docs');
+  await page.evaluate(() => {
+    (window as unknown as { sameDocument: boolean }).sameDocument = true;
+  });
+  await page.getByRole('link', { name: 'Need pipx first? See installation options' }).first().click();
+  await expect(page).toHaveURL(/\/docs\/installation$/);
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { sameDocument?: boolean }).sameDocument,
+    ),
+  ).toBe(true);
 });
 
 test('search loads on demand, accepts reordered words, and follows a passage link', async ({

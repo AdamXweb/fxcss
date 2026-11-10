@@ -17,7 +17,7 @@ export default function WebsiteData() {
       <SiteHeader />
       <main id="main" className="data-notice content-width">
         <h1>Website data notice</h1>
-        <p className="data-notice-meta">Updated 27 October 2026</p>
+        <p className="data-notice-meta">Updated 10 November 2026</p>
 
         <div className="guide-callout">
           <ShieldCheck size={20} />
@@ -46,14 +46,14 @@ export default function WebsiteData() {
             <div>
               <dt>Hosting</dt>
               <dd>
-                <strong>Cloudflare Workers.</strong> Runs the site’s code on
-                Cloudflare’s network, in the data centre nearest to you,
-                delivers its pages and files, including the setup script, and
-                protects the site from attacks. Cloudflare receives the details
-                it needs to deliver each page: your Internet Protocol (IP)
-                address, browser details, the page you asked for and the time.
-                It keeps a log of the requests the site’s code handles, and of
-                any errors, for up to 7 days.
+                <strong>Cloudflare.</strong> Delivers the site’s pages and
+                files, including the setup script, from the data centre nearest
+                to you, and protects the site from attacks. Every page is a
+                file built in advance, so no code of ours runs when you visit.
+                Cloudflare receives the details it needs to deliver each page:
+                your Internet Protocol (IP) address, browser details, the page
+                you asked for and the time. The site does not use Cloudflare’s
+                optional request log.
               </dd>
             </div>
             <div>

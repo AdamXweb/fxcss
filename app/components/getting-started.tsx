@@ -1,6 +1,7 @@
 'use client';
-import { useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { ArrowRight, Check, CodeXml, ShieldCheck } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { CopyCommand } from './copy-command';
@@ -70,12 +71,21 @@ function InstallStep({ journey }: { journey: Journey }) {
     </section>
   );
 }
-export function GettingStarted({
-  initialJourney = 'use',
+// The page is built ahead of time with no address to read, so the browser picks
+// the tab named by ?path= once it is running.
+function JourneyFromAddress({
+  onJourney,
 }: {
-  initialJourney?: Journey;
+  onJourney: (journey: Journey) => void;
 }) {
-  const [journey, setJourney] = useState<Journey>(initialJourney);
+  const path = useSearchParams().get('path');
+  useEffect(() => {
+    onJourney(path === 'build' || path === 'maintain' ? path : 'use');
+  }, [path, onJourney]);
+  return null;
+}
+export function GettingStarted() {
+  const [journey, setJourney] = useState<Journey>('use');
   function selectJourney(value: string) {
     if (value !== 'use' && value !== 'build' && value !== 'maintain') return;
     setJourney(value);
@@ -87,6 +97,9 @@ export function GettingStarted({
   }
   return (
     <>
+      <Suspense fallback={null}>
+        <JourneyFromAddress onJourney={setJourney} />
+      </Suspense>
       <div className="breadcrumbs">
         Documentation <span>/</span> Start here
       </div>
