@@ -59,9 +59,7 @@
     "satori": {
       "fflate": "0.7.5"
     },
-    "miniflare": {
-      "undici": "7.30.1"
-    },
+    "undici": "7.30.1",
     "@ts-morph/common": {
       "minimatch": "11.0.3"
     }
