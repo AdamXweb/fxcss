@@ -1130,7 +1130,7 @@ def cmd_profiles(args):
     checkable = any(((r["manifest"] or {}).get("source") or {}).get("kind")
                     in fetch.REMOTE_KINDS for r in rows)
     if not args.check and checkable:
-        notes.append("Pass --check to ask GitHub whether anything newer exists.")
+        notes.append((" ", "Pass --check to ask GitHub whether anything newer exists."))
     if notes:
         print()
         for mark, note in notes:
@@ -3036,8 +3036,11 @@ def build_parser():
         prog="fxcss", usage="fxcss <command> [options]", description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--version", action="version", version=f"fxcss {__version__}")
+    # prog is spelled out: before Python 3.14 argparse derives it from the
+    # usage line above, and every subcommand would then introduce itself as
+    # `fxcss <command> [options] new`.
     sub = ap.add_subparsers(dest="cmd", required=False, metavar="<command>",
-                            parser_class=argparse.ArgumentParser)
+                            prog="fxcss", parser_class=argparse.ArgumentParser)
 
     tr = sub.add_parser(
         "try", help="test-drive a theme from GitHub or a folder in a throwaway profile",

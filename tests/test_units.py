@@ -4403,5 +4403,84 @@ class InjectorReachTests(unittest.TestCase):
         self.assertNotIn("importESModule", core._INJECTOR_JS)
 
 
+class ProfilesListingTests(unittest.TestCase):
+    """`fxcss profiles` with a theme that came from a repository.
+
+    The closing notes are (mark, text) pairs. The hint about --check went in
+    as a bare string, so the listing printed and then died unpacking it --
+    for exactly the people who had installed something from GitHub.
+    """
+
+    def listing(self, argv, source):
+        import contextlib
+        import io
+        from unittest import mock
+        from fxcss import cli
+        row = {"name": "default-release", "path": Path("/profiles/abc.default-release"),
+               "kind": "Release", "default": True, "state": "managed",
+               "running": False,
+               "drift": {"modified": [], "missing": [], "extra": [], "checked": 1},
+               "manifest": {"theme": "example/theme", "source": source,
+                            "installed": "2026-11-10T09:00:00",
+                            "files": ["chrome/userChrome.css"]}}
+        out = io.StringIO()
+        with mock.patch("fxcss.cli.survey_profiles", return_value=[row]), \
+                mock.patch("fxcss.fetch.resolve", side_effect=RuntimeError("offline")), \
+                contextlib.redirect_stdout(out):
+            code = cli.cmd_profiles(cli.build_parser().parse_args(argv))
+        return code, out.getvalue()
+
+    REMOTE = {"kind": "github", "owner": "example", "name": "theme",
+              "ref": "v1.0.0", "ref_kind": "release"}
+
+    def test_a_repository_theme_lists_and_offers_the_check(self):
+        code, text = self.listing(["profiles"], self.REMOTE)
+        self.assertEqual(code, 0)
+        self.assertIn("example/theme @ v1.0.0", text)
+        self.assertIn("Pass --check to ask GitHub", text)
+
+    def test_the_check_is_not_offered_twice(self):
+        code, text = self.listing(["profiles", "--check"], self.REMOTE)
+        self.assertEqual(code, 0)
+        self.assertNotIn("Pass --check", text)
+
+    def test_a_local_theme_has_nothing_to_check(self):
+        code, text = self.listing(["profiles"], {"kind": "local", "path": "/themes/mine"})
+        self.assertEqual(code, 0)
+        self.assertNotIn("Pass --check", text)
+
+
+class SubcommandUsageTests(unittest.TestCase):
+    """Every subcommand introduces itself as `fxcss <name>`.
+
+    Before Python 3.14 argparse builds a subparser's name from the parent's
+    usage line, and the parent's is written by hand, so `fxcss new` called
+    itself `fxcss <command> [options] new` in its usage and its errors.
+    """
+
+    def subparsers(self):
+        import argparse
+        from fxcss import cli
+        (action,) = [a for a in cli.build_parser()._actions
+                     if isinstance(a, argparse._SubParsersAction)]
+        return action.choices
+
+    def test_each_one_is_named_after_the_program_and_itself(self):
+        for name, parser in self.subparsers().items():
+            with self.subTest(command=name):
+                self.assertEqual(parser.prog, f"fxcss {name}")
+
+    def test_an_error_says_which_command_it_came_from(self):
+        import contextlib
+        import io
+        from fxcss import cli
+        err = io.StringIO()
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(err):
+            cli.build_parser().parse_args(["new"])
+        self.assertIn("usage: fxcss new ", err.getvalue())
+        self.assertIn("fxcss new: error:", err.getvalue())
+        self.assertNotIn("<command>", err.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()
