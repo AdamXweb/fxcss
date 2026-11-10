@@ -30,7 +30,7 @@ pair it passes is safe; it reports what it can prove.
 
 import re
 from pathlib import Path
-from .style import plural as _pl
+from .style import plural as _pl, rgb as _rgb
 
 # One sheet being ~entirely overridden by another is what "alternatives"
 # means. Below this they are reported as overlapping, which is ordinary --
@@ -209,6 +209,58 @@ def overlap(first, second):
             for (_, selector, prop) in [key]
         ],
     }
+
+
+HEX_COLOUR = re.compile(r"(#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8}))(?:\s*!important)?",
+                        re.I)
+
+
+def contested(sheets):
+    """{sheet: {key: value}}: each sheet's declarations that some other sheet
+    among `sheets` sets differently -- the part of it that the others would
+    replace, or that would replace theirs."""
+    decls = {sheet: read_declarations(sheet) for sheet in sheets}
+    keys = set()
+    for i, first in enumerate(sheets):
+        for second in sheets[i + 1:]:
+            a, b = decls[first], decls[second]
+            keys |= {key for key in set(a) & set(b) if a[key] != b[key]}
+    return {sheet: {k: v for k, v in decls[sheet].items() if k in keys} for sheet in sheets}
+
+
+def is_colour(value):
+    return bool(HEX_COLOUR.fullmatch(value))
+
+
+def palettes(sheets, limit=4, apart=48):
+    """Each sheet's most-used colours where it clashes with the others.
+
+    `sheets` are paths; returns {path: [hex, ...]}, most-used first, at most
+    `limit` each, from the declarations in `contested`. A colour within
+    `apart` (RGB distance) of one already taken is skipped, so a palette's
+    three near-identical background shades do not crowd out its text and
+    accent colours. Only plain hex values are read: a preview that misread
+    `var(--x)` or `color-mix()` would show a colour the theme never uses.
+    """
+    out = {}
+    for sheet, decls in contested(sheets).items():
+        counts, order = {}, []
+        for value in decls.values():
+            match = HEX_COLOUR.fullmatch(value)
+            if match:
+                colour = match.group(1).lower()
+                if colour not in counts:
+                    order.append(colour)
+                counts[colour] = counts.get(colour, 0) + 1
+        taken = []
+        for colour in sorted(order, key=lambda c: -counts[c]):
+            rgb = _rgb(colour)
+            if all(sum((a - b) ** 2 for a, b in zip(rgb, _rgb(t))) >= apart ** 2 for t in taken):
+                taken.append(colour)
+            if len(taken) == limit:
+                break
+        out[sheet] = taken
+    return out
 
 
 def verdict(report):

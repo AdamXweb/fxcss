@@ -245,7 +245,7 @@ def pick_one(count, default, row, question="Which one?", keys=None, out=None):
     return current
 
 
-def pick_many(names, question, typed_hint, parse, keys=None, out=None, indent=4):
+def pick_many(names, question, typed_hint, parse, keys=None, out=None, indent=4, groups=None):
     """Any of `names`; returns the answer as text, as if it had been typed.
 
     Space ticks the item at the pointer and ←→ cross columns. Typing works as
@@ -253,9 +253,13 @@ def pick_many(names, question, typed_hint, parse, keys=None, out=None, indent=4)
     typed. Once something is typed, Space is part of the text (`20 4`), as
     it would be in the plain prompt. The answer comes back as the text the
     plain prompt would have read, so one parser checks both.
+
+    `groups` ([(title, count)], as for `style.column_groups`) shows the names
+    under titles, numbered straight through. ↑↓ run on from one group into
+    the next; ←→ stay inside the group.
     """
     count = len(names)
-    step = style.column_rows(names, indent=indent, numbered=True)
+    spans = style.group_spans(names, groups, indent=indent)
     current, ticks, typed = 0, set(), ""
     frame = Frame(out)
 
@@ -280,8 +284,8 @@ def pick_many(names, question, typed_hint, parse, keys=None, out=None, indent=4)
         return ",".join(str(i + 1) for i in got)
 
     def lines(final=False):
-        grid = style.columns(names, indent=indent, numbered=True,
-                             pointer=None if final else current, ticked=shown())
+        grid = style.column_groups(names, groups, indent=indent,
+                                   pointer=None if final else current, ticked=shown())
         if final:
             ask = style.ask(question, typed_hint, "none") + answer()
         else:
@@ -299,11 +303,13 @@ def pick_many(names, question, typed_hint, parse, keys=None, out=None, indent=4)
             if key in ("up", "down"):
                 current = (current + (1 if key == "down" else -1)) % count
             elif key in ("left", "right"):
-                moved = current + (step if key == "right" else -step)
-                if 0 <= moved < count:
-                    current = moved
-                elif key == "right" and current // step < (count - 1) // step:
-                    current = count - 1
+                start, size, step = next(s for s in spans if s[0] <= current < s[0] + s[1])
+                here = current - start
+                moved = here + (step if key == "right" else -step)
+                if 0 <= moved < size:
+                    current = start + moved
+                elif key == "right" and here // step < (size - 1) // step:
+                    current = start + size - 1
             elif key in ("home", "end"):
                 current = 0 if key == "home" else count - 1
             elif key == "space" and not typed:

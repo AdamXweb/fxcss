@@ -191,6 +191,73 @@ class PickManyTests(unittest.TestCase):
             self.pick(["space", "esc"])
 
 
+class GroupedPickTests(unittest.TestCase):
+    """Tweaks and colour schemes under their own titles, numbered straight through."""
+
+    NAMES = ["compact-tabs", "noidentity", "tabs-swapclose",
+             *(f"theme-{n}" for n in ("ayu", "dracula", "everforest", "gruvbox", "nord",
+                                      "one-dark", "rose-pine", "solarized", "tokyonight"))]
+    GROUPS = [("Tweaks", 3), ("Colour schemes", 9)]
+
+    def setUp(self):
+        style.set_colour(False)
+        self.addCleanup(style.set_colour, None)
+        patcher = mock.patch.dict(os.environ, {"COLUMNS": "60"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def pick(self, keys):
+        out = io.StringIO()
+        parse = lambda text: cli.scan_selection(text, len(self.NAMES))[0]
+        answer = prompt.pick_many(self.NAMES, "Include which?", "e.g. 1,3 or all",
+                                  parse, keys=keys, out=out, groups=self.GROUPS)
+        return answer, out
+
+    def test_titles_and_one_run_of_numbers(self):
+        lines = style.column_groups(self.NAMES, self.GROUPS, indent=4)
+        self.assertEqual(lines[0], "    Tweaks")
+        self.assertIn("", lines)
+        self.assertIn("    Colour schemes", lines)
+        text = "\n".join(lines)
+        self.assertIn(" 1. compact-tabs", text)
+        self.assertIn(" 4. theme-ayu", text)                     # padded to two digits
+        self.assertIn("12. theme-tokyonight", text)
+
+    def test_one_untitled_group_is_the_plain_grid(self):
+        plain = style.columns(self.NAMES, indent=4, numbered=True)
+        self.assertEqual(style.column_groups(self.NAMES, None, indent=4), plain)
+        self.assertEqual(style.column_groups(self.NAMES, [(None, 12)], indent=4), plain)
+
+    def test_marks_land_on_the_right_group_and_the_layout_holds(self):
+        plain = style.column_groups(self.NAMES, self.GROUPS, indent=4)
+        marked = [visible(l) for l in style.column_groups(
+            self.NAMES, self.GROUPS, indent=4, pointer=4, ticked={0, 4})]
+        self.assertEqual([len(l) for l in plain], [len(l) for l in marked])
+        self.assertIn("›  5✓ theme-dracula", "\n".join(marked))
+        self.assertTrue(marked[1].lstrip().startswith("1✓ compact-tabs"))
+
+    def test_down_runs_on_into_the_next_group(self):
+        self.assertEqual(self.pick(["down"] * 3 + ["space", "enter"])[0], "4")
+        self.assertEqual(self.pick(["up", "space", "enter"])[0], "12")
+
+    def test_left_and_right_stay_inside_a_group(self):
+        # → from the last tweak stays put rather than dropping into the schemes.
+        self.assertEqual(self.pick(["down", "down", "right", "space", "enter"])[0], "3")
+        start, _, rows = style.group_spans(self.NAMES, self.GROUPS, indent=4)[1]
+        self.assertEqual(start, 3)
+        answer, _ = self.pick(["down"] * 3 + ["right", "space", "enter"])
+        self.assertEqual(answer, str(start + rows + 1))
+        answer, _ = self.pick(["down"] * 3 + ["left", "space", "enter"])
+        self.assertEqual(answer, "4")
+
+    def test_typing_a_number_points_into_either_group(self):
+        answer, out = self.pick(["1", "0", "enter"])
+        self.assertEqual(answer, "10")
+        lines = screen(out)
+        self.assertIn("    Colour schemes", lines)
+        self.assertTrue(any("10✓ theme-rose-pine" in line for line in lines))
+
+
 class FallbackTests(unittest.TestCase):
     """Anything short of a real, wide-enough terminal gets the typed prompt."""
 

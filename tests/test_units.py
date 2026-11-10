@@ -3521,14 +3521,16 @@ class InstallSheetConflictTests(unittest.TestCase):
                 self.assertEqual(list(profile.iterdir()), [profile / "prefs.js"])
             return result, manifest, errors.getvalue()
 
-    def test_conflicting_menu_answers_never_install_without_force(self):
+    def test_conflicting_menu_answers_install_one_without_force(self):
+        # The menu asks which of the pair to keep; Enter, EOF or an answer it
+        # cannot use keeps the one that loads last, which would have won.
         for answers in (["1,2", ""], ["1,2", EOFError()],
-                        ["1,2", "1,2", "1,2"], ["1,2,99", ""]):
+                        ["1,2", "1,2"], ["1,2,99", "", ""]):
             with self.subTest(answers=answers):
                 result, manifest, error = self.install(answers)
-                self.assertEqual(result, 2)
-                self.assertIsNone(manifest)
-                self.assertIn("Pick one, or pass --force", error)
+                self.assertEqual(result, 0)
+                self.assertEqual(manifest["sheets"], ["b"])
+                self.assertNotIn("Pick one, or pass --force", error)
 
     def test_corrected_menu_selection_installs(self):
         result, manifest, _ = self.install(["1,2", "1"])
