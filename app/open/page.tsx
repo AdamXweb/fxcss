@@ -46,14 +46,11 @@ export default function WebsiteData() {
             <div>
               <dt>Hosting</dt>
               <dd>
-                <strong>Cloudflare.</strong> Delivers the site’s pages and
-                files, including the setup script, from the data centre nearest
-                to you, and protects the site from attacks. Every page is a
-                file built in advance, so no code of ours runs when you visit.
-                Cloudflare receives the details it needs to deliver each page:
-                your Internet Protocol (IP) address, browser details, the page
-                you asked for and the time. The site does not use Cloudflare’s
-                optional request log.
+                <strong>Cloudflare.</strong> Serves the site’s prebuilt pages
+                and files, including the setup script. It processes your IP
+                address, browser details, the address you requested and the
+                time of the request to deliver and protect the site. We’ve
+                turned off Cloudflare Workers Logs for this site.
               </dd>
             </div>
             <div>

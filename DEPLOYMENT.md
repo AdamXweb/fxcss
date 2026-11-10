@@ -30,7 +30,12 @@ The site deploys from this `website` branch. From a fresh clone (`git clone --br
    just dry-run
    ```
 
-3. Sign in to the Cloudflare account that holds the `fxcss.com` zone, then publish:
+3. Verify both Cloudflare redirect settings before publishing.
+
+   - In **SSL/TLS → Edge Certificates**, enable **Always Use HTTPS** to redirect HTTP requests to HTTPS.
+   - In **Rules → Redirect Rules**, use the **Redirect from WWW to root** template to send HTTPS requests for `www.fxcss.com` to `https://fxcss.com` with the same path. Enable **Preserve query string**.
+
+4. Sign in to the Cloudflare account that holds the `fxcss.com` zone, then publish:
 
    ```sh
    just login
@@ -44,10 +49,6 @@ The site deploys from this `website` branch. From a fresh clone (`git clone --br
    - root directory `/` (the repository root);
    - build command `npm ci && npm run build`;
    - deploy command `npm run deploy`.
-
-4. Turn on two zone settings. Nothing in the site redirects plain HTTP or `www`, so without these `www.fxcss.com` serves a duplicate copy of the site:
-   - **SSL/TLS → Edge Certificates → Always Use HTTPS.**
-   - A redirect rule from `www.fxcss.com/*` to `https://fxcss.com/${1}`, keeping the query string. In the dashboard: Rules → Redirect Rules, with the "Redirect from WWW to root" template.
 
 5. Validate the public domain without authentication:
 

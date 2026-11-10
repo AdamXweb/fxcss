@@ -316,7 +316,7 @@ test('the website data page names every outside service and storage use', () => 
   );
   assert.match(read('../scripts/build-content.mjs').toString(), /'\/open'/);
   // /open says this; the deploy config is what makes it true.
-  assert.ok(page.includes('does not use Cloudflare’s'));
+  assert.ok(page.includes('turned off Cloudflare Workers Logs for this site.'));
   assert.match(
     read('../wrangler.static.jsonc').toString(),
     /"observability": \{ "enabled": false \}/,
