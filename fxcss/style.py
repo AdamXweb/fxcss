@@ -430,6 +430,38 @@ def group_spans(names, groups=None, indent=4, gap=3, width=None):
     return spans
 
 
+def paired_columns(pairs, indent=4, gap=3, width=None, min_text=24, on=None):
+    """`key  text` pairs in two columns, top to bottom, or None if too tight.
+
+    Each column's keys line up. Text is cut at a word only when the columns
+    together run out of room, and a column that needs less than half gives
+    the rest to the other.
+    """
+    pairs = list(pairs)
+    if len(pairs) < 2:
+        return None
+    width = width or term_width()
+    rows = (len(pairs) + 1) // 2
+    left, right = pairs[:rows], pairs[rows:]
+    keys = [max(len(key) for key, _ in side) + 2 for side in (left, right)]
+    needs = [max(len(text) for _, text in side) for side in (left, right)]
+    room = width - 1 - indent - gap - sum(keys)
+    left_room = min(needs[0], max(room // 2, room - needs[1]))
+    right_room = min(needs[1], room - left_room)
+    if left_room < min(needs[0], min_text) or right_room < min(needs[1], min_text):
+        return None
+    out = []
+    for row, (key, text) in enumerate(left):
+        shown = clip(text, left_room)
+        line = f"{' ' * indent}{key.ljust(keys[0])}{muted(shown, on=on)}"
+        if row < len(right):
+            other_key, other_text = right[row]
+            line += (" " * (left_room - len(shown) + gap) + other_key.ljust(keys[1])
+                     + muted(clip(other_text, right_room), on=on))
+        out.append(line)
+    return out
+
+
 def ask(question, choices=None, default=None, indent=2, on=None):
     """A prompt: the question bold, then the choices and the default."""
     tail = []

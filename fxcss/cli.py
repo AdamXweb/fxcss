@@ -694,6 +694,23 @@ def _layout_record(plan):
     return {"kind": plan["kind"], "subpath": plan["subpath"], "entry": plan["entry"]}
 
 
+def _flag_lines(flags):
+    """A README's install flags: side by side once a list is long enough to
+    be worth cutting descriptions for, otherwise one to a row in full."""
+    from . import style
+    pairs = [(entry["flag"], entry["text"]) for entry in flags]
+    paired = style.paired_columns(pairs) if len(pairs) >= 6 else None
+    if paired:
+        return paired
+    width = max(len(flag) for flag, _ in pairs) + 2
+    out = []
+    for flag, text in pairs:
+        wrapped = style.wrap(text, indent=4 + width)
+        out.append(f"    {flag.ljust(width)}{style.muted(wrapped[0].lstrip())}")
+        out += [style.muted(more) for more in wrapped[1:]]
+    return out
+
+
 def cmd_try(args):
     import shutil
     import tempfile
@@ -742,12 +759,8 @@ def cmd_try(args):
             print(style.heading_line("README install flags",
                                      "as the README words them, for its own script; "
                                      "fxcss never runs it"))
-            width = max(len(entry["flag"]) for entry in facts["flags"]) + 2
-            for entry in facts["flags"]:
-                wrapped = style.wrap(entry["text"], indent=4 + width)
-                print(f"    {entry['flag'].ljust(width)}{style.muted(wrapped[0].lstrip())}")
-                for more in wrapped[1:]:
-                    print(style.muted(more))
+            for line in _flag_lines(facts["flags"]):
+                print(line)
 
         chosen = []
         if args.with_sheets:
