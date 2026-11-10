@@ -27,7 +27,6 @@ platform-specific rename, but it does not invent one.
 """
 
 import bisect
-import configparser
 import gzip
 import json
 import os
@@ -186,17 +185,10 @@ class Builds:
 
 def build_version(binary):
     """The version string of a Firefox build, read without running it."""
-    binary = Path(binary)
-    for ini in (binary.parent / "application.ini",
-                binary.parent.parent / "Resources" / "application.ini"):
-        if ini.is_file():
-            config = configparser.ConfigParser()
-            try:
-                config.read(ini, encoding="utf-8")
-                return config.get("App", "Version", fallback=None)
-            except configparser.Error:
-                break
     from . import core
+    app = core.application_ini(binary)
+    if app is not None:
+        return app.get("version")
     return core.firefox_version(binary)
 
 

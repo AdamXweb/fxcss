@@ -16,6 +16,7 @@ Two things here are worth knowing before changing anything:
 """
 
 import base64
+import configparser
 import hashlib
 import json
 import os
@@ -2616,6 +2617,27 @@ def discover_firefoxes(extra_roots=None):
 
     return [{"label": label, "path": found[label]}
             for label in CHANNEL_ORDER if label in found]
+
+
+def application_ini(binary):
+    """The [App] section of a build's application.ini, or None if unreadable."""
+    binary = Path(binary)
+    for ini in (binary.parent / "application.ini",
+                binary.parent.parent / "Resources" / "application.ini"):
+        if ini.is_file():
+            config = configparser.ConfigParser(interpolation=None)
+            try:
+                config.read(ini, encoding="utf-8")
+            except configparser.Error:
+                return None
+            return dict(config["App"]) if config.has_section("App") else {}
+    return None
+
+
+def build_identity(binary):
+    """A build's (product name, version), never by running it: name may be a fork's."""
+    app = application_ini(binary) or {}
+    return app.get("name") or "Firefox", app.get("version")
 
 
 def firefox_version(binary):

@@ -55,6 +55,10 @@ else:  # pragma: no cover - depends on the console
         "ok", "!", "x", "->", "-", "*", "...", "-")
     POINTER, UPDOWN, ARROWS = ">", "up/down", "arrows"
 
+# Beside an operating system's name, never instead of it. Each is the symbol
+# for that system's special key: Command, the Windows key and Meta.
+OS_MARKS = {"macOS": "⌘", "Windows": "⊞", "Linux": "◆"} if _utf8() else {}
+
 
 def set_colour(on):
     """Force colour on or off for the rest of the run (None: detect again)."""
@@ -349,6 +353,22 @@ def _visible(text):
     return re.sub(r"\033\[[0-9;]*m", "", text)
 
 
+def dotted(items, indent=2, width=None, on=None):
+    """Styled items joined by a dim dot, breaking between items at the edge."""
+    width = width or term_width()
+    separator = f" {muted(DOT, on=on)} "
+    lines = [[]]
+    used = indent
+    for item in items:
+        cells = len(_visible(item))
+        if lines[-1] and used + 3 + cells >= width:
+            lines.append([])
+            used = indent
+        used += cells + (3 if lines[-1] else 0)
+        lines[-1].append(item)
+    return [" " * indent + separator.join(line) for line in lines if line]
+
+
 def title(command_name, context=None, on=None):
     """The first line of a long-running command: the mark, the verb, where."""
     line = f"  {brand('fxcss', on=on)} {heading(command_name, on=on)}"
@@ -358,8 +378,17 @@ def title(command_name, context=None, on=None):
 
 
 def platform_name(os_name):
+    """A reader's name for an OS, from what Firefox or sys.platform calls it."""
     return {"Darwin": "macOS", "Linux": "Linux", "WINNT": "Windows",
-            "Windows_NT": "Windows"}.get(os_name, os_name)
+            "Windows_NT": "Windows", "darwin": "macOS", "linux": "Linux",
+            "win32": "Windows"}.get(os_name, os_name)
+
+
+def platform_label(os_name, on=None):
+    """`⌘ macOS`: the name, after its symbol in the brand colour when it has one."""
+    name = platform_name(os_name)
+    mark = OS_MARKS.get(name)
+    return f"{brand(mark, on=on)} {name}" if mark else name
 
 
 def agree(count, many, one):
