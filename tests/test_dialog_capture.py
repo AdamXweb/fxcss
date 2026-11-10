@@ -77,11 +77,15 @@ global.Cc = {"@mozilla.org/timer;1": {createInstance: () => ({
 @unittest.skipUnless(shutil.which("node"), "dialog script checks require Node")
 class DialogSnapshotTests(unittest.TestCase):
     def run_script(self, scale=1, fail_draw=False):
+        # The script finishes in milliseconds; the time goes on starting Node.
+        # The first start in a Windows CI job takes over two seconds on a
+        # good day and passed ten on a slow runner, failing a test that had
+        # nothing wrong with it. The limit is only there to stop a real hang.
         result = subprocess.run(
             [shutil.which("node"), "-e", HARNESS],
             input=json.dumps({"source": core.DIALOG_VIEW, "scale": scale,
                               "failDraw": fail_draw}),
-            text=True, capture_output=True, check=True, timeout=10,
+            text=True, capture_output=True, check=True, timeout=120,
         )
         return json.loads(result.stdout)
 
