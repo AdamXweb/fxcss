@@ -105,12 +105,62 @@ def _command_row(name, summary, width):
     return [f"    {shown}{' ' * (width - len(name))}{lines[0].lstrip()}"] + lines[1:]
 
 
+def _installed_theme_name(manifest):
+    """A short name for an installed theme: the repository or folder, not its ref."""
+    source = manifest.get("source") or {}
+    if source.get("name"):
+        return source["name"]
+    if source.get("path"):
+        return Path(source["path"]).name or source["path"]
+    return manifest.get("theme") or "a theme"
+
+
+def _machine_context():
+    """This machine at a glance: the OS, its Firefox and what is themed.
+
+    Read from files only, so bare `fxcss` stays instant and never starts
+    Firefox. The profile and theme are left out when no single profile can be
+    named, the same case `install` would stop and ask about.
+    """
+    from . import install, style
+    parts = [style.platform_label(sys.platform)]
+    try:
+        binary = core.find_firefox(None)
+    except SystemExit:
+        binary = None
+    if not binary or not Path(binary).exists():
+        return parts + [f"{style.muted('Firefox')} {style.bad('not found')}",
+                        f"{style.muted('set')} {style.cmd('FIREFOX_BIN')} "
+                        f"{style.muted('to its path')}"]
+    name, version = core.build_identity(binary)
+    parts.append(f"{style.muted(name)} {version}" if version else style.muted(name))
+
+    profiles = install.discover_profiles()
+    picks = profiles if len(profiles) == 1 else [p for p in profiles if p["default"]]
+    if len(picks) != 1:
+        return parts
+    parts.append(style.clip(picks[0]["name"], 32))
+    manifest = install.read_manifest(picks[0]["path"])
+    if manifest:
+        theme = style.clip(_installed_theme_name(manifest), 32)
+        parts.append(f"{style.strong(theme)} {style.muted('installed')}")
+    elif profile_state(picks[0]) == "unmanaged":
+        parts.append(style.muted("has its own chrome/"))
+    else:
+        parts.append(style.muted("no theme yet"))
+    return parts
+
+
 def landing_text():
     """What bare `fxcss` prints: where to start, by what someone came to do."""
     from . import style
     examples = [(name, args) for _, q, _, subset in GROUPS if q for name, args in subset]
     width = max(len(f"fxcss {n} {a}".rstrip()) for n, a in examples) + 2
     out = [f"  {style.brand('fxcss')}  {TAGLINE}"]
+    try:
+        out += style.dotted(_machine_context(), indent=9)
+    except Exception:  # a courtesy line must never stop the welcome screen
+        pass
     for title, question, _, subset in GROUPS:
         if not question:
             continue
@@ -2852,7 +2902,7 @@ def cmd_doctor(args):
     listed = any(b["path"] == firefox for b in builds)
     for line in style.rows([
             ("fxcss", __version__),
-            ("firefox", f"{info['version']} on {style.platform_name(info['os'])}"
+            ("firefox", f"{info['version']} on {style.platform_label(info['os'])}"
                         f"  {style.muted('build ' + str(info['buildID']))}"),
             # The builds table below names the binary in use; say it here
             # only when that table will not.
