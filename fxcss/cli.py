@@ -1897,6 +1897,15 @@ def cmd_upgrade(args):
         print("\n  Already up to date. Pass --ref to move somewhere else "
               "anyway.")
         return 0
+    if (state["state"] == "pinned" and remote and not args.ref
+            and not args.commit and not setup_requested):
+        # A pin is a decision not to move. Fetching the same ref again would
+        # reinstall what is already there and spend a backup doing it, and
+        # for a branch name it would quietly move the install after all.
+        print(f"\n  Pinned to {source.get('ref')} with --ref, so it stays "
+              "where it is.\n  `fxcss upgrade --ref <tag, branch or commit>` "
+              "moves it; `--commit`\n  follows the default branch instead.")
+        return 0
 
     workdir = Path(tempfile.mkdtemp(prefix="fxcss-upgrade-"))
     keep_pin = (source.get("ref_kind") == "explicit" and not args.ref and not args.commit

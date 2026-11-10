@@ -62,6 +62,20 @@ STYLESHEET_PREF = (
 MAX_SHEET_DEPENDENCIES = 256
 MAX_SHEET_DEPENDENCY_BYTES = 32 * 1024 * 1024
 
+# What fxcss writes at chrome/customChrome.css when a theme @imports that
+# file without shipping it. The file is the person's hook for their own
+# rules: once it holds anything else it is theirs, however it got there.
+PLACEHOLDER_TEXT = "/* placeholder created by fxcss */\n"
+# Text mode wrote \r\n on Windows, so both forms are the placeholder.
+PLACEHOLDER_DIGESTS = frozenset(
+    hashlib.sha256(text.encode("utf-8")).hexdigest()
+    for text in (PLACEHOLDER_TEXT, PLACEHOLDER_TEXT.replace("\n", "\r\n")))
+
+# Files an operating system drops into any folder it shows. Nobody wrote
+# them, so they are neither a person's addition nor a reason to hold back
+# the chrome/ an uninstall would otherwise restore.
+OS_LITTER = frozenset({".ds_store", "thumbs.db", "desktop.ini", "ehthumbs.db"})
+
 
 class CollisionError(RuntimeError):
     """An upgrade would put an upstream file where the user added their own.
@@ -358,7 +372,10 @@ def strip_user_js_block(text):
 
     A BEGIN marker without its END is left completely alone: deleting to the
     end of the file could take a line the user wrote, and a duplicated pref is
-    harmless where a lost one is not.
+    harmless where a lost one is not. An END belongs to the nearest BEGIN
+    above it -- fxcss never writes a marker inside its own block -- so a
+    stray BEGIN higher up cannot claim a later block's END and take the
+    lines between them with it.
     """
     out = []
     lines = _lines(text)
@@ -366,6 +383,11 @@ def strip_user_js_block(text):
     while i < len(lines):
         if lines[i].strip() == BLOCK_BEGIN:
             for j in range(i + 1, len(lines)):
+                if lines[j].strip() == BLOCK_BEGIN:
+                    # This BEGIN never closed; the next one starts afresh.
+                    out.append(lines[i])
+                    i += 1
+                    break
                 if lines[j].strip() == BLOCK_END:
                     # Older Windows installs wrote the separator and markers
                     # with CRLF. Match the marker's ending so a new LF block
@@ -456,8 +478,10 @@ def safe_theme_path(theme_root, relative):
     return candidate
 
 
+# Whitespace (a newline included) may sit between the function name and its
+# parenthesis; Firefox reads `user_pref ("x", 1);` as readily as the usual form.
 PREF_NAME_RE = re.compile(
-    r"""\b(?:user_pref|pref|sticky_pref|lockPref)\(\s*(["'])(.+?)\1""")
+    r"""\b(?:user_pref|pref|sticky_pref|lockPref)\s*\(\s*(["'])(.+?)\1""")
 
 
 def theme_pref_names(theme_root):
@@ -709,6 +733,13 @@ def drift(profile, manifest=None):
     chrome/ the manifest does not list -- which is how a hand-added sheet
     shows up, and why `uninstall` never deletes by wildcard.
 
+    The customChrome.css placeholder fxcss writes for a theme that imports
+    one without shipping it is the person's hook, not the theme's file. Once
+    it holds anything but the placeholder it is reported under `extra`, like
+    any other file they added, so an upgrade carries it across instead of
+    refusing over it or writing a fresh placeholder on top. Operating-system
+    litter (.DS_Store and the like) is nobody's and is not reported at all.
+
     A schema-1 manifest carries no digests, so nothing can be said about
     modification; `checked` is 0 in that case and `modified` is empty. That is
     a real "don't know", and callers must not render it as "unchanged".
@@ -725,10 +756,14 @@ def drift(profile, manifest=None):
     for path in _manifest_paths(profile, manifest):
         relative = path.relative_to(profile).as_posix()
         recorded.add(relative)
+        expected = digests.get(relative)
+        if isinstance(expected, str) and expected in PLACEHOLDER_DIGESTS:
+            if path.is_file() and _digest(path) not in PLACEHOLDER_DIGESTS:
+                result["extra"].append(relative)
+            continue
         if not path.is_file():
             result["missing"].append(relative)
             continue
-        expected = digests.get(relative)
         if not isinstance(expected, str):
             continue
         result["checked"] += 1
@@ -741,7 +776,8 @@ def drift(profile, manifest=None):
             if not path.is_file():
                 continue
             relative = path.relative_to(profile).as_posix()
-            if relative not in recorded and path.name != MANIFEST_NAME:
+            if relative not in recorded and path.name != MANIFEST_NAME \
+                    and path.name.lower() not in OS_LITTER:
                 result["extra"].append(relative)
     for key in ("modified", "missing", "extra"):
         result[key].sort()
@@ -782,6 +818,8 @@ def preservation_plan(profile, additions, staged_chrome):
     paths the new version now ships with exactly the user's bytes (upstream
     adopted the file -- nothing to carry); `collisions` are paths where the
     new version ships different bytes, which no rule can settle silently.
+    A staged file that is only fxcss's own customChrome.css placeholder is
+    not the theme shipping anything, so the person's file is carried over it.
     Nothing is copied here; this is the reviewable part.
     """
     profile, staged_chrome = Path(profile), Path(staged_chrome)
@@ -792,6 +830,8 @@ def preservation_plan(profile, additions, staged_chrome):
         if staged.is_file():
             if staged.read_bytes() == profile.joinpath(*Path(relative).parts).read_bytes():
                 plan["identical"].append(relative)
+            elif _digest(staged) in PLACEHOLDER_DIGESTS:
+                plan["carry"].append(relative)
             else:
                 plan["collisions"].append(relative)
         elif staged.exists() or staged.is_symlink() or any(
@@ -848,6 +888,11 @@ def adopt_theme(profile, theme_id, source, match, stamp=None):
     is evidently already set -- the theme is working -- and writing an fxcss
     block to say so again would edit a file for no gain. The next upgrade
     writes one properly, from the theme it fetches.
+
+    Files the matched version does not contain (`match["extra"]`) are not
+    recorded as the theme's. Whoever put them there, upstream did not, so
+    they are treated as the person's own: listed under `user_files`, carried
+    across upgrades, and never removed by uninstall.
     """
     from . import __version__
 
@@ -861,9 +906,12 @@ def adopt_theme(profile, theme_id, source, match, stamp=None):
     backup = _spare_name(profile, f"chrome.backup-{stamp or _timestamp()}")
     shutil.copytree(chrome, backup)
 
-    files = sorted(p.relative_to(profile).as_posix()
-                   for p in chrome.rglob("*")
-                   if p.is_file() and ".git" not in p.relative_to(chrome).parts)
+    present = sorted(p.relative_to(profile).as_posix()
+                     for p in chrome.rglob("*")
+                     if p.is_file() and ".git" not in p.relative_to(chrome).parts)
+    extra = {"chrome/" + entry for entry in (match.get("extra") or [])
+             if isinstance(entry, str)}
+    files = [name for name in present if name not in extra]
     manifest = {
         "schema": MANIFEST_SCHEMA,
         "fxcss": __version__,
@@ -881,6 +929,8 @@ def adopt_theme(profile, theme_id, source, match, stamp=None):
         "digests": {name: digest for name, digest in
                     ((name, _digest(profile / name)) for name in files)
                     if digest},
+        "user_files": [name for name in present if name in extra
+                       and Path(name).name.lower() not in OS_LITTER],
     }
     (chrome / MANIFEST_NAME).write_text(
         json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
@@ -915,8 +965,7 @@ def _prepare_chrome(theme_root, chrome, sheets, notes=None, repo_root=None):
     entry = chrome / "userChrome.css"
     if not placeholder.exists() and entry.is_file() and "customChrome.css" in \
             entry.read_text(encoding="utf-8", errors="replace"):
-        placeholder.write_text("/* placeholder created by fxcss */\n",
-                               encoding="utf-8")
+        placeholder.write_text(PLACEHOLDER_TEXT, encoding="utf-8")
     if sheets and not entry.exists():
         # A userContent.css-only theme has nothing to layer optional sheets
         # onto; an empty entry gives the wrapper below something to import.
@@ -998,8 +1047,12 @@ def install_theme(theme_root, profile, theme_id, sheets=(), stamp=None,
     failure before that point leaves the original prefs unchanged.
 
     `origin_backup` is carried through upgrades, including None for a profile
-    that originally had no chrome/. `source` records how to fetch the theme
-    again; older callers can still supply that information in `theme_id`.
+    that originally had no chrome/. Left unset, it is taken from the manifest
+    of the managed chrome/ being replaced, so installing over an fxcss
+    install never mistakes that theme's backup for the original; only a
+    chrome/ fxcss does not manage becomes a new origin. `source` records how
+    to fetch the theme again; older callers can still supply that information
+    in `theme_id`.
 
     When the active chrome/ is one fxcss manages, files the person added to
     it are carried into the new tree so they stay active (`user_files` in
@@ -1060,10 +1113,14 @@ def install_theme(theme_root, profile, theme_id, sheets=(), stamp=None,
             if not created:
                 shutil.copy2(user_js, staged_prefs)
             write_prefs(staged_prefs, user_js_with_block(existing, block))
-            # Whether fxcss created user.js is part of the original state,
-            # not something an upgrade should reset just because it exists.
-            if origin_backup is not _UNSET and previous:
+            # Whether fxcss created user.js, and which backup holds the
+            # chrome/ from before fxcss ran here, describe the original
+            # state. Replacing one managed install with another -- an
+            # upgrade, or `fxcss install` run a second time -- resets neither.
+            if previous:
                 created = previous.get("user_js_created", created)
+                if origin_backup is _UNSET:
+                    origin_backup = previous.get("origin_backup")
             manifest = {
                 "schema": MANIFEST_SCHEMA,
                 "fxcss": __version__,
@@ -1131,8 +1188,36 @@ def read_manifest(profile):
     so each field is only accepted when it has the right type. A manifest
     someone has mangled degrades to "fxcss cannot say", never to a confident
     wrong answer.
+
+    `origin_backup` is followed to the real original. Releases up to 0.25
+    recorded the *previous theme's* backup as the origin when `fxcss install`
+    ran over an existing install, which let the true original be pruned and
+    made uninstall "restore" a theme. A backup with a manifest inside is
+    never an original, and its own manifest says what came before it.
     """
-    return _read_manifest(Path(profile) / "chrome" / MANIFEST_NAME)
+    data = _read_manifest(Path(profile) / "chrome" / MANIFEST_NAME)
+    if data:
+        data["origin_backup"] = _original_backup(profile, data.get("origin_backup"))
+    return data
+
+
+def _original_backup(profile, recorded):
+    """`recorded`, or the origin its own manifest names when it holds a theme.
+
+    Only direct ``chrome.backup-*`` children are ever opened, and a name seen
+    twice ends the walk, so a mangled manifest cannot lead it anywhere.
+    """
+    profile = Path(profile)
+    seen = set()
+    while True:
+        name = safe_backup_name(recorded)
+        if not name or name in seen:
+            return recorded
+        seen.add(name)
+        inner = _read_manifest(profile / name / MANIFEST_NAME)
+        if inner is None:
+            return recorded
+        recorded = inner.get("origin_backup")
 
 
 def _read_manifest(path):
@@ -1355,8 +1440,62 @@ def rollback_to(profile, backup, stamp=None):
             summary["user_js"] = "unknown"
         if (profile / "chrome").exists() or (profile / "chrome").is_symlink():
             summary["moved_aside"] = moved.name
-        _swap_profile(profile, target, moved, prefs, work)
+        origin = _origin_after_rollback(profile, name, restored, outgoing,
+                                        summary["moved_aside"])
+        recorded = target / MANIFEST_NAME
+        before = recorded.read_bytes() if origin else None
+        if origin:
+            _replace_bytes(recorded, _with_origin(before, origin))
+        try:
+            _swap_profile(profile, target, moved, prefs, work)
+        except BaseException:
+            # Nothing moved, so the backup's manifest goes back as it was too.
+            if before is not None and recorded.is_file():
+                with contextlib.suppress(OSError):
+                    _replace_bytes(recorded, before)
+            raise
     return summary
+
+
+def _origin_after_rollback(profile, target, restored, outgoing, moved_aside):
+    """The origin a restored theme should record, or None to leave it alone.
+
+    The manifest in a backup names the original as it was called when that
+    theme was active. A rollback to the original renames it (it becomes
+    chrome/, and is moved aside under a new name when a theme comes back), so
+    the recorded name can point at nothing while the original sits beside it.
+    When that has happened, the original is whichever of these still exists:
+    the person's own chrome/ this rollback is moving aside, or the origin the
+    outgoing install knows about.
+    """
+    if restored is None:
+        return None
+    known = safe_backup_name(_original_backup(profile, restored.get("origin_backup")))
+    if known and (profile / known).is_dir():
+        return None
+    if outgoing is None:
+        return moved_aside
+    theirs = safe_backup_name(outgoing.get("origin_backup"))
+    if theirs and theirs != target and (profile / theirs).is_dir():
+        return theirs
+    return None
+
+
+def _with_origin(manifest_bytes, name):
+    data = json.loads(manifest_bytes.decode("utf-8"))
+    data["origin_backup"] = name
+    return (json.dumps(data, indent=1) + "\n").encode("utf-8")
+
+
+def _replace_bytes(path, data):
+    """Write `data` to `path` through a sibling file, so it is never half there."""
+    staged = path.with_name(path.name + ".fxcss-tmp")
+    try:
+        staged.write_bytes(data)
+        staged.replace(path)
+    finally:
+        with contextlib.suppress(OSError):
+            staged.unlink()
 
 
 def prune_backups(profile, keep, protect=()):
@@ -1367,12 +1506,18 @@ def prune_backups(profile, keep, protect=()):
     `keep` -- that is how the origin backup survives any number of upgrades
     without using up the allowance the caller asked for. `keep=None` prunes
     nothing at all.
+
+    Only a backup with an fxcss manifest inside is ever pruned. One without
+    is a chrome/ fxcss did not write: the original, a hand-made copy that
+    happens to share the name, or the person's own chrome/ that a rollback
+    moved aside. Those are not counted and not deleted, whatever the manifest
+    of the day says the origin is.
     """
     if keep is None:
         return []
     protected = {name for name in protect if name}
     candidates = [b for b in list_backups(profile)
-                  if b["name"] not in protected]
+                  if b["name"] not in protected and b["manifest"] is not None]
     removed = []
     for backup in candidates[max(keep, 0):]:
         shutil.rmtree(backup["path"], ignore_errors=True)
@@ -1394,12 +1539,33 @@ def _prune_empty_dirs(chrome):
         pass
 
 
+def _restorable(path, staged, origin):
+    """Would restoring `origin` lose nothing this leftover holds?"""
+    if path.is_symlink():
+        return False
+    if path.name.lower() in OS_LITTER:
+        return True
+    if origin is None:
+        return False
+    twin = origin / path.relative_to(staged)
+    try:
+        return (twin.is_file() and not twin.is_symlink()
+                and twin.read_bytes() == path.read_bytes())
+    except OSError:
+        return False
+
+
 def uninstall_theme(profile, stamp=None):
     """Prepare removal without touching active files, then swap atomically.
 
     Only unchanged, digest-verified files are removed. Added, edited and
     unverifiable files remain, and block restoration of the origin backup.
     A failed swap restores both directories and leaves preferences unchanged.
+
+    Two kinds of leftover do not count as the person's work, provided nothing
+    else is left: operating-system litter (.DS_Store and the like), and a
+    file byte-identical to the one at the same path in the origin backup --
+    restoring that backup puts the very same file back.
     """
     profile = Path(profile)
     chrome = profile / "chrome"
@@ -1439,17 +1605,22 @@ def uninstall_theme(profile, stamp=None):
                         path.unlink()
                         summary["removed"] += 1
             (staged / MANIFEST_NAME).unlink()
+            recorded = safe_backup_name(manifest.get("origin_backup"))
+            origin = profile / recorded if recorded else None
+            if origin is not None and (not origin.is_dir() or origin.is_symlink()):
+                origin = None
+            leftovers = [p for p in staged.rglob("*") if p.is_file() or p.is_symlink()]
+            if all(_restorable(p, staged, origin) for p in leftovers):
+                for path in leftovers:
+                    path.unlink()
             _prune_empty_dirs(staged)
             replacement = staged if staged.exists() else None
             if replacement:
                 summary["kept"] = sorted(
                     p.relative_to(work).as_posix()
                     for p in staged.rglob("*") if p.is_file() or p.is_symlink())
-            recorded = safe_backup_name(manifest.get("origin_backup"))
-            if replacement is None and recorded:
-                backup = profile / recorded
-                if backup.is_dir() and not backup.is_symlink():
-                    replacement = backup
-                    summary["restored"] = recorded
+            if replacement is None and origin is not None:
+                replacement = origin
+                summary["restored"] = recorded
         _swap_profile(profile, replacement, outgoing, prefs, work)
     return summary

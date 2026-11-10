@@ -2488,10 +2488,10 @@ class DriftTests(unittest.TestCase):
                 "/* edited by hand */\n", encoding="utf-8")
             (profile / "chrome" / "mine.css").write_text("#a{}\n",
                                                          encoding="utf-8")
-            (profile / "chrome" / "customChrome.css").unlink()
+            (profile / "chrome" / "WhiteSur" / "theme.css").unlink()
             got = drift(profile)
             self.assertEqual(got["modified"], ["chrome/userChrome.css"])
-            self.assertEqual(got["missing"], ["chrome/customChrome.css"])
+            self.assertEqual(got["missing"], ["chrome/WhiteSur/theme.css"])
             self.assertEqual(got["extra"], ["chrome/mine.css"])
 
     def test_the_manifest_itself_is_not_an_addition(self):
@@ -2807,8 +2807,12 @@ class RollbackTests(unittest.TestCase):
 class PruneBackupsTests(unittest.TestCase):
 
     def _stack(self, profile, count):
+        """Backups of themes fxcss installed: each holds that install's manifest."""
         for i in range(count):
-            (profile / f"chrome.backup-2026081412000{i}").mkdir(parents=True)
+            backup = profile / f"chrome.backup-2026081412000{i}"
+            backup.mkdir(parents=True)
+            (backup / "fxcss-install.json").write_text(
+                json.dumps({"theme": f"o/n@v{i}"}), encoding="utf-8")
 
     def test_keeps_the_newest_and_never_the_protected_one(self):
         from fxcss.install import prune_backups

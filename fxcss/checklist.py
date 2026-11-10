@@ -26,7 +26,7 @@ would set things nobody asked for, and a copy operation that calls itself
 import re
 from pathlib import Path
 
-from .install import PREF_NAME_RE, _strip_js_comments
+from .install import PREF_NAME_RE, _printable, _strip_js_comments
 from .style import plural as _pl
 
 MAX_README_BYTES = 512 * 1024
@@ -104,11 +104,15 @@ def _read(path, limit):
 
 
 def pref_names_in(path):
-    """Pref names a JavaScript preference file sets, in order, deduplicated."""
+    """Pref names a JavaScript preference file sets, in order, deduplicated.
+
+    The names come from a theme and are shown in a terminal, so anything
+    unprintable in one is escaped rather than replayed.
+    """
     code = _strip_js_comments(_read(path, MAX_PREF_FILE_BYTES))
     names = []
     for match in PREF_NAME_RE.finditer(code):
-        name = match.group(2)
+        name = _printable(match.group(2))
         if name not in names:
             names.append(name)
     return names
@@ -200,13 +204,16 @@ def build(repo_root, theme_root=None, plan=None, applied_pref_files=()):
                 state = "required"
             elif any(OPTIONAL_WORD_RE.search(s) for s in hits):
                 state = "optional"
-        preview = ", ".join(entry["names"][:5]) + (" …" if entry["count"] > 5 else "")
+        # What fxcss is about to write into user.js is named in full: five
+        # names and an ellipsis would let the sixth change a profile unseen.
+        shown = entry["names"] if state == "applied" else entry["names"][:5]
+        preview = ", ".join(shown) + (" …" if len(shown) < entry["count"] else "")
         items.append({
-            "item": f"preferences in {entry['path']} ({_pl(entry['count'], 'pref')}: {preview})",
+            "item": f"preferences in {_printable(entry['path'])} ({_pl(entry['count'], 'pref')}: {preview})",
             "state": state,
             "evidence": entry["path"],
             "note": ("fxcss writes these into its own block of user.js" if state == "applied" else
-                     f"not applied; `--prefs {entry['path']}` adds them to the managed block"),
+                     f"not applied; `--prefs {_printable(entry['path'])}` adds them to the managed block"),
             "pref_file": entry["path"],
             "names": entry["names"],
         })
@@ -318,7 +325,7 @@ def render(items, indent="  "):
         head = f"{' ' * pad}{style.status(word, role, width=width)}"
         text_indent = pad + width
         names = item.get("names") if item.get("pref_file") else None
-        text = (f"{_pl(len(names), 'pref')} in {item['pref_file']}" if names
+        text = (f"{_pl(len(names), 'pref')} in {_printable(item['pref_file'])}" if names
                 else item["item"])
         note = item.get("note")
         if names and item["state"] == "applied":
@@ -329,9 +336,12 @@ def render(items, indent="  "):
         lines.append(head + wrapped[0].lstrip())
         lines.extend(wrapped[1:])
         if names:
-            shown = f" {style.DOT} ".join(names[:5])
-            if len(names) > 5:
-                shown += f" {style.DOT} {style.ELLIPSIS} and {len(names) - 5} more"
+            # Every pref fxcss will write is named; files it only reports
+            # are summarised.
+            listed = names if item["state"] == "applied" else names[:5]
+            shown = f" {style.DOT} ".join(listed)
+            if len(names) > len(listed):
+                shown += f" {style.DOT} {style.ELLIPSIS} and {len(names) - len(listed)} more"
             lines.extend(style.muted(line) for line in style.wrap(shown, indent=text_indent))
         if note:
             lines.extend(style.muted(line) for line in style.wrap(note, indent=text_indent))
