@@ -10,9 +10,10 @@ fxcss init --watch --showcase    # plus the weekly Firefox audit and
                                  # release screenshots
 ```
 
-That generates the workflows with the fxcss version pinned and your theme's
-variant stylesheets already enumerated in the publish allowlist, which is the
-part people used to have to hand-edit (and forget). The generated files carry
+That generates the workflows with the fxcss version pinned and the publish
+allowlist already filled in: the standard view names, plus a strict pattern for
+optional stylesheet names, so a sheet added by a later pull request needs no
+hand-editing. The generated files carry
 comments explaining the shape — most importantly why the preview is split into
 two workflows: pull requests from forks get a read-only token, so the half that
 runs their code cannot be the half that posts the comment.

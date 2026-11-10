@@ -1397,10 +1397,14 @@ command in them at the theme's folder when that is not the root
 (`fxcss shot --theme 'head/firefox'`). A repository that holds several themes
 needs `--subpath` to say which. Flat and nested layouts both generate previews
 for all repository changes, including dependencies outside the theme folder.
+Named editions and themes that need `--entry` are refused, because the
+generated workflows cannot select them yet; lay the theme out as
+`chrome/userChrome.css` to use the workflows.
 Existing files are preserved unless you pass `--force`; review regenerated
 files before committing, especially if you have customised them. Generation
-pins the installed fxcss version. These layout and patch-mapping changes need
-fxcss **0.26.0 or later**; a PyPI pin only works after that version is published.
+pins the installed fxcss version. These layout, trigger and patch-mapping
+changes need fxcss **0.26.0 or later**; a PyPI pin only works after that
+version is published.
 Before release, use `fxcss init --toolkit-ref <full-40-character-fxcss-commit-SHA>`
 to install the reviewed toolkit commit directly in generated workflows. This
 does not publish a release. The preview
@@ -1415,7 +1419,7 @@ those layouts; audit the unpacked source folder to prepare a patch instead.
 
 | Feature | Enable with | When it runs | What readers see |
 | --- | --- | --- | --- |
-| PR previews | `init` | All pull request changes; macOS, Windows and Linux. | A comment showing before/after views and highlighted differences, including optional stylesheets. |
+| PR previews | `init` | All pull request changes; macOS, Windows and Linux. | A comment that opens with the Firefox support result, then shows each distinct change once with before/after views and highlighted differences, including optional stylesheets. |
 | Firefox watch | `init --watch` | Weekly on Mondays, or manually; Release, Beta and Nightly on macOS. | Fix PRs or issues for actionable selector findings, plus a separate issue if screenshot capture fails. |
 | README previews | `init --previews` | All repository changes on `main`/`master`, or manually; macOS. | Refreshed standard and variant screenshots plus cropped option comparisons on the `previews` branch. |
 | Release showcase | `init --showcase` | A release is published, or manually; macOS. | Light/dark screenshots against live websites on the `showcase` branch. |
@@ -1426,26 +1430,20 @@ images, fonts and other dependencies can live anywhere in a theme repository.
 This deliberately includes documentation-only edits so dependency-only changes
 outside standard folders cannot silently skip previews.
 Re-run generation and review the changes to update the pinned fxcss version
-or adopt improvements to the workflow templates. New variants are included automatically.
+or adopt improvements to the workflow templates; see
+[Updating generated workflows](#updating-generated-workflows). New variants are
+included automatically unless `FXCSS_VARIANTS` names specific stylesheets.
 
 ### Pull request previews
 
 The default setup writes three cooperating workflows:
 
-1. **Render:** capture the base and proposed theme revisions on each operating
-   system, compare them and upload the images. Matching base captures are
-   cached for later pushes to the same PR.
+1. **Render:** capture the base and proposed theme revisions in the current
+   Firefox release on each operating system, compare them and upload the
+   images. Matching base captures are cached for later pushes to the same PR.
 2. **Publish:** validate the artifacts, publish images to `ci-previews`, and
    create or update the preview comment. Unchanged views remain available as
    full screenshots.
-
-The comment groups the [distinct changes](#distinct-changes) by area of the UI
-and pictures each once, from the first platform that has it. The same change
-on another platform is folded under it, with each platform's views listed and
-linked to their full before-and-after; a change only one platform shows is
-labelled as such. A tab strip restyle that touches every view therefore reads
-as one picture under Tabs rather than one per view per platform. Views a runner
-could not capture are listed as not compared.
 3. **Clean up:** remove a PR's published images when it closes.
 
 Preview comments start once the workflows are on the default branch.
@@ -1455,6 +1453,45 @@ but does not execute PR code.
 
 The preview shows what changed, leaving the reviewer to decide whether it is
 correct. It does not reject a PR simply because the screenshots differ.
+
+#### What the comment shows
+
+The comment opens with the Firefox support result, when
+[that check is enabled](#choosing-what-the-preview-shows). It then groups the
+[distinct changes](#distinct-changes) by area of the UI and pictures each once,
+from the first platform that has it. The same change on another platform is
+folded under it, with each platform's views listed and linked to their full
+before-and-after; a change only one platform shows is labelled as such. A tab
+strip restyle that touches every view therefore reads as one picture under Tabs
+rather than one per view per platform.
+
+Below the changes, each platform has a section for anything that needs a closer
+look:
+
+- Views that exist only in the pull request, such as a newly added optional
+  stylesheet, are shown as new.
+- Views missing from the pull request's captures are flagged, so a reviewer can
+  check whether the view was removed or could not be captured.
+- Views a runner could not capture are listed as not compared.
+- Screenshots or change records that fail the publisher's validation are
+  counted as unreviewed, with a prompt to check the workflow artifacts before
+  approving.
+
+A comment too long for GitHub lists its views without links; every comparison
+is still in the workflow run's artifacts for 14 days.
+
+The comment is published only when the render job succeeds on all three
+platforms. If one fails, the pull request keeps any earlier comment. Re-running
+the failed job or pushing a fix publishes as usual. To publish what the other
+platforms produced for the pull request's latest commit, start the publish
+workflow by hand with the ID from that render run's URL:
+
+```bash
+gh workflow run pr-preview-publish.yml -f run_id=<run-id>
+```
+
+That comment covers only the platforms that finished, and has no Firefox
+support result if the Linux job was the one that failed.
 
 #### Choosing what the preview shows
 
@@ -1470,22 +1507,25 @@ env:
 ```
 
 - `FXCSS_VARIANTS` chooses which optional stylesheets are captured, which also
-  shortens the run. Named stylesheets must exist in both the base branch and
-  the pull request; `all` adapts as sheets are added.
+  shortens the run. Join names with `+` (`compact+dark`) to capture them
+  together. Named stylesheets must exist in both the base branch and the pull
+  request; `all` adapts as sheets are added.
 - `FXCSS_VIEWS` chooses which views are compared and shown, using the
   [`compare --views`](#fxcss-compare) patterns. Every standard view is still
-  captured. The comment notes that a selection is in effect.
+  captured. The comment notes that a selection is in effect. A pattern that
+  matches none of a runner's captures fails that platform's render job, so a
+  pattern naming only panel views can fail where a runner cannot capture them.
 - `FXCSS_MIN_CHANGED_PERCENT` leaves out the image for a view where less than
   that share of pixels changed. The comment still lists each such view with its
   percentage, so a small change is never reported as no change.
-- `FXCSS_OLDEST_FIREFOX` is the oldest Firefox the theme supports. Every
-  comment opens with the [`fxcss support`](#fxcss-support) result for it: a
-  warning when merging drops styling for an older release ("Firefox 157 and
-  earlier, ESR 153 included"), a note when new rules only match newer
-  releases, or one line saying support is unchanged. The Linux job runs the
-  check, caches build indexes between runs, and never fails the preview over
-  it; if it cannot run, the comment says so. The Firefox watch reads the same
-  setting.
+- `FXCSS_OLDEST_FIREFOX` is the oldest Firefox the theme supports. Unless it
+  is empty, each comment opens with the [`fxcss support`](#fxcss-support)
+  result for it: a warning when merging drops styling for an older release
+  ("Firefox 157 and earlier, ESR 153 included"), a note when new rules only
+  match newer releases, or one line saying support is unchanged. The Linux job
+  runs the check, caches build indexes between runs, and never fails the
+  preview over it; if it cannot run, the comment says so. `firefox-watch.yml`
+  has its own copy of this setting, so change both if you edit them by hand.
 
 Set them when generating the workflows, or edit the file directly:
 
@@ -1494,11 +1534,29 @@ fxcss init --variants compact --views 'light-*,variant-*' --min-changed-percent 
   --oldest-firefox 140
 ```
 
-Settings are validated against the theme before anything is written. Pass
-`--force` to replace workflows that already exist; that also resets any
-settings you edited by hand to the values given on the command line. The
-comment wording comes from `pr-preview-publish.yml`, so regenerate both files
-together.
+Settings are validated against the theme before anything is written.
+
+#### Updating generated workflows
+
+Workflows keep the fxcss version and templates they were generated with. A
+repository set up with fxcss 0.24 or earlier therefore has none of the settings
+above, none of the [surfaces outside the window](#surfaces-outside-the-window)
+and no grouping in its comment until it regenerates them. Upgrade fxcss first,
+because generation pins the installed version, then run:
+
+```bash
+fxcss init --force --watch --showcase --previews --oldest-firefox 140
+```
+
+`--force` replaces only the workflows the command asks for, so name each one
+you use. A workflow left out keeps its old fxcss pin and template, along with
+its own copy of `FXCSS_OLDEST_FIREFOX`. Every setting you do not pass returns
+to its default, including values you edited in the file by hand, so repeat them
+on the command line.
+
+The comment wording comes from `pr-preview-publish.yml`, and the publisher
+always runs from the default branch, so merge the regenerated files there
+before expecting the new comment.
 
 ### Watching Firefox for breakage
 
