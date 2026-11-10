@@ -562,7 +562,8 @@ def _inventory_report(theme_root, facts, strict, force, quiet=False):
             print(f"  {line}")
     if found["entry_unresolved"]:
         names = ", ".join(f"{e['source']} → {e['target']}" for e in found["entry_unresolved"][:4])
-        print("\n  The entry stylesheet imports file(s) this source does not contain:"
+        print(f"\n  The entry stylesheet imports "
+              f"{_agree(len(found['entry_unresolved']), 'files', 'a file')} this source does not contain:"
               f"\n    {names}\n  That usually means the theme needs building — a release "
               "package, or its\n  own installer's output — rather than a copy of its sources.",
               file=sys.stderr)
@@ -639,7 +640,7 @@ def _source_rows(plan, facts, found, remote):
     where = (("the repository root" if remote else "the top of the folder")
              if key in (".", "") else key)
     size = style.muted(f"{style.plural(facts['stylesheets'], 'stylesheet')}, "
-                       f"{facts['bytes'] // 1024:,} KB")
+                       f"{_size(facts['bytes'])}")
     named = (f" {selected['named']['name']!r}" if selected.get("kind") == layout.NAMED
              else "")
     flags = []
@@ -685,7 +686,10 @@ def _report_checklist(repo_root, theme_root, plan, pref_files):
     from . import checklist
 
     items = checklist.build(repo_root, theme_root, plan, applied_pref_files=pref_files)
-    for line in checklist.render(items):
+    lines = checklist.render(items)
+    if lines:
+        print()
+    for line in lines:
         print(line)
     return items
 
@@ -1541,14 +1545,61 @@ def _choose_ref(info, prefer, interactive):
     return picked["ref"], picked["why"]
 
 
+def _rows(pairs):
+    """Label and value rows, in the one column `install` set for them."""
+    from . import style
+    for line in style.rows(pairs, indent=2, label_width=10):
+        print(line)
+
+
+def _profile_header(command, picked, manifest=None):
+    """Open a command that works on one profile: its title, then what is there."""
+    from . import style
+    print(style.title(command, picked["name"]))
+    print()
+    pairs = [("profile", [style.strong(picked["name"]),
+                          style.muted(_short_path(picked["path"]))])]
+    if manifest and (manifest.get("source") or manifest.get("theme")):
+        label = _theme_label(manifest)
+        if (manifest.get("source") or {}).get("kind") == "local":
+            pairs.append(("installed", [style.strong(Path(label).name),
+                                        style.muted(style.short_path(label))]))
+        else:
+            pairs.append(("installed", style.strong(label)))
+    _rows(pairs)
+
+
+def _running_note(picked, effect="the change shows after a restart"):
+    from . import install, style
+    if install.firefox_running(picked["path"]):
+        _rows([("note", style.warn(f"Firefox is running; {effect}"))])
+
+
+def _done(verb, rest="", note=None):
+    """The closing line of a change: a tick, what happened in bold, then to what."""
+    from . import style
+    print(f"\n  {style.good(style.TICK)} {style.strong(verb)}{' ' + rest if rest else ''}"
+          + (f"  {style.muted(note)}" if note else ""))
+
+
+def _then(*parts):
+    """What to do next, dim, with any `fxcss command` in it bold."""
+    from . import style
+    print("  " + " ".join(style.cmd(part[1:-1]) if part.startswith("`") else style.muted(part)
+                          for part in parts))
+
+
 def _confirm(question, interactive, assume_yes):
     """Enter means yes; only an explicit n declines. Never asks in CI."""
     if assume_yes or not interactive:
         return True
     from . import style
+    # A question may open with a blank line; the indent is what follows it.
+    above = len(question) - len(question.lstrip("\n"))
+    question = question[above:]
     lead = len(question) - len(question.lstrip())
     try:
-        raw = input(style.ask(question.strip(), default="Y/n", indent=lead or 2))
+        raw = input("\n" * above + style.ask(question.strip(), default="Y/n", indent=lead or 2))
     except EOFError:
         raw = ""
     return not raw.strip().lower().startswith("n")
@@ -1706,15 +1757,12 @@ def cmd_uninstall(args):
                    and not os.environ.get("CI"))
     picked = _choose_profile(args.profile, interactive, prefer="managed")
     manifest = install.read_manifest(picked["path"])
-    print(f"\n  profile: {picked['name']}  ({picked['path']})")
-    if manifest and manifest.get("theme"):
-        print(f"  installed theme: {manifest['theme']}")
-    if install.firefox_running(picked["path"]):
-        print("  note: Firefox appears to be running — the change will only "
-              "show after a restart.")
-    if not _confirm("  Remove the installed theme from this profile?",
+    from . import style
+    _profile_header("uninstall", picked, manifest)
+    _running_note(picked)
+    if not _confirm("\n  Remove the installed theme from this profile?",
                     interactive, args.yes):
-        print("  nothing removed.")
+        print(style.muted("  Nothing removed."))
         return 1
     try:
         result = install.uninstall_theme(picked["path"])
@@ -1722,25 +1770,33 @@ def cmd_uninstall(args):
         print(f"error: {exc}", file=sys.stderr)
         return 2
     if result.get("noop"):
-        print("  no fxcss-installed theme is active here, so nothing was "
+        print("\n  No fxcss-installed theme is active here, so nothing was "
               "removed or restored.")
+        pairs = []
         if result.get("user_js_cleaned"):
-            print("  user.js: removed a leftover fxcss block")
+            pairs.append(("user.js", "removed a leftover fxcss block"))
         if result.get("backups"):
-            print(f"  backups kept: {', '.join(result['backups'])}  "
-                  "(`fxcss rollback --to <name>` restores one)")
+            pairs.append(("backups", [", ".join(result["backups"]),
+                                      style.cmd("fxcss rollback --to <name>")
+                                      + style.muted(" restores one")]))
+        _rows(pairs)
         return 0
-    if result["removed"]:
-        print(f"  removed {_pl(result['removed'], 'file')}")
+    pairs = []
     if result["restored"]:
-        print(f"  restored your previous chrome/ from {result['restored']}")
+        pairs.append(("restored", f"your previous chrome/, from {result['restored']}"))
     if result["moved_aside"]:
-        print(f"  moved the current chrome/ to {result['moved_aside']} "
-              "(fxcss could not prove it wrote it, so nothing is deleted)")
+        pairs.append(("moved", [f"the current chrome/, to {result['moved_aside']}",
+                                style.muted("fxcss could not prove it wrote it, so "
+                                            "nothing is deleted")]))
     if result["kept"]:
-        print(f"  left {len(result['kept'])} added, modified or unverifiable "
-              "file(s) in chrome/; any backup stays put alongside them")
-    print("\n  Restart Firefox to see the change.")
+        pairs.append(("kept", [f"{_pl(len(result['kept']), 'file')} you added or edited, "
+                               "or that could not be checked, still in chrome/",
+                               style.muted("any backup stays put alongside them")]))
+    if pairs:
+        print()
+        _rows(pairs)
+    _done("Uninstalled", note=f"{_pl(result['removed'], 'file')} removed")
+    _then("Restart Firefox to see the change.")
     return 0
 
 
@@ -1800,6 +1856,19 @@ def _report_drift(moved, indent="  "):
 
 
 def cmd_upgrade(args):
+    """`upgrade`, with --no-colour holding for all of it and for nothing after."""
+    from . import style
+    if not args.no_colour:
+        return _upgrade(args)
+    previous = style._override
+    style.set_colour(False)
+    try:
+        return _upgrade(args)
+    finally:
+        style.set_colour(previous)
+
+
+def _upgrade(args):
     import shutil
     import tempfile
     from . import fetch, install
@@ -1808,7 +1877,8 @@ def cmd_upgrade(args):
                    and not os.environ.get("CI"))
     picked = _choose_profile(args.profile, interactive, prefer="managed")
     manifest = install.read_manifest(picked["path"])
-    print(f"\n  profile: {picked['name']}  ({picked['path']})")
+    from . import style
+    _profile_header("upgrade", picked, manifest)
     if not manifest:
         print("\n  Nothing fxcss installed in this profile, so there is "
               "nothing to\n  upgrade. `fxcss install <theme>` puts one here; "
@@ -1816,7 +1886,6 @@ def cmd_upgrade(args):
         return 2
 
     source = manifest.get("source") or {}
-    print(f"  installed: {_theme_label(manifest)}")
     recorded_layout = manifest.get("layout") if isinstance(manifest.get("layout"), dict) else {}
     if args.subpath is None and recorded_layout.get("subpath"):
         args.subpath = recorded_layout["subpath"]
@@ -1856,10 +1925,9 @@ def cmd_upgrade(args):
         else:
             target_ref, why = state.get("ref") or source.get("ref"), \
                 state.get("label") or "what is installed"
-        print(f"  upstream:  {state['label']}"
-              + (f"  — {state['detail']}" if state.get("detail") else ""))
-        if state.get("also"):
-            print(f"  also:      {state['also']}")
+        _rows([("upstream", state["label"] + (f"  {style.muted(state['detail'])}"
+                                               if state.get("detail") else "")),
+               ("", style.muted(state["also"]) if state.get("also") else None)])
     else:
         print("\n  error: this install has no record of where it came from, "
               "so fxcss\n  cannot fetch a newer copy. Reinstall it with "
@@ -1919,15 +1987,21 @@ def cmd_upgrade(args):
             repo_root = fetch.download(info["owner"], info["name"], revision,
                                        workdir / "src", host=info["host"])
 
-        planned = _plan_source(repo_root, args, interactive, workdir)
+        planned = _plan_source(repo_root, args, interactive, workdir,
+                               remote=local_root is None, quiet=True)
         if planned is None:
             print("  (the recorded layout no longer matches this version; choose "
                   "with --subpath)", file=sys.stderr)
             return 2
         plan, theme_root = planned
         facts = fetch.describe(plan["repo_root"], theme_root, plan)
-        if _inventory_report(theme_root, facts, strict=True, force=args.force) is None:
+        found = _inventory_report(theme_root, facts, strict=True, force=args.force,
+                                  quiet=True)
+        if found is None:
             return 2
+        # The new version, in the rows `install` describes a theme with.
+        for line in _source_rows(plan, facts, found, local_root is None):
+            print(line)
 
         if args.with_sheets is not None:
             selected = _match_sheets(args.with_sheets, facts)
@@ -1950,8 +2024,7 @@ def cmd_upgrade(args):
                   "for none.", file=sys.stderr)
             return 2
         if continuity["kept"]:
-            print(f"  keeping optional sheets: "
-                  f"{', '.join(s.stem for s in continuity['kept'])}")
+            _rows([("sheets", f"keeping {', '.join(s.stem for s in continuity['kept'])}")])
             # Checked against the *new* version's sheets, not the old ones: a
             # release that splits one option into two, or merges two into one,
             # can turn a combination that used to work into a pair that
@@ -1981,7 +2054,7 @@ def cmd_upgrade(args):
                       file=sys.stderr)
                 return 2
             if pref_files:
-                print(f"  keeping preference file(s): {', '.join(pref_files)}")
+                _rows([("prefs", f"keeping {', '.join(pref_files)}")])
 
         if local_root is not None or setup_requested:
             # A local source has no upstream to ask; the files themselves are
@@ -2063,14 +2136,11 @@ def cmd_upgrade(args):
                 return status
             print(f"  before/after images: {outdir / 'diff'}")
 
-        print()
         _report_checklist(plan["repo_root"], theme_root, plan, pref_files)
-        if install.firefox_running(picked["path"]):
-            print("\n  note: Firefox appears to be running — the change will "
-                  "only show after a restart.")
+        _running_note(picked)
         _report_additions(install.user_additions(picked["path"], manifest))
         if not _confirm(f"\n  Upgrade to {why}?", interactive, args.yes):
-            print("  nothing changed.")
+            print(style.muted("  Nothing changed."))
             return 1
 
         if local_root is not None:
@@ -2099,8 +2169,8 @@ def cmd_upgrade(args):
         except install.CollisionError as exc:
             _report_collision(exc)
             return 2
-        print(f"\n  upgraded to {why}")
-        print(f"  the previous version is kept as {result['backup']}")
+        print()
+        _rows([("backup", f"the previous version, kept as {result['backup']}")])
         _report_preserved(result)
         keep = args.keep
         if keep is not None and keep < 1:
@@ -2113,10 +2183,11 @@ def cmd_upgrade(args):
         removed = install.prune_backups(
             picked["path"], keep, protect=[manifest.get("origin_backup")])
         if removed:
-            print(f"  pruned {_pl(len(removed), 'older backup')}, keeping the "
-                  f"newest {keep}")
-        print("\n  Restart Firefox to see it. `fxcss rollback` puts the "
-              "previous version back.")
+            _rows([("pruned", f"{_pl(len(removed), 'older backup')}, keeping the "
+                              f"newest {keep}")])
+        _done("Upgraded", f"to {why}")
+        _then("Restart Firefox to see it;", "`fxcss rollback`",
+              "puts the previous version back.")
         return 0
     except RuntimeError as exc:
         print(f"\n  error: {exc}", file=sys.stderr)
@@ -2133,7 +2204,8 @@ def cmd_adopt(args):
                    and not os.environ.get("CI"))
     picked = _choose_profile(args.profile, interactive, prefer="unmanaged")
     chrome = Path(picked["path"]) / "chrome"
-    print(f"\n  profile: {picked['name']}  ({picked['path']})")
+    from . import style
+    _profile_header("adopt", picked)
 
     if not (chrome / "userChrome.css").is_file():
         print("\n  No chrome/userChrome.css here, so there is no theme to "
@@ -2164,11 +2236,11 @@ def cmd_adopt(args):
                   "    fxcss adopt owner/theme", file=sys.stderr)
             return 2
         owner, name = fetch.parse_repo(found[0]["repo"])
-        print(f"  looks like {found[0]['repo']} — {found[0]['why']}")
+        _rows([("looks like", [style.strong(found[0]["repo"]), style.muted(found[0]["why"])])])
         if not found[0]["certain"] and not _confirm(
-                "  Check the files against it?", interactive, args.yes):
-            print("  nothing changed. Pass the repository instead: "
-                  "fxcss adopt owner/theme")
+                "\n  Check the files against it?", interactive, args.yes):
+            print(style.muted("  Nothing changed. Pass the repository instead: ")
+                  + style.cmd("fxcss adopt owner/theme"))
             return 1
 
     # Which version?
@@ -2237,12 +2309,10 @@ def cmd_adopt(args):
     if not adopt.exact(best):
         print("  Recorded as that version plus local differences, so an "
               "upgrade knows\n  not to overwrite them without being told.")
-    if install.firefox_running(picked["path"]):
-        print("  note: Firefox appears to be running — nothing here needs a "
-              "restart.")
+    _running_note(picked, "nothing here needs a restart")
     if not _confirm(f"\n  Record this profile as {owner}/{name}@{best['ref']}?",
                     interactive, args.yes):
-        print("  nothing changed.")
+        print(style.muted("  Nothing changed."))
         return 1
 
     kind = {"release": "release", "tag": "release",
@@ -2264,11 +2334,15 @@ def cmd_adopt(args):
     except RuntimeError as exc:
         print(f"  error: {exc}", file=sys.stderr)
         return 2
-    print(f"\n  recorded {_pl(len(manifest['files']), 'file')} as "
-          f"{manifest['theme']}")
-    print(f"  the theme as it is now is kept as {manifest['backup']}")
-    print("\n  `fxcss upgrade` can now update it, and `fxcss uninstall` puts "
-          "this back.")
+    print()
+    pairs = [("backup", f"the theme as it is now, kept as {manifest['backup']}")]
+    if manifest.get("user_files"):
+        # Files the matched version does not have: the person's, not the theme's.
+        pairs.append(("yours", f"{_pl(len(manifest['user_files']), 'file')} that version does "
+                               "not ship, kept as your own across upgrades"))
+    _rows(pairs)
+    _done("Recorded", f"{_pl(len(manifest['files']), 'file')} as {manifest['theme']}")
+    _then("`fxcss upgrade`", "can now update it, and", "`fxcss uninstall`", "puts this back.")
     return 0
 
 
@@ -2280,9 +2354,8 @@ def cmd_rollback(args):
     picked = _choose_profile(args.profile, interactive, prefer="managed")
     backups = install.list_backups(picked["path"])
     manifest = install.read_manifest(picked["path"])
-    print(f"\n  profile: {picked['name']}  ({picked['path']})")
-    if manifest:
-        print(f"  installed: {_theme_label(manifest)}")
+    from . import style
+    _profile_header("rollback", picked, manifest)
 
     if not backups:
         print("\n  No backups here to roll back to. `fxcss install` and "
@@ -2292,13 +2365,15 @@ def cmd_rollback(args):
 
     origin = (manifest or {}).get("origin_backup")
     if args.list:
-        print("\n  Backups, newest first:\n")
+        print()
+        print(style.heading_line("Backups", "newest first"))
         for backup in backups:
             what = backup["theme"] or "your own chrome/, from before fxcss"
-            tag = "  (the original)" if backup["name"] == origin else ""
-            print(f"    {backup['name']}{tag}")
-            print(f"      {what}")
-        print("\n  `fxcss rollback --to <name>` restores one of these.")
+            tag = f"  {style.brand('the original')}" if backup["name"] == origin else ""
+            print(f"    {style.strong(backup['name'])}{tag}")
+            print(f"      {style.muted(what)}")
+        print()
+        _then("`fxcss rollback --to <name>`", "restores one of these.")
         return 0
 
     target = args.to or backups[0]["name"]
@@ -2309,15 +2384,12 @@ def cmd_rollback(args):
         return 2
 
     what = chosen["theme"] or "your own chrome/, from before fxcss ran here"
-    print(f"\n  rolling back to {chosen['name']}\n    {what}")
-    if chosen["manifest"] is None:
-        print("  that has no fxcss theme in it, so the user.js block goes "
-              "too")
-    if install.firefox_running(picked["path"]):
-        print("  note: Firefox appears to be running — the change will only "
-              "show after a restart.")
-    if not _confirm("  Roll back to this?", interactive, args.yes):
-        print("  nothing changed.")
+    _rows([("back to", [style.strong(chosen["name"]), style.muted(what)]),
+           ("user.js", "that has no fxcss theme in it, so the fxcss block goes too"
+                       if chosen["manifest"] is None else None)])
+    _running_note(picked)
+    if not _confirm("\n  Roll back to this?", interactive, args.yes):
+        print(style.muted("  Nothing changed."))
         return 1
 
     try:
@@ -2325,18 +2397,15 @@ def cmd_rollback(args):
     except RuntimeError as exc:
         print(f"  error: {exc}", file=sys.stderr)
         return 2
-    print(f"\n  restored {summary['restored']}")
-    if summary["moved_aside"]:
-        print(f"  what was installed is kept as {summary['moved_aside']}, so "
-              "this is undoable")
-    if summary["user_js"] == "restored":
-        print("  user.js: put that version's prefs back")
-    elif summary["user_js"] == "removed":
-        print("  user.js: removed the fxcss block")
-    elif summary["user_js"] == "unknown":
-        print("  user.js: left as it is — that version did not record its "
-              "prefs")
-    print("\n  Restart Firefox to see the change.")
+    print()
+    _rows([("backup", f"what was installed, kept as {summary['moved_aside']}, so this "
+                      "can be undone" if summary["moved_aside"] else None),
+           ("user.js", {"restored": "put that version's prefs back",
+                        "removed": "removed the fxcss block",
+                        "unknown": "left as it is; that version did not record its prefs",
+                        }.get(summary["user_js"]))])
+    _done("Rolled back", f"to {summary['restored']}")
+    _then("Restart Firefox to see the change.")
     return 0
 
 
@@ -2411,6 +2480,19 @@ def cmd_tweaks(args):
 
 
 
+def _from_package_index():
+    """Whether this fxcss was installed from a package index, by version.
+
+    pip records where anything else came from (a checkout, a URL, a commit)
+    in direct_url.json; a release installed by name has no such file.
+    """
+    try:
+        from importlib import metadata
+        return metadata.distribution("fxcss").read_text("direct_url.json") is None
+    except Exception:
+        return False
+
+
 def cmd_init(args):
     from . import layout, scaffold
     theme = args.theme.resolve()
@@ -2446,20 +2528,33 @@ def cmd_init(args):
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    from . import style
+    print(style.title("init", style.short_path(theme)))
+    print()
+    pairs = []
     for line in layout.describe_plan(plan):
-        print(f"  {line}")
+        label, _, text = line.partition(": ")
+        pairs.append((label, text) if text else ("note", line))
     if repo_root.resolve() != theme_dir.resolve():
         try:
             rel = theme_dir.resolve().relative_to(repo_root.resolve()).as_posix()
         except ValueError:
             rel = str(theme_dir)
-        print(f"  workflows go to {repo_root / '.github' / 'workflows'} and point at {rel}/")
+        pairs.append(("workflows", f"go to {style.short_path(repo_root / '.github' / 'workflows')} "
+                                   f"and point at {rel}/"))
     toolkit_ref = getattr(args, "toolkit_ref", None)
     if toolkit_ref:
-        print(f"  workflows install fxcss from commit {toolkit_ref}")
+        pairs.append(("fxcss", f"workflows install fxcss from commit {toolkit_ref}"))
+    elif _from_package_index():
+        pairs.append(("fxcss", f"workflows pin fxcss {__version__}"))
     else:
-        print(f"  workflows pin fxcss {__version__}; that version must be published on PyPI "
-              "before they run. Use --toolkit-ref <full SHA> to test an unreleased commit.")
+        # Only a copy that did not come from PyPI can be ahead of it.
+        pairs.append(("fxcss", f"workflows pin fxcss {__version__}, and this copy was not "
+                               "installed from PyPI: that version must be published on PyPI "
+                               "before they run. Use --toolkit-ref <full SHA> to test an "
+                               "unreleased commit."))
+    for line in style.rows(pairs, indent=2):
+        print(line)
     try:
         written, skipped = scaffold.write_workflows(
             theme_dir, slugs, watch=args.watch, showcase=args.showcase,
@@ -2468,8 +2563,19 @@ def cmd_init(args):
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    print(scaffold.next_steps(written, skipped, slugs, args.watch, args.showcase,
-                              args.previews))
+    # next_steps is written flush left, as a block of its own; here it sits
+    # under the title like every other command's output, headings in bold.
+    print()
+    for line in scaffold.next_steps(written, skipped, slugs, args.watch, args.showcase,
+                                    args.previews).splitlines():
+        if line.endswith(":") and not line.startswith(" "):
+            head, _, note = line[:-1].partition(" (")
+            print(style.heading_line(head, note.rstrip(")") or None))
+        elif line.startswith(" "):
+            print(f"  {line}")
+        else:
+            for part in style.wrap(line, indent=2) if line else [""]:
+                print(part)
     return 0
 
 def _fit_names(names, width):
@@ -2907,12 +3013,26 @@ def cmd_catalogue(args):
 
 
 def cmd_doctor(args):
-    from . import style
+    import tempfile
+    from . import inventory, style
     theme = args.theme.resolve()
     firefox = choose_firefox(args.firefox)
     print(style.title("doctor", style.short_path(theme)))
-    with core.Session(theme, firefox, devtools=True) as session:
-        info = session.info()
+    # No theme here is not a reason to stop: the installer and the docs send
+    # people to `doctor` first, before they have one, and what it says about
+    # Firefox holds either way. A blank stylesheet stands in for the session.
+    no_theme = getattr(args, "theme_problem", None)
+    if not no_theme and not any((theme / "chrome" / name).is_file()
+                                for name in inventory.ENTRY_SHEETS):
+        no_theme = "no chrome/userChrome.css in this folder"
+    with tempfile.TemporaryDirectory(prefix="fxcss-doctor-") as blank:
+        root = theme
+        if no_theme:
+            root = Path(blank)
+            (root / "chrome").mkdir()
+            (root / "chrome" / "userChrome.css").write_text("", encoding="utf-8")
+        with core.Session(root, firefox, devtools=True) as session:
+            info = session.info()
 
     sheets = sorted((theme / "chrome").rglob("*.css")) if (theme / "chrome").exists() else []
     total = sum(p.stat().st_size for p in sheets)
@@ -2929,7 +3049,8 @@ def cmd_doctor(args):
             # The builds table below names the binary in use; say it here
             # only when that table will not.
             ("binary", None if listed else style.short_path(firefox)),
-            ("theme", f"{style.plural(len(sheets), 'stylesheet')}, {total / 1024:,.0f} KB"),
+            ("theme", style.muted("none in this folder") if no_theme else
+                      f"{style.plural(len(sheets), 'stylesheet')}, {_size(total)}"),
             ("window", f"{width} × {height}{scale}" if height else str(info["outer"])),
     ]):
         print(line)
@@ -2952,7 +3073,11 @@ def cmd_doctor(args):
         report("bad", "userChrome.css loading is off",
                "set toolkit.legacyUserProfileCustomizations.stylesheets to true")
     missing = [p for p in ("chrome/userChrome.css",) if not (theme / p).exists()]
-    if missing:
+    if no_theme:
+        report("info", "No theme in this folder, so this is about Firefox alone",
+               f"{no_theme}; run this from a theme's root folder, the one holding "
+               "chrome/, or pass --theme, to check a theme as well")
+    elif missing:
         report("bad", f"{', '.join(missing)} is missing",
                "run this from a theme's root folder, the one holding chrome/, or pass --theme")
     else:
@@ -2996,12 +3121,17 @@ def cmd_doctor(args):
               f"{style.muted(style.plural(findings['warn'], 'thing') + ' to know: ' + ', '.join(named))}")
     else:
         print(f"  {style.good(style.TICK)} {style.strong('Ready to theme')}")
-    if missing:
+    if no_theme or missing:
         print(f"  {style.muted('New here?')} {style.cmd('fxcss try owner/repo')} "
               f"{style.muted('test-drives a theme;')} {style.cmd('fxcss new')} "
               f"{style.muted('starts one.')}")
     print()
     return 0
+
+
+def _size(count):
+    """A size in KB, without calling a small theme `0 KB`."""
+    return "under 1 KB" if 0 < count < 1024 else f"{count // 1024:,} KB"
 
 
 def _bool(v):
@@ -3443,7 +3573,14 @@ LAYOUT_AWARE = {"shot", "audit", "doctor", "snapshot", "changelog", "tweaks",
 def _resolve_layouts(args):
     from . import layout
     if getattr(args, "cmd", None) in LAYOUT_AWARE and getattr(args, "theme", None):
-        if args.cmd == "audit" and args.patch:
+        if args.cmd == "doctor":
+            # doctor reports a folder it cannot read as a theme; it does not
+            # stop at it. See cmd_doctor.
+            try:
+                args.theme = layout.standard_root(args.theme)
+            except layout.LayoutError as exc:
+                args.theme_problem = str(exc)
+        elif args.cmd == "audit" and args.patch:
             args.theme, args._layout_plan = layout.standard_root(args.theme, with_plan=True)
             layout.patch_source_paths(args._layout_plan, args.theme, [])
         else:
@@ -3456,6 +3593,8 @@ def _resolve_layouts(args):
 
 
 def main(argv=None):
+    from . import style
+    style.tolerant_output()
     raw = list(sys.argv[1:] if argv is None else argv)
     if raw and raw[0] == "__complete":
         return _complete_entry(raw[1:])

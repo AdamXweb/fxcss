@@ -84,24 +84,40 @@ is never touched — close the window and nothing remains.
 It reports what it found before doing anything:
 
 ```
-  adamxweb/whitesurfirefoxthememacos  ★614  MIT
-    MacOS Big Sur like theme for Firefox on MacOS & Windows.
-    latest release   v1.6.3  (2025-07-26)
-    latest commit    b10c574  (2025-07-26)  Merge pull request #167 …
+  fxcss try  AdamXweb/WhiteSurFirefoxThemeMacOS
 
-  fetching release v1.6.3 …
-  theme found at the repository root  (39 stylesheets, 134 KB)
+  AdamXweb/WhiteSurFirefoxThemeMacOS  ★619  MIT
+    MacOS Big Sur like theme for Firefox on MacOS & Windows. Make your Firefox look like Safari.
+    latest release   v2.1.0  (2026-10-28)
+    latest commit    68f8699  (2026-11-10)  fix: align the toolbar and close the tab bar gap …
 
-  This theme ships install.sh. fxcss does not run it —
-  it installs the files itself, which is all those scripts do.
+  fetching release v2.1.0 …
 
-  Options its README documents:
-    -c     Left hand side tab close button
-    -p     Makes tabs height compact like current Safari
+  layout      chrome/ at the repository root  72 stylesheets, 377 KB
+  loads       35 stylesheets  29 browser-window, 2 web-content, 4 shared
+  user hook   customChrome.css  not shipped, as intended
+  installer   install.sh  fxcss copies the files itself and never runs it
+
+  Optional stylesheets  30 · layer any on with --with name,name
+    Tweaks
+    compact-tabs    hideextension   increase-contrast   singletabhidden   tabs-swapclose
+    enabletabview   highlight-tab   noidentity          standard-urlbar   windows-swapclose
+
+    Colour schemes · pick one
+    theme-ayu-mirage             theme-github-dark          theme-nord
+    theme-catppuccin-frappe      theme-gruvbox-dark         theme-one-dark
     …
 
-  Optional stylesheets you can layer on with --with:
-    compact-tabs, hideextension, noidentity, tabs-swapclose, …
+  Setup beyond the files  1 automatic · 3 to check
+    ✓ automatic  3 prefs in configuration/user.js  in fxcss's own block
+    ! check      Firefox's native vertical tabs
+                 a setting in Firefox's own sidebar options
+    …
+
+  README install flags  as the README words them, for its own script; fxcss never runs it
+    -c  Left hand side tab close button          -v         Re-enables the tabview button
+    -p  Makes tabs height compact like…          -t <name>  Colour theme (see Colour themes below)
+    …
 ```
 
 Releases are preferred over branch tips, since that is what the author blessed;
@@ -345,10 +361,11 @@ looking for, and equally the branch can be mid-rewrite, so neither is right to
 assume:
 
 ```
-  The default branch has moved on since the latest release:
-    1. release v2.0                 2025-01-03  what the author last published  (Enter)
-    2. latest commit on master      2026-08-14  newer than the release — fix tab colours
-  Install [1-2]:
+  Which version?  the default branch has moved on since the latest release
+   1. release v2.0             2025-01-03  what the author last published  (Enter)
+   2. latest commit on master  2026-08-14  newer than the release — fix tab colours
+
+  Which one? 1-2 [1]
 ```
 
 Scripts and CI never see any of these prompts: without a terminal the release
@@ -421,16 +438,29 @@ guess — it is the same bytes:
 ```console
 $ fxcss adopt AdamXweb/WhiteSurFirefoxThemeMacOS
 
-  profile: default-release  (~/Library/…/8f2h1kqp.default-release)
+  fxcss adopt  default-release
 
-  comparing 148 file(s) against AdamXweb/WhiteSurFirefoxThemeMacOS …
+  profile     default-release
+              ~/Library/Application Support/Firefox/Profiles/8f2h1kqp.default-release
+
+  comparing 148 files against AdamXweb/WhiteSurFirefoxThemeMacOS …
     v2.0.0: 129/135 files match, 6 edited, 7 added
     v1.6.3: 114/132 files match, 18 edited, 10 added
 
   best match: v2.0.0: 129/135 files match, 6 edited, 7 added
   Recorded as that version plus local differences, so an upgrade knows
   not to overwrite them without being told.
+
+  backup      the theme as it is now, kept as chrome.backup-20260817014143
+  yours       7 files that version does not ship, kept as your own across upgrades
+
+  ✓ Recorded 135 files as AdamXweb/WhiteSurFirefoxThemeMacOS@v2.0.0
+  fxcss upgrade can now update it, and fxcss uninstall puts this back.
 ```
+
+Files in `chrome/` that the matched version does not contain are recorded as
+yours, not the theme's: upgrades carry them across and `uninstall` leaves them
+where they are.
 
 Comparison uses GitHub's git-tree API rather than downloading anything, so
 checking ten versions costs ten small requests instead of ten archives — and
@@ -484,22 +514,23 @@ names:
 ```console
 $ fxcss profiles --check
 
-  Firefox profiles on this machine
+  fxcss profiles
 
-  ● default-release          [Release]
-    ~/Library/Application Support/Firefox/Profiles/8f2h1kqp.default-release
-    theme    AdamXweb/WhiteSurFirefoxThemeMacOS @ v1.0.0
-             installed 2026-08-14 09:12:44  (tracking the release)
-    sheets   theme-nord
-    files    137 file(s), 1 edited since install, 1 added by hand
-    update   v2.0.0 available  — 2026-08-16
+  Firefox profiles
+  2 in ~/Library/Application Support/Firefox/Profiles
 
-    dev-edition-default      [Developer Edition]
-    ~/Library/Application Support/Firefox/Profiles/p93kd0zx.dev-edition-default
-    chrome/  41 file(s), not installed by fxcss
-             `fxcss install` here would back this up first
+  ● default-release      Release            8f2h1kqp.default-release
+      theme      AdamXweb/WhiteSurFirefoxThemeMacOS @ v2.0.0
+      installed  2026-08-14 09:12  tracking the release
+      sheets     theme-nord
+      files      145  ! 1 edited since install, 1 added by hand
+      update     v2.1.0 available  2026-10-28
 
-  ● the profile Firefox opens by default
+    dev-edition-default  Developer Edition  p93kd0zx.dev-edition-default
+      theme      ! installed by hand  chrome/ holds 41 files
+                 fxcss adopt takes it over; fxcss install would replace it, backing it up first
+
+  ● opens by default: the profile Firefox opens on its own
 ```
 
 Three states, kept distinct on purpose: a profile fxcss installed into and can
@@ -545,7 +576,9 @@ It stops rather than surprise you, in four places:
   them until `--force`.
 - **Files you added.** A stylesheet you dropped into `chrome/` — imported
   from `customChrome.css`, say — is carried into the new tree so it stays
-  *active*, not merely kept in the backup where it would stop applying. The
+  *active*, not merely kept in the backup where it would stop applying.
+  `customChrome.css` itself counts as yours once you have written in it, even
+  though fxcss created the empty file. The
   manifest lists them under `user_files`. If the new version ships a file at
   the same path with different contents, that is a collision: the upgrade
   stops before anything moves and lists the paths; `--force` installs the
@@ -588,19 +621,24 @@ one taken from `src/userChrome-WhiteSur.css` from the same edition.
 ```console
 $ fxcss upgrade
 
-  profile: default-release  (~/Library/…/8f2h1kqp.default-release)
-  installed: AdamXweb/WhiteSurFirefoxThemeMacOS @ v1.6.3
-  upstream:  v2.0.0  — 2026-08-16
+  fxcss upgrade  default-release
+
+  profile     default-release
+              ~/Library/Application Support/Firefox/Profiles/8f2h1kqp.default-release
+  installed   AdamXweb/WhiteSurFirefoxThemeMacOS @ v1.6.3
+  upstream    v2.0.0  2026-08-16
 
   fetching v2.0.0 …
-  keeping optional sheets: theme-nord
+  layout      chrome/ at the repository root  72 stylesheets, 377 KB
+  loads       35 stylesheets  29 browser-window, 2 web-content, 4 shared
+  sheets      keeping theme-nord
 
   Upgrade to v2.0.0? [Y/n]
 
-  upgraded to v2.0.0
-  the previous version is kept as chrome.backup-20260817014202
+  backup      the previous version, kept as chrome.backup-20260817014202
 
-  Restart Firefox to see it. `fxcss rollback` puts the previous version back.
+  ✓ Upgraded to v2.0.0
+  Restart Firefox to see it; fxcss rollback puts the previous version back.
 ```
 
 ### fxcss rollback
@@ -620,12 +658,19 @@ list can show what each one holds:
 ```console
 $ fxcss rollback --list
 
-  Backups, newest first:
+  fxcss rollback  default-release
 
+  profile     default-release
+              ~/Library/Application Support/Firefox/Profiles/8f2h1kqp.default-release
+  installed   AdamXweb/WhiteSurFirefoxThemeMacOS @ v2.0.0
+
+  Backups  newest first
     chrome.backup-20260817014202
       AdamXweb/WhiteSurFirefoxThemeMacOS@v1.6.3
-    chrome.backup-20260817014143  (the original)
+    chrome.backup-20260817014143  the original
       your own chrome/, from before fxcss
+
+  fxcss rollback --to <name> restores one of these.
 ```
 
 `fxcss rollback` restores the most recent, or `--to <name>` any of them.
@@ -639,7 +684,8 @@ That original is the reason upgrades chain rather than stack blindly. After
 five upgrades the newest backup holds *the theme*, not your files, so the
 manifest carries the original's name forward and `fxcss uninstall` still
 restores what you had before you ever ran fxcss. `--keep N` (default 3) prunes
-older backups; the original is never one of them.
+older backups; the original is never one of them, and neither is any
+`chrome.backup-*` folder that holds no fxcss install record.
 
 ### fxcss uninstall
 
@@ -1252,20 +1298,21 @@ class your CSS mentions, resolves each against a running Firefox, and shows what
 to change — with the real line from your file and the replacement applied:
 
 ```
-  14 selectors need attention
+  ✗ 14 selectors need attention
 
-  RENAMED  #urlbar-background  →  .urlbar-background
-           same name, now a class rather than an id
+  ✗ RENAMED       #urlbar-background → .urlbar-background
+                  same name, now a class rather than an id
+                  chrome/parts/headerbar-urlbar.css:52
+                  - #urlbar-background {
+                  + .urlbar-background {
 
-    chrome/parts/headerbar-urlbar.css:52
-    - #urlbar-background {
-    + .urlbar-background {
-
-  SIMILAR  #appMenu-fullscreen-button  →  #appMenu-fullscreen-button2  (a guess, not applied)
-           no exact match; closest live name is #appMenu-fullscreen-button2
-
-    chrome/parts/icons.css:198
-      #appMenu-fullscreen-button {
+  ! SIMILAR       #appMenu-fullscreen-button → #appMenu-fullscreen-button2  a guess, not applied
+                  no exact match; closest live name is #appMenu-fullscreen-button2
+                  #appMenu-fullscreen-button2 belongs to browser.xhtml
+                  check what reads that name before using it: a close
+                  spelling can belong to an unrelated element
+                  chrome/parts/icons.css:198
+                    #appMenu-fullscreen-button {
 ```
 
 These examples come from findings in a long-running theme. The
@@ -1402,11 +1449,12 @@ generated workflows cannot select them yet; lay the theme out as
 Existing files are preserved unless you pass `--force`; review regenerated
 files before committing, especially if you have customised them. Generation
 pins the installed fxcss version. These layout, trigger and patch-mapping
-changes need fxcss **0.26.0 or later**; a PyPI pin only works after that
-version is published.
-Before release, use `fxcss init --toolkit-ref <full-40-character-fxcss-commit-SHA>`
-to install the reviewed toolkit commit directly in generated workflows. This
-does not publish a release. The preview
+changes need fxcss **0.26.0 or later**.
+To try an fxcss commit that is not released yet, use
+`fxcss init --toolkit-ref <full-40-character-fxcss-commit-SHA>`: the generated
+workflows then install that commit directly instead of a PyPI version. `init`
+says so when the copy you are running did not come from PyPI, since a pin to
+an unpublished version cannot install. The preview
 publisher validates variant filenames and PNG headers, including options added
 by later PRs. Updating fxcss locally does not update workflows already in a
 repository.
@@ -1716,7 +1764,9 @@ fxcss doctor
 Reports your Firefox version, whether `userChrome.css` is enabled, whether
 context menus are themeable on your platform, how many stylesheets your theme
 has — and **every Gecko build installed on the machine**, with versions. Start
-here if something isn't behaving.
+here if something isn't behaving. Run outside a theme folder, it reports on
+Firefox alone, so it also works as a first check straight after installing
+fxcss.
 
 ### Requirements
 

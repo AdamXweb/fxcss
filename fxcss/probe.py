@@ -188,7 +188,7 @@ def inspect_selector(session, selector, repo, references):
     if not count:
         print(f"no elements match {selector!r} in this Firefox")
         return 1
-    print(f"{count} element{'s' if count != 1 else ''} match {selector!r}"
+    print(f"{count} element{'s match' if count != 1 else ' matches'} {selector!r}"
           + ("  (showing first 8)" if count > 8 else ""))
     for info in result["matches"]:
         _print_element(info, repo, references)

@@ -319,5 +319,95 @@ class StopTests(unittest.TestCase):
         self.assertIn("Stopped.", err.getvalue())
 
 
+class Terminal:
+    """Just enough of a terminal to see what a redraw leaves on screen."""
+
+    def __init__(self, columns):
+        self.columns = columns
+        self.lines, self.row, self.col = [[]], 0, 0
+
+    def write(self, text):
+        for code, char in re.findall(r"\033\[([0-9;]*[A-Za-z])|([\s\S])", text):
+            if code:
+                self.control(code)
+            elif char == "\r":
+                self.col = 0
+            elif char == "\n":             # the terminal driver adds the return
+                self.row, self.col = self.row + 1, 0
+                while len(self.lines) <= self.row:
+                    self.lines.append([])
+            else:
+                if self.col == self.columns:    # the wrap waits for the next character
+                    self.write("\n")
+                line = self.lines[self.row]
+                line.extend(" " * (self.col + 1 - len(line)))
+                line[self.col] = char
+                self.col += 1
+
+    def control(self, code):
+        if code.endswith("A"):
+            self.row = max(0, self.row - int(code[:-1] or 1))
+            self.col = min(self.col, self.columns - 1)
+        elif code == "2K":
+            self.lines[self.row] = []
+        elif code == "J":
+            del self.lines[self.row][self.col:]
+            del self.lines[self.row + 1:]
+
+    def flush(self):
+        pass
+
+    def shown(self):
+        return ["".join(line).rstrip() for line in self.lines]
+
+
+class WrappedFrameTests(unittest.TestCase):
+    """A row wider than the terminal takes two of its lines.
+
+    The stylesheet prompt is 67 columns before anything is typed after it,
+    so it wraps in a narrow terminal straight away and in an 80-column one
+    a dozen characters in. Going back up by the count of rows, not of
+    terminal lines, left the top of every earlier frame on screen.
+    """
+
+    def redraw(self, columns, *frames):
+        terminal = Terminal(columns)
+        frame = prompt.Frame(terminal, columns=columns)
+        for lines in frames:
+            frame.draw(lines)
+        return terminal.shown()
+
+    def test_a_wrapped_prompt_is_redrawn_where_it_was(self):
+        long = "Which? " + "x" * 30
+        self.assertEqual(self.redraw(20, ["one", "two", long], ["ONE", "TWO", long + "y"]),
+                         ["ONE", "TWO", (long + "y")[:20], (long + "y")[20:]])
+
+    def test_a_prompt_that_stops_wrapping_leaves_nothing_behind(self):
+        long = "Which? " + "x" * 30
+        self.assertEqual(self.redraw(20, ["one", long], ["one", "Which? "], ["one", "Which? 2"]),
+                         ["one", "Which? 2"])
+
+    def test_a_row_exactly_as_wide_as_the_terminal_is_one_line(self):
+        full = "x" * 20
+        self.assertEqual(self.redraw(20, [full, "ask"], [full, "ask 1"]), [full, "ask 1"])
+
+    def test_colour_codes_and_wide_characters_are_measured_as_shown(self):
+        coloured = style.sgr("x" * 18, "bold", on=True)
+        self.assertEqual(self.redraw(20, [coloured, "ask"], ["plain", "ask"]), ["plain", "ask"])
+        wide = "\u4e3b\u9898" * 6                  # twelve characters, 24 columns
+        self.assertEqual(prompt._cells(wide), 24)
+        frame = prompt.Frame(io.StringIO(), columns=20)
+        frame.draw([wide, "ask"])
+        self.assertEqual(frame.height, 3)
+
+    def test_a_stand_in_for_the_terminal_is_never_measured(self):
+        out = io.StringIO()
+        frame = prompt.Frame(out)
+        frame.draw(["x" * 500, "ask"])
+        frame.draw(["x" * 500, "ask"])
+        self.assertEqual(frame.height, 2)
+        self.assertIn("\033[1A", out.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

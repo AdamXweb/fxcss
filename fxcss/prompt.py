@@ -159,36 +159,56 @@ def _windows_keys():  # pragma: no cover - needs a Windows console
 
 def _windows_vt():  # pragma: no cover - needs a Windows console
     """Let a Windows console act on the cursor codes the redraw uses."""
-    try:
-        import ctypes
-        kernel32 = ctypes.windll.kernel32
-        handle = kernel32.GetStdHandle(-11)
-        mode = ctypes.c_uint32()
-        if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
-            return False
-        return bool(kernel32.SetConsoleMode(handle, mode.value | 0x0004))
-    except (AttributeError, OSError):
-        return False
+    return style.windows_vt()
 
 
 def keypresses():
     return _windows_keys() if os.name == "nt" else _posix_keys()
 
 
+def _cells(text):
+    """How many terminal columns `text` takes, colour codes aside."""
+    import unicodedata
+    return sum(0 if unicodedata.combining(ch) else
+               2 if unicodedata.east_asian_width(ch) in "WF" else 1
+               for ch in style._visible(text))
+
+
 class Frame:
     """The menu's own lines at the foot of the terminal, redrawn in place."""
 
-    def __init__(self, out=None):
+    def __init__(self, out=None, columns=None):
         self.out = out or sys.stdout
+        self.columns = columns
         self.height = 0
+        self.wrapped = False
+
+    def _columns(self):
+        if self.columns:
+            return self.columns
+        try:
+            return os.get_terminal_size(self.out.fileno()).columns
+        except (AttributeError, ValueError, OSError):
+            return 0
 
     def draw(self, lines, final=False):
         rows = "\n".join(lines).split("\n")
+        # A row wider than the terminal takes two of its lines or more, and
+        # the way back to the top is counted in the terminal's lines. The
+        # prompt gets there as soon as enough is typed after it.
+        columns = self._columns()
+        taken = [max(1, -(-_cells(r) // columns)) if columns else 1 for r in rows]
+        wrapped = max(taken) > 1
         up = f"\033[{self.height - 1}A" if self.height > 1 else ""
-        text = ("\r" + up if self.height else "") + "\n".join(f"\033[2K{r}" for r in rows)
+        home = "\r" + up if self.height else ""
+        if wrapped or self.wrapped:
+            # Erasing line by line misses what a wrapped row left behind.
+            home += "\033[J"
+        text = home + "\n".join(f"\033[2K{r}" for r in rows)
         self.out.write(text + "\033[J" + ("\n" if final else ""))
         self.out.flush()
-        self.height = len(rows)
+        self.height = sum(taken)
+        self.wrapped = wrapped
 
 
 def _cancel(frame):

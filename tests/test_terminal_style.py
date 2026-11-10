@@ -101,6 +101,43 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class LegacyConsoleTests(unittest.TestCase):
+    """Output piped on Windows is written in a code page with no arrow in it.
+
+    `fxcss try --info` on a theme with an unresolved @import printed
+    `a.css → b.css` and stopped there with a UnicodeEncodeError.
+    """
+
+    def piped(self, encoding, errors="strict"):
+        import io
+        raw = io.BytesIO()
+        return raw, io.TextIOWrapper(raw, encoding=encoding, errors=errors)
+
+    def test_what_the_code_page_lacks_gets_an_ascii_stand_in(self):
+        raw, out = self.piped("cp1252")
+        style.tolerant_output([out])
+        out.write("a.css → b.css ✓ ● … \u4e3b")
+        out.flush()
+        self.assertEqual(raw.getvalue().decode("cp1252"), "a.css -> b.css ok * … ?")
+
+    def test_utf8_is_left_alone(self):
+        raw, out = self.piped("utf-8")
+        style.tolerant_output([out])
+        self.assertEqual(out.errors, "strict")
+        out.write("a → b")
+        out.flush()
+        self.assertEqual(raw.getvalue().decode("utf-8"), "a → b")
+
+    def test_an_error_mode_someone_chose_is_kept(self):
+        _, out = self.piped("cp1252", errors="backslashreplace")
+        style.tolerant_output([out])
+        self.assertEqual(out.errors, "backslashreplace")
+
+    def test_a_stand_in_for_the_stream_is_ignored(self):
+        import io
+        style.tolerant_output([io.StringIO(), object()])
+
+
 class ClipTests(unittest.TestCase):
     def test_prose_keeps_its_start_and_breaks_between_words(self):
         self.assertEqual(style.clip("newer than the release — fix tabs", 24), "newer than the release…")

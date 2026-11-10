@@ -50,7 +50,7 @@ def _stamps():
 def run_cli(*argv):
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err), \
-            mock.patch.dict(os.environ, {"CI": "1"}):
+            mock.patch.dict(os.environ, {"CI": "1", "NO_COLOR": "1"}):
         code = cli.main(list(argv))
     return code, out.getvalue(), err.getvalue()
 
@@ -115,7 +115,7 @@ class OriginalChromeTests(_Profile):
             _write(self.theme, {"chrome/userChrome.css": f"#nav-bar {{ order: {number} }}\n"})
             code, out, err = run_cli("upgrade", "--profile", str(self.profile), "--yes")
             self.assertEqual(code, 0, err)
-        self.assertIn("pruned 1 older backup", out)
+        self.assertIn("pruned 1 older backup", " ".join(out.split()))
         self.assertEqual(len(self.original_copies()), 1)
         code, out, err = run_cli("uninstall", "--profile", str(self.profile), "--yes")
         self.assertEqual(code, 0, err)
@@ -381,7 +381,7 @@ class PinnedUpgradeTests(unittest.TestCase):
                     code, out, err = run_cli("upgrade", "--profile", str(self.profile), "--yes")
                     self.assertEqual(code, 0, err)
                     self.assertIn(f"Pinned to {ref} with --ref", out)
-                    self.assertNotIn("upgraded to", out)
+                    self.assertNotIn("Upgraded", out)
                 self.assertEqual(self.downloaded, [ref])
                 self.assertEqual(_tree(self.profile), before)
                 code, _, _ = run_cli("uninstall", "--profile", str(self.profile), "--yes")

@@ -34,7 +34,9 @@ def _write(root, files):
 def run_cli(*argv):
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err), \
-            mock.patch.dict(os.environ, {"CI": "1"}):
+            mock.patch.dict(os.environ, {"CI": "1", "NO_COLOR": "1"}):
+        # NO_COLOR: these tests read the words, and FORCE_COLOR in the
+        # environment would otherwise put codes between them.
         code = cli.main(list(argv))
     return code, out.getvalue(), err.getvalue()
 
@@ -91,8 +93,8 @@ class FlatThemeLifecycleTests(unittest.TestCase):
         code, out, err = run_cli("upgrade", "--profile", str(self.profile), "--yes")
         self.assertEqual(code, 0, err)
         self.assertTrue((chrome / "tweaks" / "mine.css").is_file())
-        self.assertIn("keeping optional sheets: hide-tabs", out)
-        self.assertIn("keeping preference file(s): user.js", out)
+        self.assertIn("sheets      keeping hide-tabs", out)
+        self.assertIn("prefs       keeping user.js", out)
         manifest = install.read_manifest(self.profile)
         self.assertEqual(manifest["user_files"], ["chrome/tweaks/mine.css"])
         self.assertEqual((chrome / "theme" / "base.css").read_text(), ":root { --v: 2 }\n")
@@ -459,12 +461,26 @@ class InitLayoutTests(unittest.TestCase):
     def test_flat_theme_previews_cover_all_repository_dependencies(self):
         with tempfile.TemporaryDirectory() as td:
             repo = _write(Path(td) / "repo", {"userChrome.css": "#a { }\n"})
-            code, out, err = run_cli("init", "--theme", str(repo), "--previews")
+            with mock.patch.object(cli, "_from_package_index", return_value=False):
+                code, out, err = run_cli("init", "--theme", str(repo), "--previews")
             self.assertEqual(code, 0, err)
             text = (repo / ".github" / "workflows" / "pr-preview.yml").read_text()
             self.assert_preview_triggers_cover_all_dependencies(repo / ".github" / "workflows")
             self.assertIn("--theme head ", text)
-            self.assertIn("must be published on PyPI", out)
+            # The sentence wraps to the terminal; read it as one line.
+            self.assertIn("must be published on PyPI", " ".join(out.split()))
+
+    def test_a_released_fxcss_does_not_warn_that_it_is_unpublished(self):
+        # The warning is for a checkout ahead of PyPI. Printed after every
+        # `init`, it told people on a release that their pin might not install.
+        with tempfile.TemporaryDirectory() as td:
+            repo = _write(Path(td) / "repo", {"userChrome.css": "#a { }\n"})
+            with mock.patch.object(cli, "_from_package_index", return_value=True):
+                code, out, err = run_cli("init", "--theme", str(repo), "--previews")
+            self.assertEqual(code, 0, err)
+            self.assertIn(f"workflows pin fxcss {cli.__version__}\n", out)
+            self.assertNotIn("published on PyPI", out)
+            self.assertNotIn("--toolkit-ref", out)
 
     def test_several_editions_need_a_subpath(self):
         with tempfile.TemporaryDirectory() as td:
